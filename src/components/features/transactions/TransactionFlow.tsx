@@ -47,6 +47,11 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
   const [stepsInfo, setStepsInfo] = useState<Array<{ stepIndex: number; label: string; type: 'signing' | 'approving' | 'confirming'; txHash?: string }>>([]);
   const [totalSteps, setTotalSteps] = useState<number>(0);
 
+  const shouldClearFlowState = status === 'idle' || status === 'preview';
+  const effectiveCurrentTxHash = shouldClearFlowState ? null : currentTxHash;
+  const effectiveStepsInfo = shouldClearFlowState ? [] : stepsInfo;
+  const effectiveTotalSteps = shouldClearFlowState ? 0 : totalSteps;
+
   // Determine which vault address to use for transaction hook
   // Enable simulation when we're in preview or executing
   const vaultAddress = transactionType === 'deposit' 
@@ -106,17 +111,8 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
     return Math.abs(enteredAmount - maxAssetAmount) <= tolerance;
   }, [transactionType, fromAccount, amount, exactAssetAmount, getVaultData]);
 
-  // Reset transaction hash and step when status changes
-  useEffect(() => {
-    if (status === 'idle' || status === 'preview') {
-      setCurrentTxHash(null);
-      setStepsInfo([]);
-      setTotalSteps(0);
-    }
-  }, [status]);
-
   // Wait for main transaction receipt
-  const txHashToWaitFor = currentTxHash || txHash;
+  const txHashToWaitFor = effectiveCurrentTxHash || txHash;
   const { data: receipt, error: receiptError } = useWaitForTransactionReceipt({
     hash: txHashToWaitFor as `0x${string}`,
     query: {
@@ -131,7 +127,7 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
 
   // Handle transaction receipt
   useEffect(() => {
-    const hashToUse = currentTxHash || txHash;
+    const hashToUse = effectiveCurrentTxHash || txHash;
     
     // Log receipt status for debugging
     if (receipt) {
@@ -237,9 +233,6 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
       
       if (isCancellationError(receiptError)) {
         setStatus('preview');
-        setCurrentTxHash(null);
-        setStepsInfo([]);
-        setTotalSteps(0);
       } else {
         const errorMessage = formatTransactionError(receiptError);
         showErrorToast(errorMessage, 5000);
@@ -249,7 +242,7 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
     // Note: refreshBalancesWithPolling is intentionally excluded from deps to avoid unnecessary re-runs
     // morphoHoldings is included but its reference changes frequently - the effect handles this correctly
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [receipt, receiptError, status, txHash, currentTxHash, fromAccount, toAccount, refreshBalances, fetchVaultData, morphoHoldings, router, success, setStatus, showErrorToast]);
+  }, [receipt, receiptError, status, txHash, effectiveCurrentTxHash, fromAccount, toAccount, refreshBalances, fetchVaultData, morphoHoldings, router, success, setStatus, showErrorToast]);
 
   const handleConfirm = async () => {
     if (!fromAccount || !toAccount || !amount || !transactionType) return;
@@ -454,11 +447,11 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
   // Since executeVaultAction waits for prerequisite receipts internally, we determine
   // step completion based on status progression rather than individual receipt tracking
   const walletSteps = (isSigning || isApproving || isConfirming || isSuccess) ? (() => {
-    const effectiveTotalSteps = totalSteps > 0 ? totalSteps : (stepsInfo.length > 0 ? Math.max(...stepsInfo.map(s => s.stepIndex)) + 1 : 0);
+    const resolvedStepCount = effectiveTotalSteps > 0 ? effectiveTotalSteps : (effectiveStepsInfo.length > 0 ? Math.max(...effectiveStepsInfo.map(s => s.stepIndex)) + 1 : 0);
     
-    if (effectiveTotalSteps > 0) {
-      return Array.from({ length: effectiveTotalSteps }, (_, i) => {
-        const stepInfo = stepsInfo.find(s => s.stepIndex === i);
+    if (resolvedStepCount > 0) {
+      return Array.from({ length: resolvedStepCount }, (_, i) => {
+        const stepInfo = effectiveStepsInfo.find(s => s.stepIndex === i);
         
         // Determine if step is completed:
         // - Confirming steps: completed if we have a receipt
@@ -481,11 +474,11 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
              (stepInfo.type === 'confirming' && isConfirming)) && !isCompleted
           : false;
         
-        const label = stepInfo?.label || (i === stepsInfo.filter(s => s.type === 'approving').length ? 'Confirm' : `Step ${i + 1}`);
+        const label = stepInfo?.label || (i === effectiveStepsInfo.filter(s => s.type === 'approving').length ? 'Confirm' : `Step ${i + 1}`);
         
         return {
           label,
-          completed: isCompleted || (isSuccess && i < effectiveTotalSteps),
+          completed: isCompleted || (isSuccess && i < resolvedStepCount),
           active: isActive
         };
       });
@@ -524,7 +517,7 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
           progressSteps={walletSteps}
           showProgress={isSigning || isApproving || isConfirming}
           isSuccess={isSuccess}
-          txHash={currentTxHash}
+          txHash={effectiveCurrentTxHash ?? txHash}
           onCancel={() => {
             if (isSigning || isApproving || isConfirming) {
               // If transaction is in progress, reset to preview

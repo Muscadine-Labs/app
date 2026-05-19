@@ -8,6 +8,7 @@ import { MorphoVaultData } from '@/types/vault';
 import { useToast } from '@/contexts/ToastContext';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { useUnixTimestamp } from '@/hooks/useClientOnly';
 
 interface VaultOverviewProps {
   vaultData: MorphoVaultData;
@@ -45,6 +46,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
   const [chartType, setChartType] = useState<'apy' | 'tvl'>('apy');
   const [valueType, setValueType] = useState<'usd' | 'token'>('token');
   const { error: showErrorToast } = useToast();
+  const now = useUnixTimestamp();
 
   // Format liquidity
   const liquidityUsd = formatSmartCurrency(vaultData.currentLiquidity || 0, { alwaysTwoDecimals: true });
@@ -69,7 +71,6 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
     let filtered = sourceData;
     
     if (period !== 'all' && sourceData.length > 0) {
-      const now = Math.floor(Date.now() / 1000);
       const cutoffTimestamp = now - PERIOD_SECONDS[period];
       filtered = sourceData.filter(d => d.timestamp >= cutoffTimestamp);
     }
@@ -102,7 +103,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
     }
     
     return filtered;
-  }, [allHistoryData, hourly7dData, hourly30dData, period, chartType, valueType]);
+  }, [allHistoryData, hourly7dData, hourly30dData, period, chartType, valueType, now]);
 
   // Calculate Y-axis domain for APY chart
   const apyYAxisDomain = useMemo(() => {
@@ -291,8 +292,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
   // Calculate available periods based on data range
   const availablePeriods = useMemo(() => {
     if (allHistoryData.length === 0) return ['all' as Period];
-    
-    const now = Math.floor(Date.now() / 1000);
+
     const oldestTimestamp = allHistoryData[0]?.timestamp || now;
     const dataRangeSeconds = now - oldestTimestamp;
     
@@ -316,7 +316,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
     }
     
     return periods;
-  }, [allHistoryData]);
+  }, [allHistoryData, now]);
 
   // Get ticks for 7d period - show every day, prefer midnight but fallback to first data point of day
   const get7dTicks = useMemo(() => {

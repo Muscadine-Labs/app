@@ -13,15 +13,17 @@ const VaultVersionContext = createContext<VaultVersionContextType | undefined>(u
 
 const VAULT_VERSION_STORAGE_KEY = 'muscadine-vault-version';
 
+export const DEFAULT_VAULT_FILTER_VERSION: VaultVersion = 'v2';
+
 export function VaultVersionProvider({ children }: { children: ReactNode }) {
   // Use lazy initialization to avoid setState in effect
   const [version, setVersionState] = useState<VaultVersion>(() => {
-    if (typeof window === 'undefined') return 'v1';
+    if (typeof window === 'undefined') return DEFAULT_VAULT_FILTER_VERSION;
     const stored = localStorage.getItem(VAULT_VERSION_STORAGE_KEY) as VaultVersion | null;
     if (stored && (stored === 'v1' || stored === 'v2' || stored === 'all')) {
       return stored;
     }
-    return 'v1';
+    return DEFAULT_VAULT_FILTER_VERSION;
   });
 
   // Persist version to localStorage

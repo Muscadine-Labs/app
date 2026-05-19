@@ -14,6 +14,7 @@ import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { Button } from '@/components/ui';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { ERC20_BALANCE_ABI, ERC4626_ABI } from '@/lib/abis';
+import { useUnixTimestamp } from '@/hooks/useClientOnly';
 
 interface VaultPositionProps {
   vaultData: MorphoVaultData;
@@ -43,6 +44,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
   const { morphoHoldings } = useWallet();
   const { btc: btcPrice, eth: ethPrice } = usePrices();
   const { error: showErrorToast } = useToast();
+  const now = useUnixTimestamp();
   const [loading, setLoading] = useState(true);
   const [selectedTimeFrame, setSelectedTimeFrame] = useState<TimeFrame>('all');
   const [valueType, setValueType] = useState<'usd' | 'token'>('token');
@@ -346,8 +348,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
   // Find the minimum timestamp to ensure correctness even if data isn't sorted
   const availableTimeFrames = useMemo(() => {
     if (fullUserDepositHistory.length === 0) return ['all' as TimeFrame];
-    
-    const now = Math.floor(Date.now() / 1000);
+
     // Find minimum timestamp to ensure correctness regardless of sort order
     // Use reduce instead of Math.min spread to avoid potential stack overflow with large arrays
     const oldestTimestamp = fullUserDepositHistory.reduce((min, d) => Math.min(min, d.timestamp), fullUserDepositHistory[0].timestamp);
@@ -371,7 +372,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
     }
     
     return frames;
-  }, [fullUserDepositHistory]);
+  }, [fullUserDepositHistory, now]);
 
   // Use GraphQL position history data directly - no calculation needed
   // This is used for displaying the chart, and switches between hourly/daily based on selectedTimeFrame
@@ -393,7 +394,6 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
     let data = userDepositHistory;
     
     if (selectedTimeFrame !== 'all' && userDepositHistory.length > 0) {
-      const now = Math.floor(Date.now() / 1000);
       const cutoffTimestamp = now - TIME_FRAME_SECONDS[selectedTimeFrame];
       data = userDepositHistory.filter(d => d.timestamp >= cutoffTimestamp);
     }
@@ -414,7 +414,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
     }
     
     return mappedData;
-  }, [userDepositHistory, selectedTimeFrame, valueType]);
+  }, [userDepositHistory, selectedTimeFrame, valueType, now]);
 
   // Calculate Y-axis domain for better fit
   const yAxisDomain = useMemo(() => {
