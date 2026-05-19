@@ -275,7 +275,6 @@ export const useVaultSimulationState = (
     !!assetAddress &&
     (vaultVersion === 'v2' || (!isLengthLoading && !isQueueLoading));
 
-  // vaultV2Adapters - empty array since v2 transactions are disabled
   const vaultV2Adapters: `0x${string}`[] = [];
 
   const simulation = useSimulationState({

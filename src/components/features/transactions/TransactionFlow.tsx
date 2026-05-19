@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { useWaitForTransactionReceipt, useReadContract, useWalletClient, usePublicClient } from 'wagmi';
-import { formatUnits, type Address } from 'viem';
+import { formatUnits, type Address, type PublicClient, type WalletClient } from 'viem';
 import { VaultAccount } from '@/types/vault';
 import { useTransactionState } from '@/contexts/TransactionContext';
 import { useVaultTransactions } from '@/hooks/useVaultTransactions';
@@ -60,7 +60,9 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
     ? (fromAccount as VaultAccount)?.address
     : undefined;
 
-  const shouldEnableSimulation = (status === 'preview' || status === 'signing' || status === 'approving' || status === 'confirming') && !!vaultAddress;
+  const shouldEnableSimulation =
+    (status === 'preview' || status === 'signing' || status === 'approving' || status === 'confirming') &&
+    !!vaultAddress;
   const { executeVaultAction, isLoading } = useVaultTransactions(vaultAddress, shouldEnableSimulation);
   const { getVaultData } = useVaultData();
 
@@ -274,9 +276,7 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
       return;
     }
 
-    // Note: WETH unwrapping is now handled:
-    // - v1 vaults: via Erc20_Unwrap operation in the bundle (useVaultTransactions.ts)
-    // - v2 vaults: internally in transactionUtilsV2.ts using amountBigInt directly
+    // WETH unwrap for v2 withdrawals is handled in transactionUtilsV2.ts
 
     try {
       // Don't set status here - let onProgress callback set it based on actual step
@@ -339,41 +339,37 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
 
       let txHash: string;
 
-      // Use v2 transaction functions for v2 vaults, otherwise use bundler (v1)
+      // V2: direct ERC-4626 + viem (transactionUtilsV2) — V1: bundler-sdk-viem
       if (isV2Transaction) {
-        // Note: Wagmi's usePublicClient/useWalletClient return types are compatible
-        // with viem's PublicClient and WalletClient, but TypeScript may show errors
-        // due to transaction type variations in different viem versions
         if (transactionType === 'deposit') {
-          const vaultAddress = (toAccount as VaultAccount).address as Address;
+          const vaultAddr = (toAccount as VaultAccount).address as Address;
           txHash = await depositToVaultV2(
-            publicClient as any, // Type assertion needed for viem compatibility
-            walletClient as any,
-            vaultAddress,
+            publicClient as PublicClient,
+            walletClient as WalletClient,
+            vaultAddr,
             amount,
             assetToUse.decimals,
             preferredAsset,
             onProgress
           );
         } else if (transactionType === 'withdraw') {
-          const vaultAddress = (fromAccount as VaultAccount).address as Address;
-          // For withdrawals, preferredAsset should be 'ETH' or 'WETH' (not 'ALL')
-          const withdrawPreferredAsset = preferredAsset === 'ALL' ? undefined : (preferredAsset as 'ETH' | 'WETH' | undefined);
-          // Use redeem (withdraw all) if amount matches max, otherwise use regular withdraw
+          const vaultAddr = (fromAccount as VaultAccount).address as Address;
+          const withdrawPreferredAsset =
+            preferredAsset === 'ALL' ? undefined : (preferredAsset as 'ETH' | 'WETH' | undefined);
           if (shouldUseWithdrawAll) {
             txHash = await redeemFromVaultV2(
-              publicClient as any,
-              walletClient as any,
-              vaultAddress,
+              publicClient as PublicClient,
+              walletClient as WalletClient,
+              vaultAddr,
               assetToUse.decimals,
               withdrawPreferredAsset,
               onProgress
             );
           } else {
             txHash = await withdrawFromVaultV2(
-              publicClient as any,
-              walletClient as any,
-              vaultAddress,
+              publicClient as PublicClient,
+              walletClient as WalletClient,
+              vaultAddr,
               amount,
               assetToUse.decimals,
               withdrawPreferredAsset,
@@ -381,7 +377,6 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
             );
           }
         } else if (transactionType === 'transfer') {
-          // Transfer not supported for v2 yet (would need to combine withdraw + deposit)
           throw new Error('Vault-to-vault transfers are not yet supported for v2 vaults');
         } else {
           throw new Error('Invalid transaction type');

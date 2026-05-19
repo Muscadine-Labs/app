@@ -11,7 +11,8 @@ interface VaultVersionContextType {
 
 const VaultVersionContext = createContext<VaultVersionContextType | undefined>(undefined);
 
-const VAULT_VERSION_STORAGE_KEY = 'muscadine-vault-version';
+// Bumped when default changed to v2 so prior localStorage 'v1' does not override.
+const VAULT_VERSION_STORAGE_KEY = 'muscadine-vault-version-default-v2';
 
 export const DEFAULT_VAULT_FILTER_VERSION: VaultVersion = 'v2';
 
