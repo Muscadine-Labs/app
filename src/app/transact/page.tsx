@@ -205,7 +205,7 @@ export default function TransactionsPage() {
         // Keep status as 'idle' so user stays on select page and can modify before proceeding
       }
     });
-  }, [searchParams, version, setFromAccount, setToAccount, setPreferredAsset]);
+  }, [searchParams, version, morphoHoldings.positions, setFromAccount, setToAccount, setPreferredAsset]);
 
   // Memoize wallet account to avoid creating new objects on each render
   const walletAccount = useMemo<WalletAccount>(() => ({
