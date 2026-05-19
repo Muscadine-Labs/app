@@ -1,7 +1,8 @@
 'use client';
 
 import { useAccount } from 'wagmi';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
+import { useIsClient } from '@/hooks/useClientOnly';
 import { useWallet } from '@/contexts/WalletContext';
 import { formatNumber, formatCurrency } from '@/lib/formatter';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -21,7 +22,7 @@ import {
 export default function WalletOverview() {
     const { address, isConnected } = useAccount();
     const { totalUsdValue, liquidUsdValue, morphoUsdValue, tokenBalances, morphoHoldings, loading: walletLoading } = useWallet();
-    const [isMounted, setIsMounted] = useState(false);
+    const isMounted = useIsClient();
     const [totalAssetsOpen, setTotalAssetsOpen] = useState(false);
     const [liquidAssetsOpen, setLiquidAssetsOpen] = useState(false);
     const [morphoVaultsOpen, setMorphoVaultsOpen] = useState(false);
@@ -66,11 +67,6 @@ export default function WalletOverview() {
     ]);
 
 
-
-    // Prevent hydration mismatch by only rendering client-side content after mount
-    useEffect(() => {
-        setIsMounted(true);
-    }, []);
 
     if (!isMounted) {
         // Return a simple loading state during SSR

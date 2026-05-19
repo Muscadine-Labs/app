@@ -84,6 +84,14 @@ export default function TransactionsPage() {
     return 'deposit';
   });
 
+  const effectiveActiveTab = useMemo((): TransactionTab => {
+    if (status === 'idle' && fromAccount && toAccount) {
+      if (fromAccount.type === 'wallet' && toAccount.type === 'vault') return 'deposit';
+      if (fromAccount.type === 'vault' && toAccount.type === 'wallet') return 'withdraw';
+    }
+    return activeTab;
+  }, [status, fromAccount, toAccount, activeTab]);
+
   // Refresh wallet and vault data when page opens
   useEffect(() => {
     if (isConnected) {
@@ -141,11 +149,9 @@ export default function TransactionsPage() {
     const vaultAddress = searchParams.get('vault');
     const action = searchParams.get('action'); // 'deposit' or 'withdraw'
 
-    if (action) {
-      setActiveTab(action === 'withdraw' ? 'withdraw' : 'deposit');
-    }
+    if (!vaultAddress || !action) return;
 
-    if (vaultAddress && action) {
+    queueMicrotask(() => {
       const vault = Object.values(VAULTS).find((v) => 
         v.address.toLowerCase() === vaultAddress.toLowerCase() && (version === 'all' || v.version === version)
       );
@@ -198,26 +204,8 @@ export default function TransactionsPage() {
 
         // Keep status as 'idle' so user stays on select page and can modify before proceeding
       }
-    }
-    // Only depend on searchParams and stable functions - morphoHoldings.positions is checked inside
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams, setFromAccount, setToAccount]);
-
-  // Sync active tab with transaction type when accounts change
-  // Only update if the tab would actually change to avoid unnecessary re-renders
-  useEffect(() => {
-    if (status === 'idle' && fromAccount && toAccount) {
-      const expectedTab: TransactionTab | null = 
-        fromAccount.type === 'wallet' && toAccount.type === 'vault' ? 'deposit' :
-        fromAccount.type === 'vault' && toAccount.type === 'wallet' ? 'withdraw' :
-        null;
-      
-      // Only update if tab would change
-      if (expectedTab && expectedTab !== activeTab) {
-        setActiveTab(expectedTab);
-      }
-    }
-  }, [fromAccount, toAccount, status, activeTab]);
+    });
+  }, [searchParams, version, morphoHoldings.positions, setFromAccount, setToAccount, setPreferredAsset]);
 
   // Memoize wallet account to avoid creating new objects on each render
   const walletAccount = useMemo<WalletAccount>(() => ({
@@ -234,20 +222,20 @@ export default function TransactionsPage() {
     
     // Only initialize if no URL params and no accounts are set
     if (!vaultAddress && !action && status === 'idle' && !fromAccount && !toAccount) {
-      if (activeTab === 'deposit') {
+      if (effectiveActiveTab === 'deposit') {
         // Deposit: pre-select wallet as "from"
         setFromAccount(walletAccount);
-      } else if (activeTab === 'withdraw') {
+      } else if (effectiveActiveTab === 'withdraw') {
         // Withdraw: pre-select wallet as "to"
         setToAccount(walletAccount);
       }
     }
-  }, [activeTab, status, fromAccount, toAccount, walletAccount, setFromAccount, setToAccount, searchParams]);
+  }, [effectiveActiveTab, status, fromAccount, toAccount, walletAccount, setFromAccount, setToAccount, searchParams]);
 
   // Handle tab changes - reset and pre-select accounts based on tab
   const handleTabChange = useCallback((tab: TransactionTab) => {
     if (tab === activeTab || status !== 'idle') return;
-    
+
     setActiveTab(tab);
     setAmount('');
     setPreferredAsset(undefined); // Reset preferred asset when switching tabs
@@ -743,7 +731,7 @@ export default function TransactionsPage() {
               onClick={() => handleTabChange('deposit')}
               disabled={status !== 'idle'}
               className={`flex-1 px-4 py-3 md:py-2.5 rounded-lg font-medium text-sm md:text-sm transition-colors min-h-[44px] md:min-h-0 ${
-                activeTab === 'deposit'
+                effectiveActiveTab === 'deposit'
                   ? 'bg-[var(--primary)] text-white'
                   : 'bg-[var(--background)] text-[var(--foreground-secondary)] hover:bg-[var(--surface-elevated)]'
               } disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-[var(--background)]`}
@@ -754,7 +742,7 @@ export default function TransactionsPage() {
               onClick={() => handleTabChange('withdraw')}
               disabled={status !== 'idle'}
               className={`flex-1 px-4 py-3 md:py-2.5 rounded-lg font-medium text-sm md:text-sm transition-colors min-h-[44px] md:min-h-0 ${
-                activeTab === 'withdraw'
+                effectiveActiveTab === 'withdraw'
                   ? 'bg-[var(--primary)] text-white'
                   : 'bg-[var(--background)] text-[var(--foreground-secondary)] hover:bg-[var(--surface-elevated)]'
               } disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-[var(--background)]`}
@@ -781,7 +769,7 @@ export default function TransactionsPage() {
               setFromAccount(account);
               
               // Set default preferredAsset for WETH vault withdrawals
-              if (account?.type === 'vault' && toAccount?.type === 'wallet' && activeTab === 'withdraw') {
+              if (account?.type === 'vault' && toAccount?.type === 'wallet' && effectiveActiveTab === 'withdraw') {
                 const vault = account as VaultAccount;
                 if (vault.address.toLowerCase() === VAULTS.WETH_VAULT.address.toLowerCase() ||
                     vault.address.toLowerCase() === VAULTS.WETH_VAULT_V2.address.toLowerCase()) {
@@ -833,7 +821,7 @@ export default function TransactionsPage() {
               setToAccount(account);
               
               // Set default preferredAsset to 'ALL' when WETH vault is selected for deposit
-              if (account?.type === 'vault' && fromAccount?.type === 'wallet' && activeTab === 'deposit') {
+              if (account?.type === 'vault' && fromAccount?.type === 'wallet' && effectiveActiveTab === 'deposit') {
                 const vault = account as VaultAccount;
                 if (vault.address.toLowerCase() === VAULTS.WETH_VAULT.address.toLowerCase() ||
                     vault.address.toLowerCase() === VAULTS.WETH_VAULT_V2.address.toLowerCase()) {
@@ -864,13 +852,13 @@ export default function TransactionsPage() {
                   {/* ETH/WETH/All Dropdown for WETH Vault - Next to MAX button */}
                   {(() => {
                     // Check if this is a WETH vault transaction
-                    const isWethVaultDeposit = activeTab === 'deposit' && 
+                    const isWethVaultDeposit = effectiveActiveTab === 'deposit' && 
                       toAccount?.type === 'vault' && 
                       fromAccount?.type === 'wallet' &&
                       ((toAccount as VaultAccount).address.toLowerCase() === VAULTS.WETH_VAULT.address.toLowerCase() || 
                        (toAccount as VaultAccount).address.toLowerCase() === VAULTS.WETH_VAULT_V2.address.toLowerCase());
                     
-                    const isWethVaultWithdraw = activeTab === 'withdraw' && 
+                    const isWethVaultWithdraw = effectiveActiveTab === 'withdraw' && 
                       fromAccount?.type === 'vault' && 
                       toAccount?.type === 'wallet' &&
                       ((fromAccount as VaultAccount).address.toLowerCase() === VAULTS.WETH_VAULT.address.toLowerCase() || 

@@ -7,7 +7,8 @@ import { useRouter, usePathname } from 'next/navigation';
 import { getVaultRoute } from '../../../lib/vault-utils';
 import { useAccount, useReadContract } from 'wagmi';
 import { Skeleton } from '../../../components/ui/Skeleton';
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo } from 'react';
+import { useIsClient } from '@/hooks/useClientOnly';
 import { usePrices } from '../../../contexts/PriceContext';
 import { ERC20_BALANCE_ABI, ERC4626_ABI } from '../../../lib/abis';
 
@@ -18,13 +19,8 @@ interface VaultListCardProps {
 }
 
 export default function VaultListCard({ vault, onClick, isSelected }: VaultListCardProps) {
-    // Prevent hydration mismatch by ensuring client-only hooks don't affect initial render
-    const [isMounted, setIsMounted] = useState(false);
-    
-    useEffect(() => {
-        setIsMounted(true);
-    }, []);
-    
+    const isMounted = useIsClient();
+
     const { getVaultData, isLoading } = useVaultData();
     const { morphoHoldings } = useWallet();
     const { address } = useAccount();

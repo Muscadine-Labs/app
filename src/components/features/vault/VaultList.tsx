@@ -2,8 +2,9 @@ import { VAULTS } from "@/lib/vaults";
 import VaultListCard from "./VaultListCard";
 import { Vault } from "../../../types/vault";
 import { useWallet } from "../../../contexts/WalletContext";
-import { useVaultVersion } from "../../../contexts/VaultVersionContext";
-import { useMemo, useState, useEffect } from "react";
+import { useVaultVersion, DEFAULT_VAULT_FILTER_VERSION } from "../../../contexts/VaultVersionContext";
+import { useMemo } from "react";
+import { useIsClient } from "@/hooks/useClientOnly";
 
 interface VaultListProps {
     onVaultSelect?: (vault: Vault | null) => void;
@@ -13,16 +14,11 @@ interface VaultListProps {
 export default function VaultList({ onVaultSelect, selectedVaultAddress }: VaultListProps = {} as VaultListProps) {
     const { morphoHoldings } = useWallet();
     const { version } = useVaultVersion();
-    // Initialize as false to ensure SSR/client match, then set to true after mount
-    const [isMounted, setIsMounted] = useState(false);
-    
-    useEffect(() => {
-        setIsMounted(true);
-    }, []);
-    
-    // Get base vault list (stable order for SSR - use 'v1' during SSR to prevent hydration mismatch)
+    const isMounted = useIsClient();
+
+    // Get base vault list (stable order for SSR - use default during SSR to prevent hydration mismatch)
     // After mount, use actual version from context
-    const effectiveVersion = isMounted ? version : 'v1';
+    const effectiveVersion = isMounted ? version : DEFAULT_VAULT_FILTER_VERSION;
     const baseVaults = useMemo(() => {
         return Object.values(VAULTS)
             .filter((vault) => effectiveVersion === 'all' || vault.version === effectiveVersion)
