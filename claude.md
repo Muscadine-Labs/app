@@ -1,4 +1,4 @@
-# claude.md — Muscadine App
+# CLAUDE.md — Muscadine App
 
 Comprehensive context for AI assistants and developers. This is the canonical “extra README” for the repo: architecture, Morpho integration, file map, conventions, and operational notes.
 
@@ -78,7 +78,7 @@ Never commit real keys. `.env.example` documents placeholders.
 
 ## Architecture overview
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │                         Browser (client)                         │
 │  RainbowKit / wagmi ──► viem PublicClient + WalletClient         │
@@ -285,7 +285,7 @@ Provider tree (`src/app/Providers.tsx`):
 
 ## Directory map
 
-```
+```text
 src/
   app/                    # Routes, API, layout, Providers
   components/

@@ -205,9 +205,7 @@ export default function TransactionsPage() {
         // Keep status as 'idle' so user stays on select page and can modify before proceeding
       }
     });
-    // Only depend on searchParams and stable functions - morphoHoldings.positions is checked inside
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams, setFromAccount, setToAccount]);
+  }, [searchParams, version, setFromAccount, setToAccount, setPreferredAsset]);
 
   // Memoize wallet account to avoid creating new objects on each render
   const walletAccount = useMemo<WalletAccount>(() => ({
@@ -236,8 +234,8 @@ export default function TransactionsPage() {
 
   // Handle tab changes - reset and pre-select accounts based on tab
   const handleTabChange = useCallback((tab: TransactionTab) => {
-    if (tab === effectiveActiveTab || status !== 'idle') return;
-    
+    if (tab === activeTab || status !== 'idle') return;
+
     setActiveTab(tab);
     setAmount('');
     setPreferredAsset(undefined); // Reset preferred asset when switching tabs
@@ -252,7 +250,7 @@ export default function TransactionsPage() {
       setFromAccount(null);
       setToAccount(walletAccount);
     }
-  }, [effectiveActiveTab, walletAccount, setFromAccount, setToAccount, setAmount, setPreferredAsset, status]);
+  }, [activeTab, walletAccount, setFromAccount, setToAccount, setAmount, setPreferredAsset, status]);
 
   // Get vault position for share balance - use data already fetched in WalletContext
   const vaultPosition = useMemo(() => {
