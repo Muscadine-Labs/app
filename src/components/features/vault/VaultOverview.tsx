@@ -27,6 +27,12 @@ interface HistoryDataPoint {
 
 type Period = 'all' | '7d' | '30d' | '90d' | '1y';
 
+/** viem parseUnits rejects scientific notation (e.g. "1e-7"); use fixed decimal strings. */
+function toDecimalString(value: number, decimals: number): string {
+  if (!Number.isFinite(value)) return '0';
+  return value.toFixed(decimals).replace(/\.?0+$/, '') || '0';
+}
+
 const PERIOD_SECONDS: Record<Period, number> = {
   all: 0, // 0 means all data
   '7d': 7 * 24 * 60 * 60,
@@ -815,7 +821,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                             }
                             const decimals = vaultData.assetDecimals || 18;
                             return formatAssetAmount(
-                              parseUnits(String(value), decimals),
+                              parseUnits(toDecimalString(value, decimals), decimals),
                               decimals,
                               vaultData.symbol,
                               { minimumFractionDigits: 2, maximumFractionDigits: 2 }
@@ -842,7 +848,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                             const decimals = vaultData.assetDecimals || 18;
                             return [
                               formatAssetAmount(
-                                parseUnits(String(value), decimals),
+                                parseUnits(toDecimalString(value, decimals), decimals),
                                 decimals,
                                 vaultData.symbol,
                                 { minimumFractionDigits: 2, maximumFractionDigits: 2 }
