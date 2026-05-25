@@ -19,6 +19,7 @@ export interface Vault {
     apyChange?: number; // APY change (positive/negative)
     totalDeposits?: number; // Total deposits in USD
     currentLiquidity?: number; // Available liquidity in USD
+    liquidityAssets?: string; // Available liquidity in native units
     sharePrice?: number; // Current vault share price (in tokens, not USD)
     sharePriceUsd?: number; // Current vault share price in USD
     

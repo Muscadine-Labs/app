@@ -1,23 +1,37 @@
 'use client';
 
-import { WalletOverview } from '@/components/features/wallet';
-import VaultList from '@/components/features/vault/VaultList';
+import { useMemo } from 'react';
+import { WalletOverview, PortfolioPositionChart } from '@/components/features/wallet';
+import { DashboardVaultTable } from '@/components/features/vault/VaultExplorerTable';
 import { useVaultListPreloader } from '@/hooks/useVaultDataFetch';
-import { VAULTS } from '@/lib/vaults';
+import { useWallet } from '@/contexts/WalletContext';
+import { findVaultByAddress } from '@/lib/vault-utils';
 import { Vault } from '@/types/vault';
 
 export default function Home() {
-  // Get vault list for preloading
-  const vaults: Vault[] = Object.values(VAULTS).map((vault) => ({
-    address: vault.address,
-    name: vault.name,
-    symbol: vault.symbol,
-    chainId: vault.chainId,
-    version: vault.version,
-  }));
+  const { morphoHoldings } = useWallet();
 
-  // Preload vault data when dashboard loads
-  useVaultListPreloader(vaults);
+  const depositedVaults: Vault[] = useMemo(() => {
+    return morphoHoldings.positions
+      .map((position) => findVaultByAddress(position.vault.address))
+      .filter((vault): vault is Vault => vault !== null)
+      .sort((a, b) => {
+        const positionA = morphoHoldings.positions.find(
+          (position) => position.vault.address.toLowerCase() === a.address.toLowerCase()
+        );
+        const positionB = morphoHoldings.positions.find(
+          (position) => position.vault.address.toLowerCase() === b.address.toLowerCase()
+        );
+
+        const valueA = positionA?.assetsUsd ?? 0;
+        const valueB = positionB?.assetsUsd ?? 0;
+        if (valueA !== valueB) return valueB - valueA;
+
+        return a.name.localeCompare(b.name);
+      });
+  }, [morphoHoldings.positions]);
+
+  useVaultListPreloader(depositedVaults);
 
   return (
     <div className="w-full bg-[var(--background)] h-full">
@@ -26,9 +40,22 @@ export default function Home() {
           <div className="rounded-lg min-h-[120px] md:h-40">
             <WalletOverview />
           </div>
-          <div className="rounded-lg h-full min-h-0">
-            <div className="flex flex-col rounded-lg bg-[var(--surface)] justify-start items-center h-full w-full">
-              <VaultList />
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 min-h-0 h-full">
+            <div className="rounded-lg h-full min-h-[360px] lg:min-h-0">
+              <PortfolioPositionChart />
+            </div>
+            <div className="rounded-lg h-full min-h-[360px] lg:min-h-0 overflow-hidden">
+              <div className="flex flex-col rounded-lg bg-[var(--surface)] h-full w-full">
+                <div className="px-4 sm:px-6 py-4 border-b border-[var(--border)]">
+                  <h2 className="text-md text-[var(--foreground)]">Your Vaults</h2>
+                </div>
+                <div className="flex-1 overflow-y-auto">
+                  <DashboardVaultTable
+                    vaults={depositedVaults}
+                    showBrowseLink
+                  />
+                </div>
+              </div>
             </div>
           </div>
         </div>
