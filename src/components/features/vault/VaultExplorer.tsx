@@ -80,11 +80,13 @@ export default function VaultExplorer({
   }, [filters, depositedAddresses, isMounted, getVaultData, effectiveVersion]);
 
   return (
-    <div className="flex flex-col h-full w-full">
+    <div className="flex flex-col h-full w-full min-h-0">
       {showFilters && (
         <VaultExplorerFilters filters={filters} onFiltersChange={setFilters} />
       )}
-      <VaultExplorerTable vaults={filteredVaults} />
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        <VaultExplorerTable vaults={filteredVaults} />
+      </div>
     </div>
   );
 }

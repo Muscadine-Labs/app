@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { formatSmartCurrency, formatAssetAmount, formatPercentage, formatNumber } from '@/lib/formatter';
+import { formatSmartCurrency, formatAssetAmount, formatPercentage, formatNumber, formatCurrency } from '@/lib/formatter';
 import { calculateYAxisDomain } from '@/lib/vault-utils';
 import { logger } from '@/lib/logger';
 import { MorphoVaultData } from '@/types/vault';
@@ -810,18 +810,12 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                           tickFormatter={(value) => {
                             if (value === undefined || typeof value !== 'number') return '';
                             if (valueType === 'usd') {
-                              if (value < 1000) {
-                                return '$' + formatNumber(value, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                              }
-                              return '$' + formatNumber(value / 1000, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + 'k';
-                            } else {
-                              // Format token amount: use k format if >= 1000, otherwise show full value
-                              if (value >= 1000) {
-                                return formatNumber(value / 1000, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + 'k';
-                              } else {
-                                return formatNumber(value, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                              }
+                              return formatCurrency(value);
                             }
+                            return formatNumber(value, {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            });
                           }}
                           stroke="var(--foreground-secondary)"
                           style={{ fontSize: '12px' }}
@@ -839,23 +833,17 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                           formatter={(value) => {
                             if (value === undefined || typeof value !== 'number') return ['', 'Total Deposits'];
                             if (valueType === 'usd') {
-                              return [formatSmartCurrency(value, { alwaysTwoDecimals: true }), 'Total Deposits'];
-                            } else {
-                              // Format token amount: use k format if >= 1000, otherwise show full value
-                              if (value >= 1000) {
-                                const valueInK = value / 1000;
-                                return [formatNumber(valueInK, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + `k ${vaultData.symbol || 'Token'}`, 'Total Deposits'];
-                              } else {
-                                return [
-                                  formatAssetAmount(
-                                    BigInt(Math.floor(value * Math.pow(10, vaultData.assetDecimals || 18))),
-                                    vaultData.assetDecimals || 18,
-                                    vaultData.symbol
-                                  ),
-                                  'Total Deposits'
-                                ];
-                              }
+                              return [formatCurrency(value), 'Total Deposits'];
                             }
+                            return [
+                              formatAssetAmount(
+                                BigInt(Math.floor(value * Math.pow(10, vaultData.assetDecimals || 18))),
+                                vaultData.assetDecimals || 18,
+                                vaultData.symbol,
+                                { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+                              ),
+                              'Total Deposits',
+                            ];
                           }}
                         />
                         <Area 

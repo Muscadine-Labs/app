@@ -272,33 +272,33 @@ export default function PortfolioPositionChart() {
   }, [selectedTimeFrame, filteredChartData]);
 
   return (
-    <div className="flex flex-col rounded-lg bg-[var(--surface)] h-full min-h-[320px] w-full overflow-hidden">
-      <div className="px-4 sm:px-6 py-4 border-b border-[var(--border)]">
-        <h2 className="text-md text-[var(--foreground)]">Portfolio Value</h2>
-        <p className="text-sm text-[var(--foreground-secondary)] mt-1">
+    <div className="flex flex-col rounded-lg bg-[var(--surface)] h-full min-h-[280px] sm:min-h-[320px] w-full overflow-hidden">
+      <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-[var(--border)]">
+        <h2 className="text-sm sm:text-md text-[var(--foreground)]">Portfolio Value</h2>
+        <p className="text-xs sm:text-sm text-[var(--foreground-secondary)] mt-0.5 sm:mt-1">
           Combined USD value across your vault deposits
         </p>
       </div>
 
       <div className="flex-1 p-2 sm:p-4 min-h-0">
         {!isConnected ? (
-          <div className="h-full min-h-[280px] flex items-center justify-center bg-[var(--surface-elevated)] rounded-lg">
+          <div className="h-[220px] sm:h-full sm:min-h-[280px] flex items-center justify-center bg-[var(--surface-elevated)] rounded-lg px-4">
             <p className="text-sm text-[var(--foreground-muted)]">Connect wallet to view portfolio history</p>
           </div>
         ) : loading ? (
-          <div className="bg-[var(--surface-elevated)] rounded-lg p-4 h-full min-h-[280px]">
+          <div className="bg-[var(--surface-elevated)] rounded-lg p-3 sm:p-4 h-[220px] sm:h-full sm:min-h-[280px]">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <Skeleton width="3rem" height="2rem" />
                 <Skeleton width="3rem" height="2rem" />
               </div>
             </div>
-            <div className="h-64">
+            <div className="h-48 sm:h-64">
               <Skeleton width="100%" height="100%" />
             </div>
           </div>
         ) : fullChartHistory.length > 0 ? (
-          <div className="bg-[var(--surface-elevated)] rounded-lg p-2 sm:p-4 h-full min-h-[280px] flex flex-col">
+          <div className="bg-[var(--surface-elevated)] rounded-lg p-2 sm:p-4 h-[260px] sm:h-full sm:min-h-[280px] flex flex-col">
             <div className="flex items-center justify-between mb-4">
               <div className="relative">
                 <div className="hidden md:flex items-center gap-2">
@@ -317,12 +317,22 @@ export default function PortfolioPositionChart() {
 
                 <div className="md:hidden">
                   <button
+                    type="button"
                     onClick={() => setIsTimeFrameMenuOpen(!isTimeFrameMenuOpen)}
-                    className="flex items-center gap-2 px-3 py-2 bg-[var(--surface)] rounded-lg border border-[var(--border)] hover:bg-[var(--surface-hover)] transition-colors"
+                    className="flex items-center gap-2 px-3 py-2 min-h-[36px] bg-[var(--surface)] rounded-lg border border-[var(--border)] hover:bg-[var(--surface-hover)] transition-colors touch-manipulation"
                   >
                     <span className="text-sm font-medium text-[var(--foreground)]">
                       {selectedTimeFrame === 'all' ? 'All' : selectedTimeFrame}
                     </span>
+                    <svg
+                      className={`w-4 h-4 text-[var(--foreground-secondary)] transition-transform ${isTimeFrameMenuOpen ? 'rotate-180' : ''}`}
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                      strokeWidth="2"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                    </svg>
                   </button>
 
                   {isTimeFrameMenuOpen && (
@@ -355,7 +365,7 @@ export default function PortfolioPositionChart() {
               </div>
             </div>
 
-            <div className="flex-1 min-h-[240px]">
+            <div className="flex-1 h-[180px] sm:h-auto sm:min-h-[240px]">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={filteredChartData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" />
@@ -408,7 +418,7 @@ export default function PortfolioPositionChart() {
             </div>
           </div>
         ) : (
-          <div className="h-full min-h-[280px] flex items-center justify-center bg-[var(--surface-elevated)] rounded-lg px-6 text-center">
+          <div className="h-[220px] sm:h-full sm:min-h-[280px] flex items-center justify-center bg-[var(--surface-elevated)] rounded-lg px-4 text-center">
             <p className="text-sm text-[var(--foreground-muted)]">
               No deposit history available yet. Make your first deposit to see your portfolio over time.
             </p>

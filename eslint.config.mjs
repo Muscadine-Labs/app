@@ -49,8 +49,11 @@ const eslintConfig = defineConfig([
     }
   },
   {
-    // Disable react-hooks/refs for WalletOverview - Floating UI refs are callback functions, not React refs
-    files: ["src/components/features/wallet/WalletOverview.tsx"],
+    // Floating UI ref callbacks are not React refs — safe to pass during render
+    files: [
+      "src/components/features/wallet/WalletOverview.tsx",
+      "src/components/features/vault/VaultExplorerFilters.tsx",
+    ],
     rules: {
       "react-hooks/refs": "off"
     }

@@ -40,14 +40,14 @@ export default function Home() {
           <div className="rounded-lg min-h-[120px] md:h-40">
             <WalletOverview />
           </div>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 min-h-0 h-full">
-            <div className="rounded-lg h-full min-h-[360px] lg:min-h-0">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 min-h-0">
+            <div className="rounded-lg min-h-[280px] sm:min-h-[360px] lg:min-h-[360px] lg:h-full">
               <PortfolioPositionChart />
             </div>
-            <div className="rounded-lg h-full min-h-[360px] lg:min-h-0 overflow-hidden">
+            <div className="rounded-lg min-h-[280px] sm:min-h-[360px] lg:min-h-[360px] lg:h-full overflow-hidden">
               <div className="flex flex-col rounded-lg bg-[var(--surface)] h-full w-full">
-                <div className="px-4 sm:px-6 py-4 border-b border-[var(--border)]">
-                  <h2 className="text-md text-[var(--foreground)]">Your Vaults</h2>
+                <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-[var(--border)]">
+                  <h2 className="text-sm sm:text-base text-[var(--foreground)]">Your Vaults</h2>
                 </div>
                 <div className="flex-1 overflow-y-auto">
                   <DashboardVaultTable
