@@ -714,8 +714,8 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
                   </button>
                 </div>
               </div>
-              <div className="h-80">
-                <ResponsiveContainer width="100%" height="100%">
+              <div className="w-full min-w-0 h-80">
+                <ResponsiveContainer width="100%" height="100%" minHeight={320} debounce={50}>
                   <AreaChart data={filteredChartData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" />
                     <XAxis 

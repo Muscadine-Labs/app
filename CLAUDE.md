@@ -4,7 +4,7 @@ Comprehensive context for AI assistants and developers. This is the canonical �
 
 **Product:** Web app for Muscadine vaults on **Base (chain id 8453)** — deposit, withdraw, portfolio view, vault analytics. Supports **v1 MetaMorpho** vaults and **v2 Prime (VaultV2)** vaults for USDC, cbBTC, and WETH.
 
-**Version:** `package.json` → `1.0.1`
+**Version:** `package.json` → `1.0.2`
 
 ---
 
@@ -19,19 +19,20 @@ Comprehensive context for AI assistants and developers. This is the canonical �
 7. [Morpho GraphQL & API routes](#morpho-graphql--api-routes)
 8. [Morpho npm packages](#morpho-npm-packages)
 9. [App routes & pages](#app-routes--pages)
-10. [State & context](#state--context)
-11. [Key hooks](#key-hooks)
-12. [Directory map](#directory-map)
-13. [UI / transaction UX](#ui--transaction-ux)
-14. [Wallet & balances](#wallet--balances)
-15. [Farcaster mini app](#farcaster-mini-app)
-16. [Configuration & constants](#configuration--constants)
-17. [Development](#development)
-18. [Dependency constraints](#dependency-constraints)
-19. [Code conventions](#code-conventions)
-20. [Security](#security)
-21. [Future / optional upgrades](#future--optional-upgrades)
-22. [Quick reference](#quick-reference)
+10. [Dashboard & vault explorer UI](#dashboard--vault-explorer-ui)
+11. [State & context](#state--context)
+12. [Key hooks](#key-hooks)
+13. [Directory map](#directory-map)
+14. [UI / transaction UX](#ui--transaction-ux)
+15. [Wallet & balances](#wallet--balances)
+16. [Farcaster mini app](#farcaster-mini-app)
+17. [Configuration & constants](#configuration--constants)
+18. [Development](#development)
+19. [Dependency constraints](#dependency-constraints)
+20. [Code conventions](#code-conventions)
+21. [Security](#security)
+22. [Future / optional upgrades](#future--optional-upgrades)
+23. [Quick reference](#quick-reference)
 
 ---
 
@@ -117,7 +118,7 @@ Always resolve version with `getVaultVersion(address)` / `findVaultByAddress()` 
 **Routes:** `/vault/v1/{address}`, `/vault/v2/{address}`  
 **API:** `/api/vault/{v1|v2}/{address}/{complete|history|activity|position-history}`
 
-**UI default:** Vault list filter defaults to **v2** (`VaultVersionContext`, localStorage key `muscadine-vault-version-default-v2`).
+**UI default (v1/v2 filter):** Defaults to **v2** via `VaultVersionContext` (localStorage key `muscadine-vault-version-default-v2`). Applies to **`/vaults` explorer**, **NavBar Settings**, **VaultsDropdown**, and **transact** vault pickers — **not** the dashboard (see below).
 
 ---
 
@@ -241,7 +242,8 @@ Query root: `vaultByAddress` (v1 schema).
 
 | Path | Description |
 |------|-------------|
-| `/` | Dashboard: `WalletOverview` + `VaultList` |
+| `/` | **Dashboard** — wallet-focused: `WalletOverview`, `PortfolioPositionChart`, `DashboardVaultTable` (deposited vaults only) |
+| `/vaults` | **Vault explorer** — filter bar + Morpho-style table of all registry vaults |
 | `/transact` | Deposit/withdraw flow (`TransactionContext` + `TransactionFlow`) |
 | `/vault/v1/[address]` | V1 vault detail (tabs: overview, position, history) |
 | `/vault/v2/[address]` | V2 vault detail |
@@ -249,6 +251,56 @@ Query root: `vaultByAddress` (v1 schema).
 | `/api/vault/v1/...` | V1 Morpho GraphQL proxies |
 | `/api/vault/v2/...` | V2 Morpho GraphQL proxies |
 | `/.well-known/farcaster.json` | Farcaster mini app manifest |
+
+**NavBar:** Dashboard → `/`, Vaults → `/vaults`, Transact → `/transact`. Settings dropdown toggles v1 / v2 / all (same state as `/vaults` Version filter).
+
+**App title:** metadata in `layout.tsx` uses **Muscadine Vaults** (not “Muscadine Earn”).
+
+---
+
+## Dashboard & vault explorer UI
+
+### Dashboard (`/` — `src/app/page.tsx`)
+
+Three-row layout:
+
+| Area | Component | Behavior |
+|------|-----------|----------|
+| Top | `WalletOverview` | Total / liquid / Morpho USD; dropdown breakdowns |
+| Bottom left | `PortfolioPositionChart` | Combined USD portfolio history (Recharts) |
+| Bottom right | `DashboardVaultTable` | Vaults where user has **non-zero** position |
+
+**Important:** Dashboard **ignores** `VaultVersionContext`. Positions and charts include **both v1 and v2** vaults from the registry.
+
+- **Your Vaults** lists only vaults with a current deposit (`morphoHoldings.positions`), sorted by USD value. Empty state links to `/vaults`.
+- **Portfolio chart** fetches position history for **all 6 registry vaults** (`VAULTS`), aggregates USD via `aggregatePortfolioHistory()` in `src/lib/portfolio-utils.ts` — includes past deposits in vaults fully withdrawn from, not just current holdings.
+- Preloads vault API data for deposited vaults via `useVaultListPreloader`.
+
+### Vault explorer (`/vaults` — `src/app/vaults/page.tsx`)
+
+`VaultExplorer` = `VaultExplorerFilters` + `VaultExplorerTable`.
+
+**Filters** (`VaultExplorerFilters.tsx`) — compact `text-xs` controls:
+
+| Filter | Options | Notes |
+|--------|---------|-------|
+| Network | All, Base | Default **All**; `base` filters `chainId === 8453` (ready for more chains) |
+| Version | V2, V1, All | Wired to **`VaultVersionContext`** — synced with NavBar Settings |
+| Asset | All, USDC, cbBTC, WETH | Local filter state |
+| In Wallet | Toggle | Shows only vaults user is deposited in |
+
+**Table columns** (`VaultExplorerTable.tsx`): Network, Vault (logo + name + v1/v2 badge), **Your Position** (when wallet connected), Deposits, Liquidity, APY. No Exposure/Curator columns. Rows navigate to vault detail. Sorted by TVL descending.
+
+**Liquidity data:** `VaultDataContext` maps v2 `liquidityUsd` / `liquidity` from GraphQL when available (`liquidityAssets` on `Vault` type).
+
+### Vault detail charts (`VaultOverview.tsx`)
+
+**Total Deposits** chart (TVL tab) has USD / token toggle. Axis labels and tooltips use **full values with 2 decimals** (`formatCurrency` / `formatAssetAmount`) — not `k`/`M` abbreviations on the chart itself. Stat cards above still use `formatSmartCurrency` for compact display.
+
+### Legacy list components
+
+- `VaultList` / `VaultListCard` — still exported; used for selection flows (e.g. transact). Dashboard no longer uses full `VaultList`.
+- `VaultsDropdown` — still in `layout/` exports; primary nav uses `/vaults` link instead.
 
 ---
 
@@ -263,7 +315,7 @@ Provider tree (`src/app/Providers.tsx`):
 | `WalletContext` | `contexts/WalletContext.tsx` | ETH + ERC-20 balances (Alchemy), Morpho positions, USD totals, refresh/polling after txs |
 | `VaultDataContext` | `contexts/VaultDataContext.tsx` | Cached vault metadata from `/api/vault/.../complete` |
 | `TransactionContext` | `contexts/TransactionContext.tsx` | Transact page: from/to accounts, amount, status, `preferredAsset` |
-| `VaultVersionContext` | `contexts/VaultVersionContext.tsx` | Filter vault list: v1 / v2 / all |
+| `VaultVersionContext` | `contexts/VaultVersionContext.tsx` | v1 / v2 / all filter for **`/vaults`**, transact, VaultsDropdown — **not dashboard** |
 | `PriceContext` | `contexts/PriceContext.tsx` | Asset USD prices |
 | `ToastContext` | `contexts/ToastContext.tsx` | Toasts |
 | `ThemeContext` | `contexts/ThemeContext.tsx` | Light/dark |
@@ -287,11 +339,13 @@ Provider tree (`src/app/Providers.tsx`):
 
 ```text
 src/
-  app/                    # Routes, API, layout, Providers
+  app/
+    page.tsx              # Dashboard
+    vaults/page.tsx       # Vault explorer
   components/
     features/
-      vault/              # VaultList, VaultOverview, VaultPosition, VaultHistory, …
-      wallet/             # WalletOverview, ConnectButton, AdvisoryAgreementModal
+      vault/              # VaultExplorer*, VaultOverview, VaultPosition, VaultHistory, VaultList, …
+      wallet/             # WalletOverview, PortfolioPositionChart, ConnectButton, …
       transactions/       # TransactionFlow, AccountSelector, confirmation UI
       learn/              # LearnContent
     layout/               # AppLayout, NavBar, RightSidebar, VaultsDropdown
@@ -299,21 +353,22 @@ src/
     common/               # ErrorBoundary, CopiableAddress, MiniAppInit
   config/
     wagmi.ts              # Base + Alchemy + RainbowKit wallets
-    navigation.tsx        # Nav links
+    navigation.tsx        # Nav links (Vaults → page; transact)
   contexts/               # See table above
   hooks/
   lib/
+    portfolio-utils.ts    # ★ Aggregate multi-vault position history for dashboard chart
     transactionUtilsV2.ts # ★ V2 on-chain (ERC-4626 ABI)
     transactionUtils.ts   # Errors, shared tx helpers
-    vaults.ts             # ★ Vault registry
-    vault-utils.ts        # Version, routes, chart helpers
+    vaults.ts             # ★ Vault registry (6 vaults)
+    vault-utils.ts        # Version, routes, chart Y-axis helpers
     constants.ts          # Chain, WETH, cache TTLs, GENERAL_ADAPTER
     abis.ts               # Shared ERC20 balance + ERC4626 convertToAssets
-    formatter.ts          # Display formatting
+    formatter.ts          # formatCurrency, formatSmartCurrency, formatAssetAmount, …
     logger.ts             # Structured logging
     api-utils.ts          # API validation helpers
   types/
-    vault.ts              # Account types (wallet vs vault)
+    vault.ts              # Vault, MorphoVaultData, account types
     transactions.ts       # Progress step types
     api.ts                # Alchemy / API response types
 ```
@@ -332,6 +387,13 @@ src/
 - After success, balances refresh via `refreshBalancesWithPolling` in `TransactionFlow`.
 
 **Transact page** (`app/transact/page.tsx`): Large form — account pickers, amount, MAX, WETH asset preference, deep links via query params.
+
+**Portfolio position history:** Per-vault API at `/api/vault/{v1|v2}/{address}/position-history`. Dashboard aggregates all 6 vaults client-side; single-vault charts use `VaultPosition.tsx`.
+
+**Formatting conventions:**
+
+- Table/explorer USD pills: `formatSmartCurrency(..., { alwaysTwoDecimals: true })` for compact TVL/deposits.
+- Vault detail **Total Deposits chart** (when toggled): `formatCurrency` / 2-decimal token amounts on axis + tooltip — not abbreviated thousands.
 
 ---
 
@@ -453,6 +515,9 @@ Do not bump without checking compatibility:
 
 | Task | Where to look |
 |------|----------------|
+| Dashboard layout | `src/app/page.tsx` |
+| Portfolio history chart | `src/components/features/wallet/PortfolioPositionChart.tsx`, `src/lib/portfolio-utils.ts` |
+| Vault explorer page | `src/app/vaults/page.tsx`, `VaultExplorer*.tsx` |
 | V2 deposit/withdraw/redeem | `src/lib/transactionUtilsV2.ts` |
 | V1 deposit/withdraw/transfer | `src/hooks/useVaultTransactions.ts` |
 | Route v1 vs v2 txs | `src/components/features/transactions/TransactionFlow.tsx` |
@@ -460,6 +525,7 @@ Do not bump without checking compatibility:
 | Version / API paths | `src/lib/vault-utils.ts` |
 | V2 vault API data | `src/app/api/vault/v2/[address]/complete/route.ts` |
 | Wagmi config | `src/config/wagmi.ts` |
-| Default v2 list filter | `src/contexts/VaultVersionContext.tsx` |
+| v1/v2 filter (not dashboard) | `src/contexts/VaultVersionContext.tsx` |
 | Transact state | `src/contexts/TransactionContext.tsx` |
+| Total Deposits chart formatting | `src/components/features/vault/VaultOverview.tsx` |
 | User-facing README | `README.md` |

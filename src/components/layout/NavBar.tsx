@@ -3,7 +3,6 @@
 import React, { useCallback, useState, useEffect, useRef } from 'react';
 import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
-import { VaultsDropdown } from "./VaultsDropdown";
 import { navigationItems, NavItem } from "@/config/navigation";
 import { ConnectButton } from "../features/wallet";
 import { Icon } from "../ui/Icon";
@@ -32,8 +31,10 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
     const { theme, setTheme } = useTheme();
 
     const isActive = useCallback((item: NavItem): boolean => {
-        // Vaults dropdown is active if we're on a vault page (v1 or v2)
-        return item.id === 'vaults' && (pathname?.startsWith('/vault/v1/') || pathname?.startsWith('/vault/v2/') || false);
+        if (item.id === 'vaults') {
+            return pathname === '/vaults' || pathname?.startsWith('/vault/v1/') || pathname?.startsWith('/vault/v2/') || false;
+        }
+        return false;
     }, [pathname]);
 
     // Close menu when clicking outside
@@ -242,7 +243,14 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                             {navigationItems.map((item) => (
                                 <div key={item.id} onClick={(e) => e.stopPropagation()}>
                                     {item.id === 'vaults' && (
-                                        <VaultsDropdown isActive={isActive(item)} />
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className={`min-w-fit hover:bg-transparent hover:text-[var(--primary)] transition-colors ${isActive(item) ? 'text-[var(--primary)]' : ''}`}
+                                            onClick={() => router.push('/vaults')}
+                                        >
+                                            {item.label}
+                                        </Button>
                                     )}
                                     {item.id === 'transactions' && (
                                         <Button
@@ -493,14 +501,15 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                             {navigationItems.map((item) => (
                                 <div key={item.id}>
                                     {item.id === 'vaults' && (
-                                        <div className="px-4 py-3">
-                                            <VaultsDropdown 
-                                                isActive={isActive(item)} 
-                                                onVaultSelect={() => {
-                                                    setIsMobileNavOpen(false);
-                                                }}
-                                            />
-                                        </div>
+                                        <button
+                                            onClick={() => {
+                                                router.push('/vaults');
+                                                setIsMobileNavOpen(false);
+                                            }}
+                                            className={`w-full px-4 py-3 text-left hover:bg-[var(--surface-hover)] transition-colors cursor-pointer ${isActive(item) ? 'text-[var(--primary)] bg-[var(--primary-subtle)]' : 'text-[var(--foreground)]'}`}
+                                        >
+                                            {item.label}
+                                        </button>
                                     )}
                                     {item.id === 'transactions' && (
                                         <button

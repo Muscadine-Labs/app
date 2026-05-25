@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { formatSmartCurrency, formatAssetAmount, formatPercentage, formatNumber } from '@/lib/formatter';
+import { formatSmartCurrency, formatAssetAmount, formatPercentage, formatCurrency } from '@/lib/formatter';
+import { parseUnits } from 'viem';
 import { calculateYAxisDomain } from '@/lib/vault-utils';
 import { logger } from '@/lib/logger';
 import { MorphoVaultData } from '@/types/vault';
@@ -25,6 +26,12 @@ interface HistoryDataPoint {
 }
 
 type Period = 'all' | '7d' | '30d' | '90d' | '1y';
+
+/** viem parseUnits rejects scientific notation (e.g. "1e-7"); use fixed decimal strings. */
+function toDecimalString(value: number, decimals: number): string {
+  if (!Number.isFinite(value)) return '0';
+  return value.toFixed(decimals).replace(/\.?0+$/, '') || '0';
+}
 
 const PERIOD_SECONDS: Record<Period, number> = {
   all: 0, // 0 means all data
@@ -751,8 +758,8 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                 </div>
               )}
             </div>
-            <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
+            <div className="w-full min-w-0 h-64">
+              <ResponsiveContainer width="100%" height="100%" minHeight={256} debounce={50}>
                 {chartType === 'apy' ? (
                   <LineChart data={historyData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" />
@@ -810,18 +817,15 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                           tickFormatter={(value) => {
                             if (value === undefined || typeof value !== 'number') return '';
                             if (valueType === 'usd') {
-                              if (value < 1000) {
-                                return '$' + formatNumber(value, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                              }
-                              return '$' + formatNumber(value / 1000, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + 'k';
-                            } else {
-                              // Format token amount: use k format if >= 1000, otherwise show full value
-                              if (value >= 1000) {
-                                return formatNumber(value / 1000, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + 'k';
-                              } else {
-                                return formatNumber(value, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                              }
+                              return formatCurrency(value);
                             }
+                            const decimals = vaultData.assetDecimals || 18;
+                            return formatAssetAmount(
+                              parseUnits(toDecimalString(value, decimals), decimals),
+                              decimals,
+                              vaultData.symbol,
+                              { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+                            );
                           }}
                           stroke="var(--foreground-secondary)"
                           style={{ fontSize: '12px' }}
@@ -839,23 +843,18 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                           formatter={(value) => {
                             if (value === undefined || typeof value !== 'number') return ['', 'Total Deposits'];
                             if (valueType === 'usd') {
-                              return [formatSmartCurrency(value, { alwaysTwoDecimals: true }), 'Total Deposits'];
-                            } else {
-                              // Format token amount: use k format if >= 1000, otherwise show full value
-                              if (value >= 1000) {
-                                const valueInK = value / 1000;
-                                return [formatNumber(valueInK, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + `k ${vaultData.symbol || 'Token'}`, 'Total Deposits'];
-                              } else {
-                                return [
-                                  formatAssetAmount(
-                                    BigInt(Math.floor(value * Math.pow(10, vaultData.assetDecimals || 18))),
-                                    vaultData.assetDecimals || 18,
-                                    vaultData.symbol
-                                  ),
-                                  'Total Deposits'
-                                ];
-                              }
+                              return [formatCurrency(value), 'Total Deposits'];
                             }
+                            const decimals = vaultData.assetDecimals || 18;
+                            return [
+                              formatAssetAmount(
+                                parseUnits(toDecimalString(value, decimals), decimals),
+                                decimals,
+                                vaultData.symbol,
+                                { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+                              ),
+                              'Total Deposits',
+                            ];
                           }}
                         />
                         <Area 

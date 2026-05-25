@@ -40,7 +40,7 @@ const tinos = Tinos({
 const appUrl = process.env.NEXT_PUBLIC_URL || 'https://app.muscadine.io';
 
 export const metadata: Metadata = {
-  title: 'Muscadine Earn',
+  title: 'Muscadine Vaults',
   description: 'Powered by Muscadine Labs',
   icons: {
     icon: '/favicon.png',
@@ -53,10 +53,10 @@ export const metadata: Metadata = {
       version: 'next',
       imageUrl: `${appUrl}/miniapp-image.png`,
       button: {
-        title: 'Launch Muscadine Earn',
+        title: 'Launch Muscadine Vaults',
         action: {
           type: 'launch_miniapp',
-          name: 'Muscadine Earn',
+          name: 'Muscadine Vaults',
           url: appUrl,
           splashImageUrl: `${appUrl}/miniapp-splash.png`,
           // eslint-disable-next-line no-restricted-syntax

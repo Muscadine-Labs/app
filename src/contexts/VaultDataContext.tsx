@@ -214,7 +214,14 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
           totalAssets: vaultInfo.state?.totalAssets || '0',
           assetDecimals: assetDecimals,
           totalDeposits: vaultInfo.state?.totalAssetsUsd || 0,
-          currentLiquidity: vaultInfo.state?.totalAssetsUsd || 0,
+          currentLiquidity:
+            (vaultInfo as { liquidityUsd?: number }).liquidityUsd ??
+            vaultInfo.state?.totalAssetsUsd ??
+            0,
+          liquidityAssets:
+            (vaultInfo as { liquidity?: string }).liquidity ??
+            vaultInfo.state?.totalAssets ??
+            '0',
           sharePrice: sharePriceInTokens, // Share price in tokens (not USD) - tokens per share
           sharePriceUsd: sharePriceUsd, // Share price in USD
           apy: vaultInfo.state?.netApy || 0,
