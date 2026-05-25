@@ -10,8 +10,8 @@ import { useVaultVersion, DEFAULT_VAULT_FILTER_VERSION } from '@/contexts/VaultV
 import { useIsClient } from '@/hooks/useClientOnly';
 import VaultExplorerFilters, {
   VaultExplorerFilterState,
-} from './VaultExplorerFilters';
-import VaultExplorerTable from './VaultExplorerTable';
+} from '@/components/features/vault/VaultExplorerFilters';
+import VaultExplorerTable from '@/components/features/vault/VaultExplorerTable';
 
 const DEFAULT_FILTERS: VaultExplorerFilterState = {
   network: 'all',

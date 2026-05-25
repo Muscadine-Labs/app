@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
+import { useAccount } from 'wagmi';
 import { WalletOverview, PortfolioPositionChart } from '@/components/features/wallet';
 import { DashboardVaultTable } from '@/components/features/vault/VaultExplorerTable';
 import { useVaultListPreloader } from '@/hooks/useVaultDataFetch';
@@ -9,6 +10,7 @@ import { findVaultByAddress } from '@/lib/vault-utils';
 import { Vault } from '@/types/vault';
 
 export default function Home() {
+  const { address } = useAccount();
   const { morphoHoldings } = useWallet();
 
   const depositedVaults: Vault[] = useMemo(() => {
@@ -41,8 +43,8 @@ export default function Home() {
             <WalletOverview />
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 min-h-0">
-            <div className="rounded-lg min-h-[280px] sm:min-h-[360px] lg:min-h-[360px] lg:h-full">
-              <PortfolioPositionChart />
+            <div className="rounded-lg min-h-[280px] sm:min-h-[360px] lg:min-h-[360px] lg:h-full flex flex-col min-h-0">
+              <PortfolioPositionChart key={address ?? 'disconnected'} />
             </div>
             <div className="rounded-lg min-h-[280px] sm:min-h-[360px] lg:min-h-[360px] lg:h-full overflow-hidden">
               <div className="flex flex-col rounded-lg bg-[var(--surface)] h-full w-full">

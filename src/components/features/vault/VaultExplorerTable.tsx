@@ -1,6 +1,6 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import type { KeyboardEvent, ReactNode } from 'react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useAccount } from 'wagmi';
@@ -13,6 +13,13 @@ import { formatNumber, formatPercentage, formatSmartCurrency } from '@/lib/forma
 import { formatUnits } from 'viem';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useIsClient } from '@/hooks/useClientOnly';
+
+function handleRowKeyDown(event: KeyboardEvent, onActivate: () => void) {
+  if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault();
+    onActivate();
+  }
+}
 
 function formatCompactTokenAmount(rawValue: string | undefined, decimals: number, symbol: string): string {
   if (!rawValue) return `0 ${symbol}`;
@@ -305,7 +312,11 @@ function VaultExplorerRow({ vault, showYourPosition }: VaultExplorerRowProps) {
 
   return (
     <tr
+      role="button"
+      tabIndex={0}
+      aria-label={`Open ${vault.name}`}
       onClick={handleClick}
+      onKeyDown={(event) => handleRowKeyDown(event, handleClick)}
       className="border-b border-[var(--border)] hover:bg-[var(--surface-hover)] transition-colors cursor-pointer"
     >
       <td className="px-4 sm:px-6 py-4 align-middle">
@@ -524,10 +535,16 @@ export function DashboardVaultTable({
               ? formatCompactTokenAmount(position.assets, decimals, vault.symbol)
               : '-';
 
+            const openVault = () => router.push(getVaultRoute(vault.address));
+
             return (
               <tr
                 key={vault.address}
-                onClick={() => router.push(getVaultRoute(vault.address))}
+                role="button"
+                tabIndex={0}
+                aria-label={`Open ${vault.name}`}
+                onClick={openVault}
+                onKeyDown={(event) => handleRowKeyDown(event, openVault)}
                 className="border-b border-[var(--border)] hover:bg-[var(--surface-hover)] transition-colors cursor-pointer"
               >
                 <td className="px-4 sm:px-6 py-4 align-middle">

@@ -95,7 +95,19 @@ export default function PortfolioPositionChart() {
       try {
         const histories = await Promise.all(
           portfolioVaults.map((vault) =>
-            fetchVaultHistory(vault, address, period, signal)
+            fetchVaultHistory(vault, address, period, signal).catch((error) => {
+              if (error instanceof Error && error.name === 'AbortError') {
+                throw error;
+              }
+
+              logger.warn('Failed to fetch vault position history', {
+                vaultAddress: vault.address,
+                version: vault.version,
+                error: error instanceof Error ? error.message : String(error),
+              });
+
+              return [];
+            })
           )
         );
         setter(aggregatePortfolioHistory(histories));
@@ -298,7 +310,7 @@ export default function PortfolioPositionChart() {
             </div>
           </div>
         ) : fullChartHistory.length > 0 ? (
-          <div className="bg-[var(--surface-elevated)] rounded-lg p-2 sm:p-4 h-[260px] sm:h-full sm:min-h-[280px] flex flex-col">
+          <div className="bg-[var(--surface-elevated)] rounded-lg p-2 sm:p-4 flex flex-col min-h-[280px]">
             <div className="flex items-center justify-between mb-4">
               <div className="relative">
                 <div className="hidden md:flex items-center gap-2">
@@ -365,8 +377,8 @@ export default function PortfolioPositionChart() {
               </div>
             </div>
 
-            <div className="flex-1 h-[180px] sm:h-auto sm:min-h-[240px]">
-              <ResponsiveContainer width="100%" height="100%">
+            <div className="w-full min-w-0 h-[240px]">
+              <ResponsiveContainer width="100%" height="100%" minHeight={240} debounce={50}>
                 <AreaChart data={filteredChartData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" />
                   <XAxis

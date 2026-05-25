@@ -1,8 +1,9 @@
 'use client';
 
 import { BASE_CHAIN_ID } from '@/lib/constants';
+import type { VaultVersionFilter } from '@/components/features/vault/VaultList';
 
-export type VaultVersionFilter = 'v1' | 'v2' | 'all';
+export type { VaultVersionFilter };
 
 interface VaultFiltersProps {
   version: VaultVersionFilter;

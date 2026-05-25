@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { formatSmartCurrency, formatAssetAmount, formatPercentage, formatNumber, formatCurrency } from '@/lib/formatter';
+import { formatSmartCurrency, formatAssetAmount, formatPercentage, formatCurrency } from '@/lib/formatter';
+import { parseUnits } from 'viem';
 import { calculateYAxisDomain } from '@/lib/vault-utils';
 import { logger } from '@/lib/logger';
 import { MorphoVaultData } from '@/types/vault';
@@ -751,8 +752,8 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                 </div>
               )}
             </div>
-            <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
+            <div className="w-full min-w-0 h-64">
+              <ResponsiveContainer width="100%" height="100%" minHeight={256} debounce={50}>
                 {chartType === 'apy' ? (
                   <LineChart data={historyData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" />
@@ -812,10 +813,13 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                             if (valueType === 'usd') {
                               return formatCurrency(value);
                             }
-                            return formatNumber(value, {
-                              minimumFractionDigits: 2,
-                              maximumFractionDigits: 2,
-                            });
+                            const decimals = vaultData.assetDecimals || 18;
+                            return formatAssetAmount(
+                              parseUnits(String(value), decimals),
+                              decimals,
+                              vaultData.symbol,
+                              { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+                            );
                           }}
                           stroke="var(--foreground-secondary)"
                           style={{ fontSize: '12px' }}
@@ -835,10 +839,11 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                             if (valueType === 'usd') {
                               return [formatCurrency(value), 'Total Deposits'];
                             }
+                            const decimals = vaultData.assetDecimals || 18;
                             return [
                               formatAssetAmount(
-                                BigInt(Math.floor(value * Math.pow(10, vaultData.assetDecimals || 18))),
-                                vaultData.assetDecimals || 18,
+                                parseUnits(String(value), decimals),
+                                decimals,
                                 vaultData.symbol,
                                 { minimumFractionDigits: 2, maximumFractionDigits: 2 }
                               ),

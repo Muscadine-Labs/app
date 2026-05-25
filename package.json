@@ -50,6 +50,7 @@
     "typescript": "^6.0.3"
   },
   "overrides": {
+    "uuid": "^14.0.0",
     "postcss": "8.5.15",
     "ws": "8.20.1",
     "@morpho-org/blue-sdk-wagmi": {
