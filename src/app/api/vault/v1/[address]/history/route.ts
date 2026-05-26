@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import type { GraphQLError } from '@/types/api';
 import { logger } from '@/lib/logger';
 import { isValidEthereumAddress } from '@/lib/vault-utils';
-import { isValidChainId, isValidPeriod, MIN_VALID_TIMESTAMP, PERIOD_SECONDS, INTERVAL_MAP } from '@/lib/api-utils';
+import { isValidChainId, isValidPeriod, MIN_VALID_TIMESTAMP, PERIOD_SECONDS, INTERVAL_MAP, stripIncompleteVaultHistoryBuckets } from '@/lib/api-utils';
 
 export async function GET(
   request: NextRequest,
@@ -188,7 +188,7 @@ export async function GET(
     const sharePriceUsdMap = new Map(sharePriceUsdData.map((p: { x: number; y: number }) => [p.x, p.y]));
     const totalSupplyMap = new Map(totalSupplyData.map((p: { x: number; y: number }) => [p.x, p.y]));
 
-    const history = Array.from(timestamps)
+    const rawHistory = Array.from(timestamps)
       .sort((a, b) => a - b)
       .map((timestamp) => {
         const apy = apyMap.get(timestamp) || 0;
@@ -304,6 +304,8 @@ export async function GET(
         };
       })
       .filter(item => item.timestamp >= MIN_VALID_TIMESTAMP);
+
+    const history = stripIncompleteVaultHistoryBuckets(rawHistory);
 
     return NextResponse.json({
       history,

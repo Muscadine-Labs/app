@@ -68,9 +68,9 @@ export async function GET(
           liquidityUsd
           idleAssetsUsd
           
-          # APY (Native + Rewards)
-          avgApy
+          # APY (Native + Rewards) — avgApy deprecated; use avgNetApyExcludingRewards
           avgNetApy
+          avgNetApyExcludingRewards
           maxApy
           performanceFee
           managementFee
@@ -202,7 +202,11 @@ export async function GET(
       })) || [];
       
       // Wrap v2 response in state structure for compatibility with existing code
-      // Map V2 APY fields to V1 format: avgApy -> apy, avgNetApy -> netApy
+      // Headline APY: avgNetApyExcludingRewards (Morpho replacement for deprecated avgApy)
+      const headlineApy =
+        vault.avgNetApyExcludingRewards ?? vault.avgNetApy ?? vault.maxApy ?? 0;
+      const netApy = vault.avgNetApy ?? headlineApy;
+
       data.data.vaultByAddress = {
         ...vault,
         allocators: normalizedAllocators,
@@ -212,11 +216,11 @@ export async function GET(
           totalSupply: vault.totalSupply,
           sharePrice: sharePrice,
           sharePriceUsd: sharePriceUsd,
-          apy: vault.avgApy || vault.maxApy || 0,
-          netApy: vault.avgNetApy || 0,
-          netApyWithoutRewards: vault.avgNetApy || 0, // V2 doesn't have this field, use avgNetApy as fallback
-          avgApy: vault.avgApy || 0,
-          avgNetApy: vault.avgNetApy || 0,
+          apy: headlineApy,
+          netApy,
+          netApyWithoutRewards: headlineApy,
+          avgApy: headlineApy,
+          avgNetApy: netApy,
           maxApy: vault.maxApy || 0,
           owner: vault.owner || '',
           curator: vault.curator || '',

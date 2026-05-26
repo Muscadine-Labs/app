@@ -135,6 +135,37 @@ export function formatAssetAmount(
   return `${formattedAmount} ${symbol}`;
 }
 
+/** Fraction digits for "Your Position" token display (no K/M/B abbreviations). */
+export function getPositionDisplayFractionDigits(symbol: string): number {
+  const normalized = symbol.toUpperCase();
+  if (normalized === 'USDC') return 2;
+  if (normalized === 'WETH' || normalized === 'CBBTC' || normalized === 'BTC') return 4;
+  return 2;
+}
+
+/** Full-precision position token amount for tables (USDC: 2, WETH/cbBTC: 4 decimals). */
+export function formatPositionTokenAmount(
+  rawValue: string | undefined,
+  decimals: number,
+  symbol: string
+): string {
+  if (!rawValue) return `0 ${symbol}`;
+
+  const fractionDigits = getPositionDisplayFractionDigits(symbol);
+  try {
+    return formatAssetAmount(BigInt(rawValue), decimals, symbol, {
+      minimumFractionDigits: fractionDigits,
+      maximumFractionDigits: fractionDigits,
+    });
+  } catch {
+    return `0 ${symbol}`;
+  }
+}
+
+/** Full-precision position USD (always 2 decimals, no K/M/B). */
+export function formatPositionUsd(value: number): string {
+  return formatCurrency(value);
+}
 
 /**
  * Formats BigInt balance directly to input string format.

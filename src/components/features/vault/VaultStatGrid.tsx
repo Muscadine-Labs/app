@@ -107,7 +107,7 @@ export default function VaultStatGrid({ vaultData }: VaultStatGridProps) {
   // Format liquidity
   const liquidityUsd = formatSmartCurrency(vaultData.currentLiquidity || 0, { alwaysTwoDecimals: true });
   const liquidityRaw = formatAssetAmount(
-    BigInt(vaultData.totalAssets || '0'),
+    BigInt(vaultData.liquidityAssets || '0'),
     vaultData.assetDecimals || 18,
     vaultData.symbol
   );

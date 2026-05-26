@@ -9,7 +9,13 @@ import type { MorphoVaultData } from '@/types/vault';
 import { useVaultData } from '@/contexts/VaultDataContext';
 import { useWallet } from '@/contexts/WalletContext';
 import { getVaultRoute } from '@/lib/vault-utils';
-import { formatNumber, formatPercentage, formatSmartCurrency } from '@/lib/formatter';
+import {
+  formatNumber,
+  formatPercentage,
+  formatPositionTokenAmount,
+  formatPositionUsd,
+  formatSmartCurrency,
+} from '@/lib/formatter';
 import { formatUnits } from 'viem';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useIsClient } from '@/hooks/useClientOnly';
@@ -148,13 +154,13 @@ function VaultExplorerMobileCard({ vault, showYourPosition }: VaultExplorerRowPr
 
 function DashboardVaultMobileCard({
   vault,
-  positionRaw,
+  positionAssets,
   positionUsd,
   loading,
   vaultData,
 }: {
   vault: Vault;
-  positionRaw: string;
+  positionAssets?: string;
   positionUsd: number;
   loading: boolean;
   vaultData: MorphoVaultData | null;
@@ -162,6 +168,10 @@ function DashboardVaultMobileCard({
   const router = useRouter();
   const { address } = useAccount();
   const { morphoHoldings } = useWallet();
+  const decimals = vaultData?.assetDecimals ?? (vault.symbol === 'USDC' ? 6 : 18);
+  const positionRaw = positionAssets
+    ? formatPositionTokenAmount(positionAssets, decimals, vault.symbol)
+    : '-';
 
   return (
     <button
@@ -182,7 +192,7 @@ function DashboardVaultMobileCard({
             <div className="flex flex-col gap-1">
               <span className="text-sm font-medium text-[var(--foreground)]">{positionRaw}</span>
               <span className="text-xs text-[var(--foreground-secondary)]">
-                {formatSmartCurrency(positionUsd, { alwaysTwoDecimals: true })}
+                {formatPositionUsd(positionUsd)}
               </span>
             </div>
           ) : (
@@ -266,7 +276,7 @@ function PositionCell({
   const positionUsd = position?.assetsUsd ?? 0;
   const decimals = vaultData?.assetDecimals ?? (vault.symbol === 'USDC' ? 6 : 18);
   const positionRaw = position?.assets
-    ? formatCompactTokenAmount(position.assets, decimals, vault.symbol)
+    ? formatPositionTokenAmount(position.assets, decimals, vault.symbol)
     : '-';
 
   const alignClass = align === 'start' ? 'items-start' : 'items-end';
@@ -288,7 +298,7 @@ function PositionCell({
     <div className={`flex flex-col ${alignClass} gap-1`}>
       <span className="text-sm font-medium text-[var(--foreground)]">{positionRaw}</span>
       <span className="inline-flex rounded-md bg-[var(--surface-elevated)] px-2 py-0.5 text-xs text-[var(--foreground-secondary)]">
-        {formatSmartCurrency(positionUsd, { alwaysTwoDecimals: true })}
+        {formatPositionUsd(positionUsd)}
       </span>
     </div>
   );
@@ -487,7 +497,7 @@ export function DashboardVaultTable({
 
   return (
     <>
-      <div className="md:hidden">
+      <div className="min-[1000px]:hidden">
         {vaults.map((vault) => {
           const vaultData = getVaultData(vault.address) as MorphoVaultData | null;
           const loading = isLoading(vault.address);
@@ -495,16 +505,12 @@ export function DashboardVaultTable({
             (item) => item.vault.address.toLowerCase() === vault.address.toLowerCase()
           );
           const positionUsd = position?.assetsUsd ?? 0;
-          const decimals = vaultData?.assetDecimals ?? (vault.symbol === 'USDC' ? 6 : 18);
-          const positionRaw = position?.assets
-            ? formatCompactTokenAmount(position.assets, decimals, vault.symbol)
-            : '-';
 
           return (
             <DashboardVaultMobileCard
               key={vault.address}
               vault={vault}
-              positionRaw={positionRaw}
+              positionAssets={position?.assets}
               positionUsd={positionUsd}
               loading={loading}
               vaultData={vaultData}
@@ -513,13 +519,18 @@ export function DashboardVaultTable({
         })}
       </div>
 
-      <div className="hidden md:block overflow-x-auto">
-      <table className="w-full min-w-[640px]">
+      <div className="hidden min-[1000px]:block min-w-0">
+      <table className="w-full table-fixed">
+        <colgroup>
+          <col className="w-[40%]" />
+          <col className="w-[32%]" />
+          <col className="w-[28%]" />
+        </colgroup>
         <thead>
           <tr className="border-b border-[var(--border)] text-left">
-            <th className="px-4 sm:px-6 py-3 text-xs font-medium text-[var(--foreground-secondary)]">Vault</th>
-            <th className="px-4 sm:px-6 py-3 text-xs font-medium text-[var(--foreground-secondary)] text-right">Your Position</th>
-            <th className="px-4 sm:px-6 py-3 text-xs font-medium text-[var(--foreground-secondary)] text-right">APY / TVL</th>
+            <th className="px-2 py-2.5 text-xs font-medium text-[var(--foreground-secondary)]">Vault</th>
+            <th className="px-2 py-2.5 text-xs font-medium text-[var(--foreground-secondary)] text-right">Your Position</th>
+            <th className="px-2 py-2.5 text-xs font-medium text-[var(--foreground-secondary)] text-right">APY / TVL</th>
           </tr>
         </thead>
         <tbody>
@@ -532,7 +543,7 @@ export function DashboardVaultTable({
             const positionUsd = position?.assetsUsd ?? 0;
             const decimals = vaultData?.assetDecimals ?? (vault.symbol === 'USDC' ? 6 : 18);
             const positionRaw = position?.assets
-              ? formatCompactTokenAmount(position.assets, decimals, vault.symbol)
+              ? formatPositionTokenAmount(position.assets, decimals, vault.symbol)
               : '-';
 
             const openVault = () => router.push(getVaultRoute(vault.address));
@@ -547,37 +558,35 @@ export function DashboardVaultTable({
                 onKeyDown={(event) => handleRowKeyDown(event, openVault)}
                 className="border-b border-[var(--border)] hover:bg-[var(--surface-hover)] transition-colors cursor-pointer"
               >
-                <td className="px-4 sm:px-6 py-4 align-middle">
-                  <div className="flex items-center gap-3">
-                    <VaultLogo vault={vault} />
-                    <div>
-                      <span className="text-sm font-medium text-[var(--foreground)]">{vault.name}</span>
-                    </div>
+                <td className="px-2 py-3 align-middle">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <VaultLogo vault={vault} size={28} />
+                    <span className="text-sm font-medium text-[var(--foreground)] truncate">{vault.name}</span>
                   </div>
                 </td>
-                <td className="px-4 sm:px-6 py-4 align-middle text-right">
+                <td className="px-2 py-3 align-middle text-right">
                   {!address || loading || morphoHoldings.isLoading ? (
-                    <Skeleton width="5rem" height="1rem" className="ml-auto" />
+                    <Skeleton width="4.5rem" height="1rem" className="ml-auto" />
                   ) : positionUsd > 0 ? (
-                    <div className="flex flex-col items-end gap-1">
-                      <span className="text-sm font-medium text-[var(--foreground)]">{positionRaw}</span>
-                      <span className="text-xs text-[var(--foreground-secondary)]">
-                        {formatSmartCurrency(positionUsd, { alwaysTwoDecimals: true })}
+                    <div className="flex flex-col items-end gap-0.5">
+                      <span className="text-sm font-medium text-[var(--foreground)] tabular-nums">{positionRaw}</span>
+                      <span className="text-xs text-[var(--foreground-secondary)] tabular-nums">
+                        {formatPositionUsd(positionUsd)}
                       </span>
                     </div>
                   ) : (
                     <span className="text-sm text-[var(--foreground-muted)]">-</span>
                   )}
                 </td>
-                <td className="px-4 sm:px-6 py-4 align-middle text-right">
+                <td className="px-2 py-3 align-middle text-right">
                   {loading || !vaultData ? (
                     <Skeleton width="4rem" height="1rem" className="ml-auto" />
                   ) : (
-                    <div className="flex flex-col items-end gap-1">
-                      <span className="text-sm font-semibold text-[var(--primary)]">
+                    <div className="flex flex-col items-end gap-0.5">
+                      <span className="text-sm font-semibold text-[var(--primary)] tabular-nums">
                         {formatPercentage(vaultData.apy)} APY
                       </span>
-                      <span className="text-xs text-[var(--foreground-secondary)]">
+                      <span className="text-xs text-[var(--foreground-secondary)] tabular-nums">
                         {formatSmartCurrency(vaultData.totalValueLocked || 0, { alwaysTwoDecimals: true })} TVL
                       </span>
                     </div>

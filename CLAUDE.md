@@ -4,7 +4,7 @@ Comprehensive context for AI assistants and developers. This is the canonical �
 
 **Product:** Web app for Muscadine vaults on **Base (chain id 8453)** — deposit, withdraw, portfolio view, vault analytics. Supports **v1 MetaMorpho** vaults and **v2 Prime (VaultV2)** vaults for USDC, cbBTC, and WETH.
 
-**Version:** `package.json` → `1.0.2`
+**Version:** `package.json` → `1.0.3`
 
 ---
 

@@ -33,6 +33,31 @@ function toDecimalString(value: number, decimals: number): string {
   return value.toFixed(decimals).replace(/\.?0+$/, '') || '0';
 }
 
+const VAULT_CHART_MARGIN = { top: 8, right: 16, bottom: 4, left: 4 };
+
+function formatTvlYAxisTick(
+  value: number,
+  valueType: 'usd' | 'token',
+  vaultData: MorphoVaultData
+): string {
+  if (valueType === 'usd') {
+    return formatCurrency(value);
+  }
+  const decimals = vaultData.assetDecimals || 18;
+  const formatted = formatAssetAmount(
+    parseUnits(toDecimalString(value, decimals), decimals),
+    decimals,
+    vaultData.symbol,
+    { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+  );
+  // Axis: number only (symbol shown in toggle); keeps labels from clipping
+  return formatted.replace(` ${vaultData.symbol}`, '').trim();
+}
+
+function getTvlYAxisWidth(valueType: 'usd' | 'token'): number {
+  return valueType === 'usd' ? 96 : 80;
+}
+
 const PERIOD_SECONDS: Record<Period, number> = {
   all: 0, // 0 means all data
   '7d': 7 * 24 * 60 * 60,
@@ -58,7 +83,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
   // Format liquidity
   const liquidityUsd = formatSmartCurrency(vaultData.currentLiquidity || 0, { alwaysTwoDecimals: true });
   const liquidityRaw = formatAssetAmount(
-    BigInt(vaultData.totalAssets || '0'),
+    BigInt(vaultData.liquidityAssets || '0'),
     vaultData.assetDecimals || 18,
     vaultData.symbol
   );
@@ -758,10 +783,10 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                 </div>
               )}
             </div>
-            <div className="w-full min-w-0 h-64">
+            <div className="w-full min-w-0 h-64 pl-1 pr-0.5">
               <ResponsiveContainer width="100%" height="100%" minHeight={256} debounce={50}>
                 {chartType === 'apy' ? (
-                  <LineChart data={historyData}>
+                  <LineChart data={historyData} margin={VAULT_CHART_MARGIN}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" />
                     <XAxis 
                       dataKey="timestamp" 
@@ -771,6 +796,8 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                       ticks={period === '7d' ? get7dTicks : period === '30d' ? get30dTicks : period === '90d' ? get90dTicks : period === 'all' ? getAllTicks : undefined}
                     />
                     <YAxis 
+                      width={52}
+                      tickMargin={6}
                       domain={apyYAxisDomain}
                       tickFormatter={(value) => {
                         if (value === undefined || typeof value !== 'number') return '';
@@ -803,7 +830,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                     />
                   </LineChart>
                 ) : (
-                  <AreaChart data={tvlChartData}>
+                  <AreaChart data={tvlChartData} margin={VAULT_CHART_MARGIN}>
                         <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" />
                         <XAxis 
                           dataKey="timestamp" 
@@ -813,19 +840,12 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                           ticks={period === '7d' ? get7dTicks : period === '30d' ? get30dTicks : period === '90d' ? get90dTicks : period === 'all' ? getAllTicks : undefined}
                         />
                         <YAxis 
+                          width={getTvlYAxisWidth(valueType)}
+                          tickMargin={6}
                           domain={tvlYAxisDomain}
                           tickFormatter={(value) => {
                             if (value === undefined || typeof value !== 'number') return '';
-                            if (valueType === 'usd') {
-                              return formatCurrency(value);
-                            }
-                            const decimals = vaultData.assetDecimals || 18;
-                            return formatAssetAmount(
-                              parseUnits(toDecimalString(value, decimals), decimals),
-                              decimals,
-                              vaultData.symbol,
-                              { minimumFractionDigits: 2, maximumFractionDigits: 2 }
-                            );
+                            return formatTvlYAxisTick(value, valueType, vaultData);
                           }}
                           stroke="var(--foreground-secondary)"
                           style={{ fontSize: '12px' }}

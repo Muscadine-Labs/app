@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import type { GraphQLError } from '@/types/api';
 import { logger } from '@/lib/logger';
 import { isValidEthereumAddress } from '@/lib/vault-utils';
-import { isValidChainId, isValidPeriod, MIN_VALID_TIMESTAMP, PERIOD_SECONDS, INTERVAL_MAP } from '@/lib/api-utils';
+import { isValidChainId, isValidPeriod, MIN_VALID_TIMESTAMP, PERIOD_SECONDS, INTERVAL_MAP, stripIncompleteVaultHistoryBuckets } from '@/lib/api-utils';
 
 export async function GET(
   request: NextRequest,
@@ -58,7 +58,7 @@ export async function GET(
     const startTime = period === 'all' ? 0 : (now - (PERIOD_SECONDS[period] || PERIOD_SECONDS['30d']));
     const interval = INTERVAL_MAP[period] || 'DAY';
 
-    // V2 vaults use avgApy and avgNetApy instead of apy and netApy
+    // V2 historicalState: avgNetApy (avgApy deprecated; avgNetApyExcludingRewards not on history type)
     const query = `
       query VaultHistory($address: String!, $chainId: Int!, $options: TimeseriesOptions) {
         vaultV2ByAddress(address: $address, chainId: $chainId) {
@@ -69,10 +69,6 @@ export async function GET(
             priceUsd
           }
           historicalState {
-            avgApy(options: $options) {
-              x
-              y
-            }
             avgNetApy(options: $options) {
               x
               y
@@ -177,9 +173,8 @@ export async function GET(
       });
     }
     
-    // V2 vaults use avgApy/avgNetApy
-    const apyData = vaultData.historicalState.avgApy || [];
     const netApyData = vaultData.historicalState.avgNetApy || [];
+    const apyData = netApyData;
     const totalAssetsUsdData = vaultData.historicalState.totalAssetsUsd || [];
     const totalAssetsData = vaultData.historicalState.totalAssets || [];
     // V2 vaults don't have sharePrice in historicalState - must calculate from totalAssets/totalSupply
@@ -189,7 +184,6 @@ export async function GET(
     const assetPriceUsd = vaultData.asset?.priceUsd || 0;
 
     const timestamps = new Set<number>();
-    apyData.forEach((point: { x: number; y: number }) => timestamps.add(point.x));
     netApyData.forEach((point: { x: number; y: number }) => timestamps.add(point.x));
     totalAssetsUsdData.forEach((point: { x: number; y: number }) => timestamps.add(point.x));
     totalAssetsData.forEach((point: { x: number; y: number }) => timestamps.add(point.x));
@@ -211,7 +205,7 @@ export async function GET(
       });
     }
 
-    const history = Array.from(timestamps)
+    const rawHistory = Array.from(timestamps)
       .sort((a, b) => a - b)
       .map((timestamp) => {
         const apy = apyMap.get(timestamp) || 0;
@@ -322,6 +316,8 @@ export async function GET(
         }
         return item.timestamp >= MIN_VALID_TIMESTAMP;
       });
+
+    const history = stripIncompleteVaultHistoryBuckets(rawHistory);
 
     return NextResponse.json({
       history,

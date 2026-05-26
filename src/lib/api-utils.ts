@@ -31,3 +31,36 @@ export const INTERVAL_MAP: Record<string, string> = {
   'all': 'DAY',
 };
 
+/** Morpho timeseries often includes a trailing bucket for the in-progress period with zeros. */
+export function stripIncompleteVaultHistoryBuckets<
+  T extends { totalAssetsUsd: number; totalAssets: number; sharePrice?: number },
+>(history: T[]): T[] {
+  let end = history.length;
+  while (end > 0) {
+    const point = history[end - 1];
+    const isIncomplete =
+      (point.totalAssetsUsd ?? 0) === 0 &&
+      (point.totalAssets ?? 0) === 0 &&
+      (point.sharePrice ?? 0) === 0;
+    if (!isIncomplete) break;
+    end--;
+  }
+  return end === history.length ? history : history.slice(0, end);
+}
+
+export function stripIncompletePositionHistoryBuckets<
+  T extends { assets: number; assetsUsd: number; shares?: number },
+>(history: T[]): T[] {
+  let end = history.length;
+  while (end > 0) {
+    const point = history[end - 1];
+    const isIncomplete =
+      (point.assets ?? 0) === 0 &&
+      (point.assetsUsd ?? 0) === 0 &&
+      (point.shares ?? 0) === 0;
+    if (!isIncomplete) break;
+    end--;
+  }
+  return end === history.length ? history : history.slice(0, end);
+}
+
