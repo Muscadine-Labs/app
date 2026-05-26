@@ -4,7 +4,7 @@ Comprehensive context for AI assistants and developers. This is the canonical �
 
 **Product:** Web app for Muscadine vaults on **Base (chain id 8453)** — deposit, withdraw, portfolio view, vault analytics. Supports **v1 MetaMorpho** vaults and **v2 Prime (VaultV2)** vaults for USDC, cbBTC, and WETH.
 
-**Version:** `package.json` → `1.0.3`
+**Version:** `package.json` → `1.0.4`
 
 ---
 
@@ -138,6 +138,20 @@ Always resolve version with `getVaultVersion(address)` / `findVaultByAddress()` 
 
 **Optional future path:** Morpho’s `@morpho-org/morpho-sdk` v2 supports VaultV2 deposits via Bundler3 with slippage guards and `forceWithdraw`/`forceRedeem` for low idle liquidity. This app **intentionally** uses direct ABIs for v2 unless that decision is reversed.
 
+### ERC-4626 vaults — reads, shares, and UI sources
+
+Both v1 MetaMorpho and v2 Prime expose an **ERC-4626-style** interface for deposits/withdrawals (`asset`, `deposit`, `withdraw`, `redeem`, `convertToAssets`, `previewWithdraw`, etc.). Share tokens use **18 decimals**; underlying assets use registry decimals (USDC **6**, cbBTC/WETH **18**).
+
+| Concern | V1 (MetaMorpho) | V2 (Prime / VaultV2) |
+|---------|-----------------|----------------------|
+| **Live position (dashboard, tables)** | `WalletContext` — on-chain `balanceOf` + `convertToAssets` per vault | Same RPC path |
+| **Position history (charts)** | GraphQL `vaultPosition` → `historicalState` | GraphQL `vaultV2PositionByAddress` → `history` |
+| **Vault TVL / APY history** | `vaultByAddress` → `historicalState` | `vaultV2ByAddress` → `historicalState` |
+| **Headline APY (complete API)** | `state.apy` / `avgApy` | `avgNetApyExcludingRewards` (fallback `avgNetApy`) — **`avgApy` deprecated** on v2 |
+| **Liquidity in UI** | MetaMorpho idle/liquidity fields | Use GraphQL **`liquidity`** / `liquidityUsd`, **not** `totalAssets` (deposits) |
+
+**v1 → v2 migration:** Users may hold the same asset in both vault versions over time. Morpho **v1 position history often remains non-zero after withdrawal** while `currentPosition` is already 0. Naïvely summing all six registry vaults with forward-fill **double-counts** (~2× portfolio USD from the migration date onward). The dashboard fixes this in `preparePortfolioVaultHistories()` (see [Dashboard](#dashboard--vault-explorer-ui)).
+
 ---
 
 ## On-chain transactions
@@ -206,7 +220,24 @@ Header comment: bundler does not support v2; use direct contract calls.
 
 Query root: `vaultV2ByAddress(address, chainId)`.
 
-Notable fields: `asset`, `totalAssets`, `totalSupply`, `liquidity`, `idleAssetsUsd`, `avgApy`, `adapters`, `rewards`, `warnings`, etc. Response is normalized toward v1-shaped JSON for shared UI components.
+Notable fields: `asset`, `totalAssets`, `totalSupply`, `liquidity`, `liquidityUsd`, `idleAssetsUsd`, `avgNetApy`, `avgNetApyExcludingRewards`, `maxApy`, `adapters`, `rewards`, `warnings`, etc. Response is normalized toward v1-shaped JSON (`vaultByAddress` shape) for shared UI. Headline APY maps from **`avgNetApyExcludingRewards`** (not deprecated `avgApy`).
+
+### V2 history route (`src/app/api/vault/v2/[address]/history/route.ts`)
+
+Query root: `vaultV2ByAddress` → `historicalState`. APY series uses **`avgNetApy` only** (`avgNetApyExcludingRewards` is not on the history type). Maps to `apy` / `netApy` in the JSON response (percent × 100).
+
+### Position history (v1 & v2)
+
+- **V1:** `vaultPosition` + `historicalState.{assets,assetsUsd,shares}`
+- **V2:** `vaultV2PositionByAddress` + `history.{assets,assetsUsd,shares}`; raw `assets` / `shares` scaled by asset decimals / 1e18 in the route handler
+
+Both return `currentPosition` + `history[]` with `{ timestamp, assets, assetsUsd, shares }`.
+
+### Incomplete Morpho timeseries buckets
+
+Morpho often returns a **trailing interval** (current hour/day) with **zeros** for TVL and/or position while the in-progress bucket is empty. That makes charts dip to zero on the last point.
+
+**Fix:** `stripIncompleteVaultHistoryBuckets` / `stripIncompletePositionHistoryBuckets` in `src/lib/api-utils.ts` — applied on **v1 and v2** `history` and `position-history` route responses before JSON is returned.
 
 ### V1 complete route
 
@@ -273,8 +304,14 @@ Three-row layout:
 **Important:** Dashboard **ignores** `VaultVersionContext`. Positions and charts include **both v1 and v2** vaults from the registry.
 
 - **Your Vaults** lists only vaults with a current deposit (`morphoHoldings.positions`), sorted by USD value. Empty state links to `/vaults`.
-- **Portfolio chart** fetches position history for **all 6 registry vaults** (`VAULTS`), aggregates USD via `aggregatePortfolioHistory()` in `src/lib/portfolio-utils.ts` — includes past deposits in vaults fully withdrawn from, not just current holdings.
+- **Layout:** Chart + Your Vaults use **`min-[1000px]:grid-cols-2`** (side-by-side from ~1000px width; stacked below). `DashboardVaultTable` uses a **compact** `table-fixed` layout at `min-[1000px]+`; card layout below that.
+- **Portfolio chart** (`PortfolioPositionChart.tsx`):
+  1. Fetches position history for **all 6 registry vaults** (`period=all` / `7d` / `30d`).
+  2. **`preparePortfolioVaultHistories()`** — per asset (USDC, cbBTC, WETH), if v2 has deposits: truncate v1 history before first v2 deposit and append a **$0 point at cutover** so forward-fill does not stack v1 + v2 balances after migration.
+  3. **`aggregatePortfolioHistory()`** — forward-fill each prepared series and sum USD.
+  - **Current holdings** in `WalletOverview` / Your Vaults come from **RPC** (`WalletContext`), not the chart aggregate — they should match when dedupe is correct.
 - Preloads vault API data for deposited vaults via `useVaultListPreloader`.
+- **Position display:** `formatPositionUsd` / `formatPositionTokenAmount` in `formatter.ts` (full values, no K/M/B; USDC 2 decimals, WETH/cbBTC 4).
 
 ### Vault explorer (`/vaults` — `src/app/vaults/page.tsx`)
 
@@ -357,7 +394,8 @@ src/
   contexts/               # See table above
   hooks/
   lib/
-    portfolio-utils.ts    # ★ Aggregate multi-vault position history for dashboard chart
+    portfolio-utils.ts    # ★ preparePortfolioVaultHistories + aggregatePortfolioHistory (dashboard)
+    api-utils.ts          # Period/interval helpers; strip incomplete Morpho timeseries tails
     transactionUtilsV2.ts # ★ V2 on-chain (ERC-4626 ABI)
     transactionUtils.ts   # Errors, shared tx helpers
     vaults.ts             # ★ Vault registry (6 vaults)
@@ -366,7 +404,6 @@ src/
     abis.ts               # Shared ERC20 balance + ERC4626 convertToAssets
     formatter.ts          # formatCurrency, formatSmartCurrency, formatAssetAmount, …
     logger.ts             # Structured logging
-    api-utils.ts          # API validation helpers
   types/
     vault.ts              # Vault, MorphoVaultData, account types
     transactions.ts       # Progress step types
@@ -388,7 +425,7 @@ src/
 
 **Transact page** (`app/transact/page.tsx`): Large form — account pickers, amount, MAX, WETH asset preference, deep links via query params.
 
-**Portfolio position history:** Per-vault API at `/api/vault/{v1|v2}/{address}/position-history`. Dashboard aggregates all 6 vaults client-side; single-vault charts use `VaultPosition.tsx`.
+**Portfolio position history:** Per-vault API at `/api/vault/{v1|v2}/{address}/position-history` (tails stripped server-side). Dashboard runs **`preparePortfolioVaultHistories` → `aggregatePortfolioHistory`**; single-vault charts use `VaultPosition.tsx`. Do not sum raw v1+v2 history for the same asset without cutover logic.
 
 **Formatting conventions:**
 
@@ -516,7 +553,9 @@ Do not bump without checking compatibility:
 | Task | Where to look |
 |------|----------------|
 | Dashboard layout | `src/app/page.tsx` |
-| Portfolio history chart | `src/components/features/wallet/PortfolioPositionChart.tsx`, `src/lib/portfolio-utils.ts` |
+| Portfolio history chart | `PortfolioPositionChart.tsx`, `portfolio-utils.ts` (`preparePortfolioVaultHistories`, `aggregatePortfolioHistory`) |
+| Morpho timeseries tail fix | `api-utils.ts` (`stripIncomplete*`), used in vault `history` + `position-history` routes |
+| Position table formatting | `formatter.ts` (`formatPositionUsd`, `formatPositionTokenAmount`) |
 | Vault explorer page | `src/app/vaults/page.tsx`, `VaultExplorer*.tsx` |
 | V2 deposit/withdraw/redeem | `src/lib/transactionUtilsV2.ts` |
 | V1 deposit/withdraw/transfer | `src/hooks/useVaultTransactions.ts` |

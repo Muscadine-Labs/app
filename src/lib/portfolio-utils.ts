@@ -3,6 +3,70 @@ export interface PositionHistoryPoint {
   assetsUsd: number;
 }
 
+export interface PortfolioVaultHistoryInput {
+  symbol: string;
+  version: 'v1' | 'v2';
+  history: PositionHistoryPoint[];
+}
+
+/** Normalize asset symbols so v1/v2 pairs group correctly (USDC, cbBTC, WETH). */
+function normalizeAssetSymbol(symbol: string): string {
+  const upper = symbol.toUpperCase();
+  if (upper === 'CBBTC' || upper === 'CBTC' || upper === 'BTC') return 'CBBTC';
+  if (upper === 'WETH' || upper === 'ETH') return 'WETH';
+  if (upper === 'USDC') return 'USDC';
+  return upper;
+}
+
+/**
+ * Avoid double-counting when a user migrates from MetaMorpho (v1) to Prime (v2).
+ * Morpho v1 history often stays non-zero after withdrawal; forward-fill would
+ * stack v1 + v2 balances for the same asset. Truncate v1 at the first v2 deposit.
+ */
+export function preparePortfolioVaultHistories(
+  vaults: PortfolioVaultHistoryInput[]
+): PositionHistoryPoint[][] {
+  const bySymbol = new Map<string, PortfolioVaultHistoryInput[]>();
+
+  for (const vault of vaults) {
+    const key = normalizeAssetSymbol(vault.symbol);
+    const group = bySymbol.get(key) ?? [];
+    group.push(vault);
+    bySymbol.set(key, group);
+  }
+
+  const prepared: PositionHistoryPoint[][] = [];
+
+  for (const group of bySymbol.values()) {
+    const v2Vault = group.find((v) => v.version === 'v2');
+    let v2CutoverTimestamp: number | null = null;
+
+    if (v2Vault) {
+      const firstV2Deposit = v2Vault.history
+        .filter((p) => p.assetsUsd > 0)
+        .sort((a, b) => a.timestamp - b.timestamp)[0];
+      if (firstV2Deposit) {
+        v2CutoverTimestamp = firstV2Deposit.timestamp;
+      }
+    }
+
+    for (const vault of group) {
+      let history = vault.history;
+      if (vault.version === 'v1' && v2CutoverTimestamp !== null) {
+        history = history.filter((p) => p.timestamp < v2CutoverTimestamp!);
+        // Zero out v1 forward-fill once Prime (v2) deposits begin — v1 history often
+        // stays non-zero after withdrawal, which would double-count with v2.
+        history.push({ timestamp: v2CutoverTimestamp, assetsUsd: 0 });
+      }
+      if (history.length > 0) {
+        prepared.push(history);
+      }
+    }
+  }
+
+  return prepared;
+}
+
 /**
  * Aggregate multiple vault position histories into a combined USD portfolio series.
  * Uses forward-fill so each vault contributes its last known value at each timestamp.

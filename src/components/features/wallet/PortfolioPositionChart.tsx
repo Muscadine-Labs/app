@@ -7,7 +7,9 @@ import { calculateYAxisDomain } from '@/lib/vault-utils';
 import {
   aggregatePortfolioHistory,
   mapPortfolioHistoryToChartData,
+  preparePortfolioVaultHistories,
   PositionHistoryPoint,
+  PortfolioVaultHistoryInput,
 } from '@/lib/portfolio-utils';
 import { formatCurrency, formatNumber } from '@/lib/formatter';
 import { logger } from '@/lib/logger';
@@ -37,6 +39,7 @@ interface PortfolioVault {
   address: string;
   version: 'v1' | 'v2';
   chainId: number;
+  symbol: string;
 }
 
 async function fetchVaultHistory(
@@ -77,6 +80,7 @@ export default function PortfolioPositionChart() {
         address: vault.address,
         version: vault.version,
         chainId: vault.chainId,
+        symbol: vault.symbol,
       })),
     []
   );
@@ -93,9 +97,12 @@ export default function PortfolioPositionChart() {
       }
 
       try {
-        const histories = await Promise.all(
-          portfolioVaults.map((vault) =>
-            fetchVaultHistory(vault, address, period, signal).catch((error) => {
+        const vaultHistories = await Promise.all(
+          portfolioVaults.map(async (vault): Promise<PortfolioVaultHistoryInput> => {
+            try {
+              const history = await fetchVaultHistory(vault, address, period, signal);
+              return { symbol: vault.symbol, version: vault.version, history };
+            } catch (error) {
               if (error instanceof Error && error.name === 'AbortError') {
                 throw error;
               }
@@ -106,11 +113,12 @@ export default function PortfolioPositionChart() {
                 error: error instanceof Error ? error.message : String(error),
               });
 
-              return [];
-            })
-          )
+              return { symbol: vault.symbol, version: vault.version, history: [] };
+            }
+          })
         );
-        setter(aggregatePortfolioHistory(histories));
+        const prepared = preparePortfolioVaultHistories(vaultHistories);
+        setter(aggregatePortfolioHistory(prepared));
       } catch (error) {
         if (error instanceof Error && error.name === 'AbortError') return;
         logger.warn('Failed to fetch portfolio position history', {
