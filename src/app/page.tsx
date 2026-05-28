@@ -6,32 +6,26 @@ import { WalletOverview, PortfolioPositionChart } from '@/components/features/wa
 import { DashboardVaultTable } from '@/components/features/vault/VaultExplorerTable';
 import { useVaultListPreloader } from '@/hooks/useVaultDataFetch';
 import { useWallet } from '@/contexts/WalletContext';
-import { findVaultByAddress } from '@/lib/vault-utils';
+import { findVaultByAddress, sortVaultsForDisplay } from '@/lib/vault-utils';
+import { useVaultData } from '@/contexts/VaultDataContext';
 import { Vault } from '@/types/vault';
 
 export default function Home() {
   const { address } = useAccount();
   const { morphoHoldings } = useWallet();
+  const { getVaultData } = useVaultData();
 
   const depositedVaults: Vault[] = useMemo(() => {
-    return morphoHoldings.positions
+    const vaults = morphoHoldings.positions
       .map((position) => findVaultByAddress(position.vault.address))
-      .filter((vault): vault is Vault => vault !== null)
-      .sort((a, b) => {
-        const positionA = morphoHoldings.positions.find(
-          (position) => position.vault.address.toLowerCase() === a.address.toLowerCase()
-        );
-        const positionB = morphoHoldings.positions.find(
-          (position) => position.vault.address.toLowerCase() === b.address.toLowerCase()
-        );
+      .filter((vault): vault is Vault => vault !== null);
 
-        const valueA = positionA?.assetsUsd ?? 0;
-        const valueB = positionB?.assetsUsd ?? 0;
-        if (valueA !== valueB) return valueB - valueA;
-
-        return a.name.localeCompare(b.name);
-      });
-  }, [morphoHoldings.positions]);
+    return sortVaultsForDisplay(
+      vaults,
+      morphoHoldings.positions,
+      (address) => getVaultData(address)?.totalDeposits ?? 0
+    );
+  }, [morphoHoldings.positions, getVaultData]);
 
   useVaultListPreloader(depositedVaults);
 

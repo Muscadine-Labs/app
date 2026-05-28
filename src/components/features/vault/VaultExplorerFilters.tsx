@@ -13,7 +13,7 @@ import {
   useInteractions,
   useRole,
 } from '@floating-ui/react';
-import { useVaultVersion, DEFAULT_VAULT_FILTER_VERSION } from '@/contexts/VaultVersionContext';
+import { useVaultVersion } from '@/contexts/VaultVersionContext';
 import { useIsClient } from '@/hooks/useClientOnly';
 
 interface FilterDropdownProps {
@@ -154,9 +154,13 @@ export default function VaultExplorerFilters({
   filters,
   onFiltersChange,
 }: VaultExplorerFiltersProps) {
-  const { version, setVersion } = useVaultVersion();
+  const {
+    explorerVersion,
+    setExplorerVersion,
+    showExplorerVersionFilter,
+  } = useVaultVersion();
   const isMounted = useIsClient();
-  const effectiveVersion = isMounted ? version : DEFAULT_VAULT_FILTER_VERSION;
+  const effectiveExplorerVersion = isMounted ? explorerVersion : 'v2';
 
   const update = (partial: Partial<VaultExplorerFilterState>) => {
     onFiltersChange({ ...filters, ...partial });
@@ -175,16 +179,20 @@ export default function VaultExplorerFilters({
             ]}
             onChange={(value) => update({ network: value as VaultNetworkFilter })}
           />
-          <FilterDropdown
-            label="Version"
-            value={effectiveVersion}
-            options={[
-              { label: 'V2', value: 'v2' },
-              { label: 'V1', value: 'v1' },
-              { label: 'All', value: 'all' },
-            ]}
-            onChange={(value) => setVersion(value as 'v1' | 'v2' | 'all')}
-          />
+          {showExplorerVersionFilter && (
+            <FilterDropdown
+              label="Version"
+              value={effectiveExplorerVersion}
+              options={[
+                { label: 'V2', value: 'v2' },
+                { label: 'V1', value: 'v1' },
+                { label: 'All', value: 'all' },
+              ]}
+              onChange={(value) =>
+                setExplorerVersion(value as 'v1' | 'v2' | 'all')
+              }
+            />
+          )}
           <FilterDropdown
             label="Asset"
             value={filters.asset}

@@ -15,6 +15,11 @@ import { useAccount } from 'wagmi';
 import { Icon } from '@/components/ui/Icon';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { TOKEN_ADDRESSES_LOWER, type TokenBalance } from '@/contexts/WalletContext';
+import {
+  compareVaultsForDisplay,
+  findVaultByAddress,
+  hasOnChainVaultShares,
+} from '@/lib/vault-utils';
 
 // Helper function to find token by symbol using address-based matching for reliability
 // Note: wstETH and cbETH are intentionally excluded - only shown in wallet overview
@@ -101,15 +106,25 @@ export function AccountSelector({
   const vaultAccounts: VaultAccount[] = useMemo(() => {
     return Object.values(VAULTS)
       .filter((vault) => {
-        // Filter by version first - if version is 'all', show all vaults
+        const hasPosition = morphoHoldings.positions.some(
+          (pos) =>
+            pos.vault.address.toLowerCase() === vault.address.toLowerCase() &&
+            hasOnChainVaultShares(pos)
+        );
+        // Always show vaults where the user has shares (even if version filter is v2 and deposit is v1)
+        if (hasPosition) {
+          if (filterByAssetSymbol) {
+            return vault.symbol.toUpperCase() === filterByAssetSymbol.toUpperCase();
+          }
+          return true;
+        }
         if (version !== 'all' && vault.version !== version) {
           return false;
         }
-        // If filter is set, only include vaults with matching asset symbol
         if (filterByAssetSymbol) {
           return vault.symbol.toUpperCase() === filterByAssetSymbol.toUpperCase();
         }
-        return true; // Show all vaults if no filter
+        return true;
       })
       .map((vault): VaultAccount => {
         const vaultData = getVaultData(vault.address);
@@ -236,13 +251,28 @@ export function AccountSelector({
       return true;
     });
 
-    // Sort accounts by USD value (highest to lowest)
+    // Sort by balance; vault–vault ties use position → v2 → TVL
     return [...filtered].sort((a, b) => {
       const valueA = getAccountUsdValue(a);
       const valueB = getAccountUsdValue(b);
-      return valueB - valueA; // Descending order (highest first)
+      if (valueA !== valueB) return valueB - valueA;
+
+      if (a.type === 'vault' && b.type === 'vault') {
+        const vaultA = findVaultByAddress((a as VaultAccount).address);
+        const vaultB = findVaultByAddress((b as VaultAccount).address);
+        if (vaultA && vaultB) {
+          return compareVaultsForDisplay(
+            vaultA,
+            vaultB,
+            morphoHoldings.positions,
+            (address) => getVaultData(address)?.totalDeposits ?? 0
+          );
+        }
+      }
+
+      return 0;
     });
-  }, [walletAccounts, vaultAccounts, excludeAccount, getAccountUsdValue]);
+  }, [walletAccounts, vaultAccounts, excludeAccount, getAccountUsdValue, morphoHoldings.positions, getVaultData]);
 
   // Calculate balance value (returns string or number with symbol and decimals)
   const getBalanceValue = (account: Account, assetSymbol?: string): { value: string | number; symbol: string; decimals?: number } | null => {
@@ -278,28 +308,32 @@ export function AccountSelector({
         (pos) => pos.vault.address.toLowerCase() === vaultAccount.address.toLowerCase()
       );
 
-      if (!position || !vaultData) {
+      if (!position) {
         return null;
       }
 
+      const assetDecimals =
+        vaultData?.assetDecimals ??
+        (vaultAccount.symbol.toUpperCase() === 'USDC' ? 6 : vaultAccount.symbol.toUpperCase() === 'CBBTC' ? 8 : 18);
+
       // First priority: Use position.assets if available (from RPC via WalletContext)
       if (position.assets) {
-        const value = parseFloat(position.assets) / Math.pow(10, vaultData.assetDecimals || 18);
-        return { value, symbol: vaultAccount.symbol, decimals: vaultData.assetDecimals };
+        const value = parseFloat(position.assets) / Math.pow(10, assetDecimals);
+        return { value, symbol: vaultAccount.symbol, decimals: assetDecimals };
       }
       
       // Second priority: Calculate from shares using share price
       const sharesDecimal = parseFloat(position.shares) / 1e18;
       
-      if (vaultData.sharePrice && sharesDecimal > 0) {
+      if (vaultData?.sharePrice && sharesDecimal > 0) {
         const value = sharesDecimal * vaultData.sharePrice;
-        return { value, symbol: vaultAccount.symbol, decimals: vaultData.assetDecimals };
+        return { value, symbol: vaultAccount.symbol, decimals: assetDecimals };
       }
       
       // Third priority: Calculate share price from totalAssets / totalSupply
-      if (position.vault?.state?.totalSupply && vaultData.totalAssets) {
+      if (position.vault?.state?.totalSupply && vaultData?.totalAssets) {
         const totalSupplyDecimal = parseFloat(position.vault.state.totalSupply) / 1e18;
-        const totalAssetsDecimal = parseFloat(vaultData.totalAssets) / Math.pow(10, vaultData.assetDecimals || 18);
+        const totalAssetsDecimal = parseFloat(vaultData.totalAssets) / Math.pow(10, assetDecimals);
         
         if (totalSupplyDecimal > 0) {
           const sharePriceInAsset = totalAssetsDecimal / totalSupplyDecimal;

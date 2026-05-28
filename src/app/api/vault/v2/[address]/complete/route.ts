@@ -39,7 +39,7 @@ export async function GET(
         vaultV2ByAddress(address: $address, chainId: $chainId) {
           address
           name
-          whitelisted
+          listed
           
           # Asset information
           asset {
@@ -209,6 +209,7 @@ export async function GET(
 
       data.data.vaultByAddress = {
         ...vault,
+        whitelisted: vault.listed ?? false,
         allocators: normalizedAllocators,
         state: {
           totalAssets: vault.totalAssets,

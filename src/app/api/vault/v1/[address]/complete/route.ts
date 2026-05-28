@@ -38,7 +38,7 @@ export async function GET(
         vaultByAddress(address: $address, chainId: $chainId) {
           address
           name
-          whitelisted
+          listed
           
           # Asset information
           asset {
@@ -57,11 +57,6 @@ export async function GET(
             description
             forumLink
             image
-            curators {
-              image
-              name
-              url
-            }
           }
           
           # Allocators
@@ -80,20 +75,18 @@ export async function GET(
             guardian
             timelock
             fee
-            sharePrice
             sharePriceUsd
             
             # Yield data
             apy
             netApy
             netApyWithoutRewards
-            avgApy
             avgNetApy
             
             # Allocation data
             allocation {
               market {
-                uniqueKey
+                uniqueKey: id
                 loanAsset {
                   address
                   name
@@ -168,6 +161,41 @@ export async function GET(
 
     if (data.errors) {
       throw new Error(`GraphQL errors: ${JSON.stringify(data.errors)}`);
+    }
+
+    // Morpho API: `listed` replaced `whitelisted`; `sharePrice` removed from VaultState
+    if (data.data?.vaultByAddress) {
+      const vault = data.data.vaultByAddress;
+      vault.whitelisted = vault.listed ?? false;
+
+      const state = vault.state;
+      if (state) {
+        const totalAssets = state.totalAssets || '0';
+        const totalSupply = state.totalSupply || '0';
+        const totalAssetsUsd = state.totalAssetsUsd || 0;
+        const assetDecimals = vault.asset?.decimals || 18;
+
+        let sharePrice = 0;
+        let sharePriceUsd = state.sharePriceUsd || 0;
+
+        if (totalSupply !== '0' && totalAssets !== '0') {
+          const totalAssetsNum = BigInt(totalAssets);
+          const totalSupplyNum = BigInt(totalSupply);
+          const totalAssetsDecimal = Number(totalAssetsNum) / Math.pow(10, assetDecimals);
+          const totalSupplyDecimal = Number(totalSupplyNum) / 1e18;
+
+          if (totalSupplyDecimal > 0) {
+            sharePrice = totalAssetsDecimal / totalSupplyDecimal;
+            if (!sharePriceUsd && totalAssetsUsd > 0) {
+              sharePriceUsd = totalAssetsUsd / totalSupplyDecimal;
+            }
+          }
+        }
+
+        state.sharePrice = sharePrice;
+        state.sharePriceUsd = sharePriceUsd;
+        state.avgApy = state.avgNetApy ?? state.apy ?? 0;
+      }
     }
 
     return NextResponse.json({

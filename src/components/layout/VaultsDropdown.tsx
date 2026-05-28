@@ -3,7 +3,15 @@
 import { useState, useRef, useMemo, useCallback, useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { VAULTS } from '@/lib/vaults';
-import { getVaultRoute, findVaultByAddress } from '@/lib/vault-utils';
+import {
+  getVaultRoute,
+  findVaultByAddress,
+  mergeRegistryVaultsWithDeposits,
+  sortVaultsForDisplay,
+} from '@/lib/vault-utils';
+import { useWallet } from '@/contexts/WalletContext';
+import { useVaultData } from '@/contexts/VaultDataContext';
+import { Vault } from '@/types/vault';
 import { getVaultLogo } from '@/types/vault';
 import { useVaultVersion } from '@/contexts/VaultVersionContext';
 import Image from 'next/image';
@@ -20,15 +28,34 @@ export function VaultsDropdown({ isActive, onVaultSelect }: VaultsDropdownProps)
   const router = useRouter();
   const pathname = usePathname();
   const { version } = useVaultVersion();
+  const { morphoHoldings } = useWallet();
+  const { getVaultData } = useVaultData();
 
-  // Filter vaults based on selected version
+  // Filter vaults based on selected version; always include vaults with user deposits
   const vaults = useMemo(() => {
-    const allVaults = Object.values(VAULTS);
-    if (version === 'all') {
-      return allVaults;
-    }
-    return allVaults.filter((vault) => vault.version === version);
-  }, [version]);
+    const registryVaults: Vault[] = Object.values(VAULTS).map((vault) => ({
+      address: vault.address,
+      name: vault.name,
+      symbol: vault.symbol,
+      chainId: vault.chainId,
+      version: vault.version,
+    }));
+
+    const merged =
+      version === 'all'
+        ? registryVaults
+        : mergeRegistryVaultsWithDeposits(
+            registryVaults.filter((vault) => vault.version === version),
+            morphoHoldings.positions,
+            version
+          );
+
+    return sortVaultsForDisplay(
+      merged,
+      morphoHoldings.positions,
+      (address) => getVaultData(address)?.totalDeposits ?? 0
+    );
+  }, [version, morphoHoldings.positions, getVaultData]);
 
   // Check if we're currently on a vault page (v1 or v2) - memoized for performance
   const currentVaultAddress = useMemo(() => {

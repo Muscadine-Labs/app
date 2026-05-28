@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { VAULTS } from '@/lib/vaults';
 import { BASE_CHAIN_ID } from '@/lib/constants';
 import { Vault } from '@/types/vault';
+import { mergeRegistryVaultsWithDeposits, sortVaultsForDisplay } from '@/lib/vault-utils';
 import { useWallet } from '@/contexts/WalletContext';
 import { useVaultData } from '@/contexts/VaultDataContext';
 import { useVaultVersion, DEFAULT_VAULT_FILTER_VERSION } from '@/contexts/VaultVersionContext';
@@ -47,7 +48,7 @@ export default function VaultExplorer({
   );
 
   const filteredVaults = useMemo(() => {
-    const baseVaults: Vault[] = Object.values(VAULTS)
+    const versionFiltered: Vault[] = Object.values(VAULTS)
       .filter((vault) => effectiveVersion === 'all' || vault.version === effectiveVersion)
       .map((vault) => ({
         address: vault.address,
@@ -56,6 +57,12 @@ export default function VaultExplorer({
         chainId: vault.chainId,
         version: vault.version,
       }));
+
+    const baseVaults = mergeRegistryVaultsWithDeposits(
+      versionFiltered,
+      morphoHoldings.positions,
+      effectiveVersion
+    );
 
     const filtered = baseVaults.filter((vault) => {
       if (filters.network === 'base' && vault.chainId !== BASE_CHAIN_ID) return false;
@@ -70,14 +77,12 @@ export default function VaultExplorer({
       return filtered;
     }
 
-    return [...filtered].sort((a, b) => {
-      const tvlA = getVaultData(a.address)?.totalDeposits ?? 0;
-      const tvlB = getVaultData(b.address)?.totalDeposits ?? 0;
-      if (tvlA !== tvlB) return tvlB - tvlA;
-
-      return a.name.localeCompare(b.name);
-    });
-  }, [filters, depositedAddresses, isMounted, getVaultData, effectiveVersion]);
+    return sortVaultsForDisplay(
+      filtered,
+      morphoHoldings.positions,
+      (address) => getVaultData(address)?.totalDeposits ?? 0
+    );
+  }, [filters, depositedAddresses, isMounted, getVaultData, effectiveVersion, morphoHoldings.positions]);
 
   return (
     <div className="flex flex-col h-full w-full min-h-0">

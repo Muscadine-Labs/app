@@ -8,7 +8,11 @@ import { Vault, getVaultLogo } from '@/types/vault';
 import type { MorphoVaultData } from '@/types/vault';
 import { useVaultData } from '@/contexts/VaultDataContext';
 import { useWallet } from '@/contexts/WalletContext';
-import { getVaultRoute } from '@/lib/vault-utils';
+import {
+  getVaultRoute,
+  hasOnChainVaultShares,
+  resolvePositionAssetsUsd,
+} from '@/lib/vault-utils';
 import {
   formatNumber,
   formatPercentage,
@@ -19,6 +23,7 @@ import {
 import { formatUnits } from 'viem';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useIsClient } from '@/hooks/useClientOnly';
+import { useVaultVersion } from '@/contexts/VaultVersionContext';
 
 function handleRowKeyDown(event: KeyboardEvent, onActivate: () => void) {
   if (event.key === 'Enter' || event.key === ' ') {
@@ -86,6 +91,7 @@ function MobileStatBlock({
 
 function VaultExplorerMobileCard({ vault, showYourPosition }: VaultExplorerRowProps) {
   const router = useRouter();
+  const { showVersionBadges } = useVaultVersion();
   const { getVaultData, isLoading } = useVaultData();
   const vaultData = getVaultData(vault.address);
   const loading = isLoading(vault.address);
@@ -102,9 +108,11 @@ function VaultExplorerMobileCard({ vault, showYourPosition }: VaultExplorerRowPr
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-medium text-[var(--foreground)]">{vault.name}</span>
-            <span className="inline-flex rounded-md bg-[var(--primary-subtle)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--primary)]">
-              {vault.version}
-            </span>
+            {showVersionBadges && (
+              <span className="inline-flex rounded-md bg-[var(--primary-subtle)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--primary)]">
+                {vault.version}
+              </span>
+            )}
             <span className="inline-flex rounded-md bg-[var(--surface-elevated)] px-2 py-0.5 text-[10px] font-medium text-[var(--foreground-secondary)]">
               Base
             </span>
@@ -186,9 +194,13 @@ function DashboardVaultMobileCard({
 
       <div className="grid grid-cols-2 gap-3">
         <MobileStatBlock label="Your Position">
-          {!address || loading || morphoHoldings.isLoading ? (
+          {!address || morphoHoldings.isLoading ? (
             <Skeleton width="5rem" height="1rem" />
-          ) : positionUsd > 0 ? (
+          ) : hasOnChainVaultShares(
+              morphoHoldings.positions.find(
+                (item) => item.vault.address.toLowerCase() === vault.address.toLowerCase()
+              )
+            ) ? (
             <div className="flex flex-col gap-1">
               <span className="text-sm font-medium text-[var(--foreground)]">{positionRaw}</span>
               <span className="text-xs text-[var(--foreground-secondary)]">
@@ -273,15 +285,20 @@ function PositionCell({
   const position = morphoHoldings.positions.find(
     (item) => item.vault.address.toLowerCase() === vault.address.toLowerCase()
   );
-  const positionUsd = position?.assetsUsd ?? 0;
   const decimals = vaultData?.assetDecimals ?? (vault.symbol === 'USDC' ? 6 : 18);
+  const positionUsd = position
+    ? resolvePositionAssetsUsd(position, {
+        assetDecimals: decimals,
+        symbol: vault.symbol,
+      })
+    : 0;
   const positionRaw = position?.assets
     ? formatPositionTokenAmount(position.assets, decimals, vault.symbol)
     : '-';
 
   const alignClass = align === 'start' ? 'items-start' : 'items-end';
 
-  if (!address || loading || morphoHoldings.isLoading) {
+  if (!address || morphoHoldings.isLoading) {
     return (
       <div className={`flex flex-col ${alignClass} gap-1.5`}>
         <Skeleton width="5rem" height="1rem" />
@@ -290,8 +307,17 @@ function PositionCell({
     );
   }
 
-  if (positionUsd <= 0) {
+  if (!hasOnChainVaultShares(position)) {
     return <span className="text-sm text-[var(--foreground-muted)]">-</span>;
+  }
+
+  if (loading && !position?.assets) {
+    return (
+      <div className={`flex flex-col ${alignClass} gap-1.5`}>
+        <Skeleton width="5rem" height="1rem" />
+        <Skeleton width="4rem" height="0.875rem" />
+      </div>
+    );
   }
 
   return (
@@ -311,6 +337,7 @@ interface VaultExplorerRowProps {
 
 function VaultExplorerRow({ vault, showYourPosition }: VaultExplorerRowProps) {
   const router = useRouter();
+  const { showVersionBadges } = useVaultVersion();
   const { getVaultData, isLoading } = useVaultData();
   const vaultData = getVaultData(vault.address);
   const loading = isLoading(vault.address);
@@ -341,9 +368,11 @@ function VaultExplorerRow({ vault, showYourPosition }: VaultExplorerRowProps) {
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <span className="text-sm font-medium text-[var(--foreground)] truncate">{vault.name}</span>
-              <span className="inline-flex rounded-md bg-[var(--primary-subtle)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--primary)]">
-                {vault.version}
-              </span>
+              {showVersionBadges && (
+                <span className="inline-flex rounded-md bg-[var(--primary-subtle)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--primary)]">
+                  {vault.version}
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -504,7 +533,10 @@ export function DashboardVaultTable({
           const position = morphoHoldings.positions.find(
             (item) => item.vault.address.toLowerCase() === vault.address.toLowerCase()
           );
-          const positionUsd = position?.assetsUsd ?? 0;
+          const decimals = vaultData?.assetDecimals ?? (vault.symbol === 'USDC' ? 6 : 18);
+          const positionUsd = position
+            ? resolvePositionAssetsUsd(position, { assetDecimals: decimals, symbol: vault.symbol })
+            : 0;
 
           return (
             <DashboardVaultMobileCard
@@ -540,8 +572,10 @@ export function DashboardVaultTable({
             const position = morphoHoldings.positions.find(
               (item) => item.vault.address.toLowerCase() === vault.address.toLowerCase()
             );
-            const positionUsd = position?.assetsUsd ?? 0;
             const decimals = vaultData?.assetDecimals ?? (vault.symbol === 'USDC' ? 6 : 18);
+            const positionUsd = position
+              ? resolvePositionAssetsUsd(position, { assetDecimals: decimals, symbol: vault.symbol })
+              : 0;
             const positionRaw = position?.assets
               ? formatPositionTokenAmount(position.assets, decimals, vault.symbol)
               : '-';
@@ -565,9 +599,9 @@ export function DashboardVaultTable({
                   </div>
                 </td>
                 <td className="px-2 py-3 align-middle text-right">
-                  {!address || loading || morphoHoldings.isLoading ? (
+                  {!address || morphoHoldings.isLoading ? (
                     <Skeleton width="4.5rem" height="1rem" className="ml-auto" />
-                  ) : positionUsd > 0 ? (
+                  ) : hasOnChainVaultShares(position) ? (
                     <div className="flex flex-col items-end gap-0.5">
                       <span className="text-sm font-medium text-[var(--foreground)] tabular-nums">{positionRaw}</span>
                       <span className="text-xs text-[var(--foreground-secondary)] tabular-nums">

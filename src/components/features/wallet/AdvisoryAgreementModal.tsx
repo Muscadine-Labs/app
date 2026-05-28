@@ -80,15 +80,15 @@ export function AdvisoryAgreementModal() {
         {/* Main Content */}
         <div className="space-y-1.5 sm:space-y-2">
           <p className="text-xs sm:text-sm text-[var(--foreground)] leading-relaxed">
-            By connecting your wallet, you authorize Muscadine Labs LLC to manage your on-chain strategy allocation according to the disclosed strategy and risk parameters.
+            By connecting your wallet, you access Muscadine Labs curated Morpho vault strategies configured under our disclosed strategy and risk parameters. You retain custody at all times—we do not hold your keys or take possession of your assets.
           </p>
 
           <p className="text-xs sm:text-sm text-[var(--foreground)] leading-relaxed">
-            You authorize discretionary strategy management implemented via third-party DeFi protocols (including Morpho), which provide infrastructure only and do not manage assets or provide advice.
+            You sign your own deposits and withdrawals into non-custodial smart contracts. Third-party DeFi protocols (including Morpho) provide infrastructure only; they do not custody assets or provide investment advice. Muscadine provides risk curation and this interface—not financial, tax, or legal advice.
           </p>
 
           <p className="text-xs sm:text-sm text-[var(--foreground)] leading-relaxed">
-            Returns are not guaranteed; losses, liquidations, and smart-contract risks are possible.
+            Returns are not guaranteed; losses, liquidations, and smart-contract risks are possible, including total loss of principal.
           </p>
 
           {/* Links */}
@@ -122,6 +122,14 @@ export function AdvisoryAgreementModal() {
                   className="block py-1 sm:py-1.5 text-xs sm:text-sm text-[var(--foreground)] hover:text-[var(--primary)] transition-colors cursor-pointer"
                 >
                   Privacy Policy
+                </a>
+                <a
+                  href="https://muscadine.io/risk"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block py-1 sm:py-1.5 text-xs sm:text-sm text-[var(--foreground)] hover:text-[var(--primary)] transition-colors cursor-pointer"
+                >
+                  Risk Framework
                 </a>
               </div>
             </div>
@@ -163,7 +171,17 @@ export function AdvisoryAgreementModal() {
               className="mt-0.5 sm:mt-1 w-4 h-4 rounded border-[var(--border)] text-[var(--primary)] focus:ring-[var(--primary)] focus:ring-offset-0 cursor-pointer flex-shrink-0"
             />
             <span className="text-xs sm:text-sm text-[var(--foreground)] group-hover:text-[var(--foreground-secondary)] leading-relaxed">
-              I have read and agree with terms of use.
+              I have read and agree with the{' '}
+              <a
+                href="https://muscadine.io/terms"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[var(--primary)] hover:underline"
+                onClick={(e) => e.stopPropagation()}
+              >
+                Terms of Use
+              </a>
+              .
             </span>
           </label>
 
@@ -175,7 +193,17 @@ export function AdvisoryAgreementModal() {
               className="mt-0.5 sm:mt-1 w-4 h-4 rounded border-[var(--border)] text-[var(--primary)] focus:ring-[var(--primary)] focus:ring-offset-0 cursor-pointer flex-shrink-0"
             />
             <span className="text-xs sm:text-sm text-[var(--foreground)] group-hover:text-[var(--foreground-secondary)] leading-relaxed">
-              I understand risks and that returns are not guaranteed.
+              I have read the{' '}
+              <a
+                href="https://muscadine.io/risk"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[var(--primary)] hover:underline"
+                onClick={(e) => e.stopPropagation()}
+              >
+                risk framework
+              </a>
+              {' '}and understand that returns are not guaranteed.
             </span>
           </label>
 
@@ -187,7 +215,17 @@ export function AdvisoryAgreementModal() {
               className="mt-0.5 sm:mt-1 w-4 h-4 rounded border-[var(--border)] text-[var(--primary)] focus:ring-[var(--primary)] focus:ring-offset-0 cursor-pointer flex-shrink-0"
             />
             <span className="text-xs sm:text-sm text-[var(--foreground)] group-hover:text-[var(--foreground-secondary)] leading-relaxed">
-              I am not located in a country or region subject to economic sanctions.
+              I am not located in a country or region subject to{' '}
+              <a
+                href="https://ofac.treasury.gov/sanctions-programs-and-country-information"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[var(--primary)] hover:underline"
+                onClick={(e) => e.stopPropagation()}
+              >
+                U.S. economic sanctions
+              </a>
+              .
             </span>
           </label>
         </div>

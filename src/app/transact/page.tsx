@@ -10,12 +10,18 @@ import { useVaultData } from '@/contexts/VaultDataContext';
 import { usePrices } from '@/contexts/PriceContext';
 import { useVaultVersion } from '@/contexts/VaultVersionContext';
 import { VAULTS } from '@/lib/vaults';
-import { VaultAccount, WalletAccount } from '@/types/vault';
+import { Account, Vault, VaultAccount, WalletAccount } from '@/types/vault';
 import { formatBigIntForInput, formatAvailableBalance, formatAssetAmountForMax, formatCurrency, formatAssetBalance } from '@/lib/formatter';
 import { Button } from '@/components/ui';
 import { Icon } from '@/components/ui/Icon';
 import { formatUnits } from 'viem';
 import { ERC4626_ABI } from '@/lib/abis';
+import {
+  getVaultVersion,
+  hasOnChainVaultShares,
+  mergeRegistryVaultsWithDeposits,
+  type WalletMorphoPosition,
+} from '@/lib/vault-utils';
 import { TOKEN_ADDRESSES_LOWER, type TokenBalance } from '@/contexts/WalletContext';
 
 // Helper function to get asset decimals from vault symbol (no API needed)
@@ -31,6 +37,35 @@ const getAssetDecimals = (symbol: string): number => {
   }
   return 18; // Default to 18 for other tokens
 };
+
+function buildRegistryVaultList(): Vault[] {
+  return Object.values(VAULTS).map((vault) => ({
+    address: vault.address,
+    name: vault.name,
+    symbol: vault.symbol,
+    chainId: vault.chainId,
+    version: vault.version,
+  }));
+}
+
+function vaultToVaultAccount(
+  vault: Vault,
+  positions: WalletMorphoPosition[]
+): VaultAccount {
+  const position = positions.find(
+    (pos) => pos.vault.address.toLowerCase() === vault.address.toLowerCase()
+  );
+
+  return {
+    type: 'vault',
+    address: vault.address,
+    name: vault.name,
+    symbol: vault.symbol,
+    balance: position && hasOnChainVaultShares(position) ? BigInt(position.shares) : BigInt(0),
+    assetAddress: '',
+    assetDecimals: getAssetDecimals(vault.symbol),
+  };
+}
 
 // Helper function to find token by symbol using address-based matching for reliability
 // Note: wstETH and cbETH are intentionally excluded - only shown in wallet overview
@@ -54,6 +89,34 @@ const findTokenBySymbol = (
 
 type TransactionTab = 'deposit' | 'withdraw';
 
+function accountsMatchTransactionTab(
+  tab: TransactionTab,
+  from: Account | null,
+  to: Account | null
+): boolean {
+  if (tab === 'deposit') {
+    return from?.type === 'wallet' && (to === null || to.type === 'vault');
+  }
+  return from?.type === 'vault' && to?.type === 'wallet';
+}
+
+/** Restore wallet/vault slots for the selected tab while keeping the same vault. */
+function syncAccountsToTab(
+  tab: TransactionTab,
+  from: Account | null,
+  to: Account | null,
+  wallet: WalletAccount
+): { from: Account | null; to: Account | null } {
+  const vault =
+    (from?.type === 'vault' ? from : null) ??
+    (to?.type === 'vault' ? to : null);
+
+  if (tab === 'deposit') {
+    return { from: wallet, to: vault };
+  }
+  return { from: vault, to: wallet };
+}
+
 export default function TransactionsPage() {
   const { isConnected } = useAccount();
   const searchParams = useSearchParams();
@@ -61,7 +124,7 @@ export default function TransactionsPage() {
   const { tokenBalances, ethBalance, morphoHoldings, refreshBalances } = useWallet();
   const { fetchVaultData } = useVaultData();
   const { btc: btcPrice, eth: ethPrice } = usePrices();
-  const { version } = useVaultVersion();
+  const { version, preference } = useVaultVersion();
   const {
     fromAccount,
     toAccount,
@@ -113,15 +176,34 @@ export default function TransactionsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isConnected]);
 
+  // Memoize wallet account to avoid creating new objects on each render
+  const walletAccount = useMemo<WalletAccount>(() => ({
+    type: 'wallet' as const,
+    address: 'wallet',
+    symbol: 'Wallet',
+    balance: BigInt(0),
+  }), []);
+
   // Track previous status to detect transitions to idle
   const prevStatusRef = useRef<typeof status>(status);
-  
+  const appliedVaultUrlRef = useRef<string | null>(null);
+
   // Refresh balances when status returns to idle (after transaction completion/reset)
   useEffect(() => {
     // Only refresh when transitioning TO idle from another state (not on initial mount)
-    const wasIdle = prevStatusRef.current === 'idle';
+    const prevStatus = prevStatusRef.current;
+    const wasIdle = prevStatus === 'idle';
     const isNowIdle = status === 'idle';
     const transitionedToIdle = !wasIdle && isNowIdle;
+
+    // Returning from preview: keep deposit = wallet→vault, withdraw = vault→wallet
+    if (prevStatus === 'preview' && isNowIdle) {
+      if (!accountsMatchTransactionTab(activeTab, fromAccount, toAccount)) {
+        const synced = syncAccountsToTab(activeTab, fromAccount, toAccount, walletAccount);
+        setFromAccount(synced.from);
+        setToAccount(synced.to);
+      }
+    }
     
     if (isConnected && transitionedToIdle) {
       // Refresh wallet balances to get updated values (includes vault positions via RPC)
@@ -142,14 +224,23 @@ export default function TransactionsPage() {
     // Update previous status
     prevStatusRef.current = status;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, isConnected]);
+  }, [status, isConnected, activeTab, fromAccount, toAccount, walletAccount, setFromAccount, setToAccount]);
 
   // Handle URL params for pre-filling vault (when navigating from vault page)
   useEffect(() => {
     const vaultAddress = searchParams.get('vault');
     const action = searchParams.get('action'); // 'deposit' or 'withdraw'
 
-    if (!vaultAddress || !action) return;
+    if (!vaultAddress || !action) {
+      appliedVaultUrlRef.current = null;
+      return;
+    }
+
+    const urlSignature = `${vaultAddress.toLowerCase()}:${action}:${version}`;
+    if (appliedVaultUrlRef.current === urlSignature) {
+      return;
+    }
+    appliedVaultUrlRef.current = urlSignature;
 
     queueMicrotask(() => {
       const vault = Object.values(VAULTS).find((v) => 
@@ -207,14 +298,6 @@ export default function TransactionsPage() {
     });
   }, [searchParams, version, morphoHoldings.positions, setFromAccount, setToAccount, setPreferredAsset]);
 
-  // Memoize wallet account to avoid creating new objects on each render
-  const walletAccount = useMemo<WalletAccount>(() => ({
-    type: 'wallet' as const,
-    address: 'wallet',
-    symbol: 'Wallet',
-    balance: BigInt(0),
-  }), []);
-
   // Initialize accounts based on active tab when page first loads (if no accounts set and no URL params)
   useEffect(() => {
     const vaultAddress = searchParams.get('vault');
@@ -234,7 +317,12 @@ export default function TransactionsPage() {
 
   // Handle tab changes - reset and pre-select accounts based on tab
   const handleTabChange = useCallback((tab: TransactionTab) => {
-    if (tab === activeTab || status !== 'idle') return;
+    if (status !== 'idle') return;
+    // activeTab can disagree with from/to (e.g. withdraw tab + wallet→vault accounts);
+    // only skip when the tab and account layout already match.
+    if (tab === activeTab && accountsMatchTransactionTab(tab, fromAccount, toAccount)) {
+      return;
+    }
 
     setActiveTab(tab);
     setAmount('');
@@ -250,7 +338,17 @@ export default function TransactionsPage() {
       setFromAccount(null);
       setToAccount(walletAccount);
     }
-  }, [activeTab, walletAccount, setFromAccount, setToAccount, setAmount, setPreferredAsset, status]);
+  }, [
+    activeTab,
+    fromAccount,
+    toAccount,
+    walletAccount,
+    setFromAccount,
+    setToAccount,
+    setAmount,
+    setPreferredAsset,
+    status,
+  ]);
 
   // Get vault position for share balance - use data already fetched in WalletContext
   const vaultPosition = useMemo(() => {
@@ -536,6 +634,32 @@ export default function TransactionsPage() {
     return enteredAmount > maxAmount;
   }, [amount, fromAccount, derivedAsset, getMaxAmount]);
 
+  const requiresV1DepositRiskAck = useMemo(() => {
+    if (preference !== 'all') return false;
+    if (!fromAccount || !toAccount) return false;
+    if (fromAccount.type !== 'wallet' || toAccount.type !== 'vault') return false;
+    return getVaultVersion((toAccount as VaultAccount).address) === 'v1';
+  }, [preference, fromAccount, toAccount]);
+
+  const [v1DepositRiskAcknowledged, setV1DepositRiskAcknowledged] = useState(false);
+  const [balanceBypassAcknowledged, setBalanceBypassAcknowledged] = useState(false);
+
+  const allowOverBalanceOnAllPreference = preference === 'all';
+  const blockContinueForBalance =
+    exceedsBalance && !(allowOverBalanceOnAllPreference && balanceBypassAcknowledged);
+
+  const mergedRegistryVaults = useMemo(
+    () =>
+      mergeRegistryVaultsWithDeposits(
+        buildRegistryVaultList().filter(
+          (vault) => version === 'all' || vault.version === version
+        ),
+        morphoHoldings.positions,
+        version
+      ),
+    [morphoHoldings.positions, version]
+  );
+
   const handleStartTransaction = () => {
     if (fromAccount && toAccount && derivedAsset) {
       setStatus('preview');
@@ -566,23 +690,9 @@ export default function TransactionsPage() {
       balance: BigInt(0),
     };
 
-    const vaultAccounts: VaultAccount[] = Object.values(VAULTS)
-      .filter((vault) => version === 'all' || vault.version === version)
-      .map((vault): VaultAccount => {
-      const position = morphoHoldings.positions.find(
-        (pos) => pos.vault.address.toLowerCase() === vault.address.toLowerCase()
-      );
-
-      return {
-        type: 'vault' as const,
-        address: vault.address,
-        name: vault.name,
-        symbol: vault.symbol,
-        balance: position ? BigInt(position.shares) : BigInt(0),
-        assetAddress: '',
-        assetDecimals: getAssetDecimals(vault.symbol),
-      };
-    });
+    const vaultAccounts = mergedRegistryVaults.map((vault) =>
+      vaultToVaultAccount(vault, morphoHoldings.positions)
+    );
 
     return [walletAccount, ...vaultAccounts].filter((account) => {
       // Exclude the account selected in "To" if it's the same
@@ -596,7 +706,7 @@ export default function TransactionsPage() {
       }
       return true;
     });
-  }, [toAccount, morphoHoldings.positions, version]);
+  }, [toAccount, morphoHoldings.positions, mergedRegistryVaults]);
 
   // Calculate available accounts for "To" selector
   const availableToAccounts = useMemo(() => {
@@ -612,23 +722,9 @@ export default function TransactionsPage() {
       return [walletAccount];
     }
 
-    const vaultAccounts: VaultAccount[] = Object.values(VAULTS)
-      .filter((vault) => version === 'all' || vault.version === version)
-      .map((vault): VaultAccount => {
-        const position = morphoHoldings.positions.find(
-          (pos) => pos.vault.address.toLowerCase() === vault.address.toLowerCase()
-        );
-
-        return {
-          type: 'vault' as const,
-          address: vault.address,
-          name: vault.name,
-          symbol: vault.symbol,
-          balance: position ? BigInt(position.shares) : BigInt(0),
-          assetAddress: '',
-          assetDecimals: getAssetDecimals(vault.symbol),
-        };
-      });
+    const vaultAccounts = mergedRegistryVaults.map((vault) =>
+      vaultToVaultAccount(vault, morphoHoldings.positions)
+    );
 
     return [walletAccount, ...vaultAccounts].filter((account) => {
       if (!fromAccount) {
@@ -644,7 +740,7 @@ export default function TransactionsPage() {
       const fromVault = fromAccount as unknown as VaultAccount;
       return accountVault.address.toLowerCase() !== fromVault.address.toLowerCase();
     });
-  }, [fromAccount, morphoHoldings.positions, version]);
+  }, [fromAccount, morphoHoldings.positions, mergedRegistryVaults]);
 
   // Auto-select "From" account if there's only one option
   useEffect(() => {
@@ -726,12 +822,13 @@ export default function TransactionsPage() {
       {status === 'idle' && (
         <div className="bg-[var(--surface)] rounded-lg border border-[var(--border-subtle)] p-4 md:p-6 space-y-4 md:space-y-6">
           {/* Deposit/Withdraw Tabs */}
-          <div className="flex gap-2">
+          <div className="relative z-10 flex gap-2">
             <button
+              type="button"
               onClick={() => handleTabChange('deposit')}
               disabled={status !== 'idle'}
-              className={`flex-1 px-4 py-3 md:py-2.5 rounded-lg font-medium text-sm md:text-sm transition-colors min-h-[44px] md:min-h-0 ${
-                effectiveActiveTab === 'deposit'
+              className={`flex-1 px-4 py-3 md:py-2.5 rounded-lg font-medium text-sm transition-colors min-h-[44px] md:min-h-0 cursor-pointer ${
+                activeTab === 'deposit'
                   ? 'bg-[var(--primary)] text-white'
                   : 'bg-[var(--background)] text-[var(--foreground-secondary)] hover:bg-[var(--surface-elevated)]'
               } disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-[var(--background)]`}
@@ -739,10 +836,11 @@ export default function TransactionsPage() {
               Deposit
             </button>
             <button
+              type="button"
               onClick={() => handleTabChange('withdraw')}
               disabled={status !== 'idle'}
-              className={`flex-1 px-4 py-3 md:py-2.5 rounded-lg font-medium text-sm md:text-sm transition-colors min-h-[44px] md:min-h-0 ${
-                effectiveActiveTab === 'withdraw'
+              className={`flex-1 px-4 py-3 md:py-2.5 rounded-lg font-medium text-sm transition-colors min-h-[44px] md:min-h-0 cursor-pointer ${
+                activeTab === 'withdraw'
                   ? 'bg-[var(--primary)] text-white'
                   : 'bg-[var(--background)] text-[var(--foreground-secondary)] hover:bg-[var(--surface-elevated)]'
               } disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-[var(--background)]`}
@@ -962,12 +1060,22 @@ export default function TransactionsPage() {
                   {fromAccount.type === 'wallet' ? getWalletBalanceText : getVaultBalanceText}
                 </p>
               )}
-              {/* Warning if amount exceeds available balance */}
               {exceedsBalance && (
-                <div className="p-3 bg-[var(--warning-subtle)] rounded-lg border border-[var(--warning)]">
+                <div className="p-3 bg-[var(--warning-subtle)] rounded-lg border border-[var(--warning)] space-y-2">
                   <p className="text-xs text-[var(--foreground)]">
                     <span className="font-medium">Warning:</span> Amount exceeds available balance. This transaction will fail if you proceed.
                   </p>
+                  {allowOverBalanceOnAllPreference && (
+                    <label className="flex items-start gap-2 cursor-pointer text-xs text-[var(--foreground)]">
+                      <input
+                        type="checkbox"
+                        checked={balanceBypassAcknowledged}
+                        onChange={(e) => setBalanceBypassAcknowledged(e.target.checked)}
+                        className="mt-0.5 rounded border-[var(--border-subtle)]"
+                      />
+                      <span>Proceed anyway (Dev mode — for testing)</span>
+                    </label>
+                  )}
                 </div>
               )}
             </div>
@@ -985,6 +1093,31 @@ export default function TransactionsPage() {
             </div>
           ) : null}
 
+          {requiresV1DepositRiskAck && (
+            <div className="p-3 bg-[var(--warning-subtle)] rounded-lg border border-[var(--warning)]">
+              <label className="flex items-start gap-2 cursor-pointer text-xs text-[var(--foreground)]">
+                <input
+                  type="checkbox"
+                  checked={v1DepositRiskAcknowledged}
+                  onChange={(e) => setV1DepositRiskAcknowledged(e.target.checked)}
+                  className="mt-0.5 rounded border-[var(--border-subtle)]"
+                />
+                <span>
+                  I am okay with the risk associated.{' '}
+                  <a
+                    href="https://muscadine.io/risk"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[var(--primary)] hover:underline"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    Risk Framework
+                  </a>
+                </span>
+              </label>
+            </div>
+          )}
+
           {/* Start Transaction Button */}
           <Button
             onClick={handleStartTransaction}
@@ -994,7 +1127,8 @@ export default function TransactionsPage() {
               !derivedAsset || 
               !amount || 
               parseFloat(amount) <= 0 ||
-              exceedsBalance || // Prevent continuing with insufficient balance
+              blockContinueForBalance ||
+              (requiresV1DepositRiskAck && !v1DepositRiskAcknowledged) ||
               (fromAccount.type === 'wallet' && toAccount.type === 'wallet') || // Prevent wallet-to-wallet
               (fromAccount.type === 'vault' && toAccount.type === 'vault') // Prevent vault-to-vault
             }
