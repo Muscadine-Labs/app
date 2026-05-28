@@ -16,7 +16,7 @@ import { Button } from '@/components/ui';
 import { Icon } from '@/components/ui/Icon';
 import { formatUnits } from 'viem';
 import { ERC4626_ABI } from '@/lib/abis';
-import { hasOnChainVaultShares } from '@/lib/vault-utils';
+import { getVaultVersion, hasOnChainVaultShares } from '@/lib/vault-utils';
 import { TOKEN_ADDRESSES_LOWER, type TokenBalance } from '@/contexts/WalletContext';
 
 // Helper function to get asset decimals from vault symbol (no API needed)
@@ -90,7 +90,7 @@ export default function TransactionsPage() {
   const { tokenBalances, ethBalance, morphoHoldings, refreshBalances } = useWallet();
   const { fetchVaultData } = useVaultData();
   const { btc: btcPrice, eth: ethPrice } = usePrices();
-  const { version } = useVaultVersion();
+  const { version, preference } = useVaultVersion();
   const {
     fromAccount,
     toAccount,
@@ -600,6 +600,15 @@ export default function TransactionsPage() {
     return enteredAmount > maxAmount;
   }, [amount, fromAccount, derivedAsset, getMaxAmount]);
 
+  const requiresV1DepositRiskAck = useMemo(() => {
+    if (preference !== 'all') return false;
+    if (!fromAccount || !toAccount) return false;
+    if (fromAccount.type !== 'wallet' || toAccount.type !== 'vault') return false;
+    return getVaultVersion((toAccount as VaultAccount).address) === 'v1';
+  }, [preference, fromAccount, toAccount]);
+
+  const [v1DepositRiskAcknowledged, setV1DepositRiskAcknowledged] = useState(false);
+
   const handleStartTransaction = () => {
     if (fromAccount && toAccount && derivedAsset) {
       setStatus('preview');
@@ -1058,6 +1067,30 @@ export default function TransactionsPage() {
             </div>
           ) : null}
 
+          {requiresV1DepositRiskAck && (
+            <div className="p-3 bg-[var(--warning-subtle)] rounded-lg border border-[var(--warning)]">
+              <label className="flex items-start gap-2 cursor-pointer text-xs text-[var(--foreground)]">
+                <input
+                  type="checkbox"
+                  checked={v1DepositRiskAcknowledged}
+                  onChange={(e) => setV1DepositRiskAcknowledged(e.target.checked)}
+                  className="mt-0.5 rounded border-[var(--border-subtle)]"
+                />
+                <span>
+                  I am okay with the risk associated.{' '}
+                  <a
+                    href="https://muscadine.io/risk"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[var(--primary)] hover:underline"
+                  >
+                    Risk Framework
+                  </a>
+                </span>
+              </label>
+            </div>
+          )}
+
           {/* Start Transaction Button */}
           <Button
             onClick={handleStartTransaction}
@@ -1067,7 +1100,8 @@ export default function TransactionsPage() {
               !derivedAsset || 
               !amount || 
               parseFloat(amount) <= 0 ||
-              exceedsBalance || // Prevent continuing with insufficient balance
+              exceedsBalance ||
+              (requiresV1DepositRiskAck && !v1DepositRiskAcknowledged) ||
               (fromAccount.type === 'wallet' && toAccount.type === 'wallet') || // Prevent wallet-to-wallet
               (fromAccount.type === 'vault' && toAccount.type === 'vault') // Prevent vault-to-vault
             }

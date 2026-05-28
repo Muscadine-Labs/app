@@ -23,6 +23,7 @@ import {
 import { formatUnits } from 'viem';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useIsClient } from '@/hooks/useClientOnly';
+import { useVaultVersion } from '@/contexts/VaultVersionContext';
 
 function handleRowKeyDown(event: KeyboardEvent, onActivate: () => void) {
   if (event.key === 'Enter' || event.key === ' ') {
@@ -90,6 +91,7 @@ function MobileStatBlock({
 
 function VaultExplorerMobileCard({ vault, showYourPosition }: VaultExplorerRowProps) {
   const router = useRouter();
+  const { showVersionBadges } = useVaultVersion();
   const { getVaultData, isLoading } = useVaultData();
   const vaultData = getVaultData(vault.address);
   const loading = isLoading(vault.address);
@@ -106,9 +108,11 @@ function VaultExplorerMobileCard({ vault, showYourPosition }: VaultExplorerRowPr
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-medium text-[var(--foreground)]">{vault.name}</span>
-            <span className="inline-flex rounded-md bg-[var(--primary-subtle)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--primary)]">
-              {vault.version}
-            </span>
+            {showVersionBadges && (
+              <span className="inline-flex rounded-md bg-[var(--primary-subtle)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--primary)]">
+                {vault.version}
+              </span>
+            )}
             <span className="inline-flex rounded-md bg-[var(--surface-elevated)] px-2 py-0.5 text-[10px] font-medium text-[var(--foreground-secondary)]">
               Base
             </span>
@@ -333,6 +337,7 @@ interface VaultExplorerRowProps {
 
 function VaultExplorerRow({ vault, showYourPosition }: VaultExplorerRowProps) {
   const router = useRouter();
+  const { showVersionBadges } = useVaultVersion();
   const { getVaultData, isLoading } = useVaultData();
   const vaultData = getVaultData(vault.address);
   const loading = isLoading(vault.address);
@@ -363,9 +368,11 @@ function VaultExplorerRow({ vault, showYourPosition }: VaultExplorerRowProps) {
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <span className="text-sm font-medium text-[var(--foreground)] truncate">{vault.name}</span>
-              <span className="inline-flex rounded-md bg-[var(--primary-subtle)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--primary)]">
-                {vault.version}
-              </span>
+              {showVersionBadges && (
+                <span className="inline-flex rounded-md bg-[var(--primary-subtle)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--primary)]">
+                  {vault.version}
+                </span>
+              )}
             </div>
           </div>
         </div>

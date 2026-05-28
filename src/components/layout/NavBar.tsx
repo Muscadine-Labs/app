@@ -27,7 +27,7 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
     const hamburgerButtonRef = useRef<HTMLButtonElement>(null);
     
     // Settings state with defaults
-    const { version, setVersion } = useVaultVersion();
+    const { preference, setPreference } = useVaultVersion();
     const { theme, setTheme } = useTheme();
 
     const isActive = useCallback((item: NavItem): boolean => {
@@ -331,26 +331,11 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                                 type="button"
                                                 onClick={(e) => {
                                                     e.stopPropagation();
-                                                    setVersion('v1');
+                                                    setPreference('v2');
                                                     setIsSettingsOpen(false);
                                                 }}
                                                 className={`flex-1 py-2 px-3 text-sm rounded-lg transition-colors cursor-pointer ${
-                                                    version === 'v1'
-                                                        ? 'bg-[var(--primary)] text-white'
-                                                        : 'text-[var(--foreground)] hover:bg-[var(--surface-hover)]'
-                                                }`}
-                                            >
-                                                V1
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    setVersion('v2');
-                                                    setIsSettingsOpen(false);
-                                                }}
-                                                className={`flex-1 py-2 px-3 text-sm rounded-lg transition-colors cursor-pointer ${
-                                                    version === 'v2'
+                                                    preference === 'v2'
                                                         ? 'bg-[var(--primary)] text-white'
                                                         : 'text-[var(--foreground)] hover:bg-[var(--surface-hover)]'
                                                 }`}
@@ -361,11 +346,11 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                                 type="button"
                                                 onClick={(e) => {
                                                     e.stopPropagation();
-                                                    setVersion('all');
+                                                    setPreference('all');
                                                     setIsSettingsOpen(false);
                                                 }}
                                                 className={`flex-1 py-2 px-3 text-sm rounded-lg transition-colors cursor-pointer ${
-                                                    version === 'all'
+                                                    preference === 'all'
                                                         ? 'bg-[var(--primary)] text-white'
                                                         : 'text-[var(--foreground)] hover:bg-[var(--surface-hover)]'
                                                 }`}
