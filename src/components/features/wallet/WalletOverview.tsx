@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { useIsClient } from '@/hooks/useClientOnly';
 import { useWallet } from '@/contexts/WalletContext';
 import { formatNumber, formatCurrency } from '@/lib/formatter';
+import { hasOnChainVaultShares, resolvePositionAssetsUsd } from '@/lib/vault-utils';
 import { Skeleton } from '@/components/ui/Skeleton';
 import {
     useFloating,
@@ -116,16 +117,11 @@ export default function WalletOverview() {
     // Calculate and sort Morpho vault positions by USD value, limit to 10
     // Use assetsUsd directly from GraphQL API when available (most accurate)
     const sortedVaultPositions = morphoHoldings.positions
+        .filter((position) => hasOnChainVaultShares(position))
         .map((position) => {
-            // Use assetsUsd directly from GraphQL API if available (most accurate)
-            // Fallback to shares × sharePriceUsd calculation
-            const usdValue = position.assetsUsd !== undefined && position.assetsUsd > 0
-                ? position.assetsUsd
-                : (() => {
-                    const shares = parseFloat(position.shares) / 1e18;
-                    const sharePriceUsd = position.vault.state?.sharePriceUsd || 0;
-                    return shares * sharePriceUsd;
-                })();
+            const usdValue = resolvePositionAssetsUsd(position, {
+                symbol: position.vault.symbol,
+            });
             
             return {
                 address: position.vault.address,
@@ -134,7 +130,6 @@ export default function WalletOverview() {
                 usdValue,
             };
         })
-        .filter((pos) => pos.usdValue > 0.02) // Only show positions with more than $0.02
         .sort((a, b) => b.usdValue - a.usdValue)
         .slice(0, 10);
     

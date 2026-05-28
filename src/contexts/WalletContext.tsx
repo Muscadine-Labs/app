@@ -484,15 +484,24 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
           // Step 3: Fetch vault metadata to get vault info (for sharePriceUsd, etc.)
           const vaultVersion = getVaultVersion(vaultInfo.address);
           const vaultResponse = await fetch(`/api/vault/${vaultVersion}/${vaultInfo.address}/complete?chainId=${vaultInfo.chainId}`);
-          if (!vaultResponse.ok) {
-            return null;
+          let vaultInfoData: {
+            name?: string;
+            asset?: { symbol?: string; decimals?: number };
+            state?: { sharePriceUsd?: number; totalAssetsUsd?: number; totalSupply?: string };
+          } | null = null;
+
+          if (vaultResponse.ok) {
+            const vaultData = await vaultResponse.json();
+            vaultInfoData = vaultData.data?.vaultByAddress ?? null;
           }
-          
-          const vaultData = await vaultResponse.json();
-          const vaultInfoData = vaultData.data?.vaultByAddress;
-          
+
+          // Registry fallback when Morpho API is unavailable (positions still exist on-chain)
           if (!vaultInfoData) {
-            return null;
+            vaultInfoData = {
+              name: vaultInfo.name,
+              asset: { symbol: vaultInfo.symbol },
+              state: { sharePriceUsd: 0, totalAssetsUsd: 0, totalSupply: '0' },
+            };
           }
 
           const sharePriceUsd = vaultInfoData.state?.sharePriceUsd || 0;

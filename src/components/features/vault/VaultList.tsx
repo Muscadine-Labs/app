@@ -6,6 +6,8 @@ import { useWallet } from "../../../contexts/WalletContext";
 import { useVaultVersion, DEFAULT_VAULT_FILTER_VERSION } from "../../../contexts/VaultVersionContext";
 import { useMemo } from "react";
 import { useIsClient } from "@/hooks/useClientOnly";
+import { mergeRegistryVaultsWithDeposits, sortVaultsForDisplay } from "@/lib/vault-utils";
+import { useVaultData } from "../../../contexts/VaultDataContext";
 
 export type VaultListFilter = 'all' | 'deposited';
 export type VaultVersionFilter = 'v1' | 'v2' | 'all';
@@ -30,6 +32,7 @@ export default function VaultList({
     showBrowseLink = false,
 }: VaultListProps = {} as VaultListProps) {
     const { morphoHoldings } = useWallet();
+    const { getVaultData } = useVaultData();
     const { version: contextVersion } = useVaultVersion();
     const isMounted = useIsClient();
 
@@ -37,45 +40,42 @@ export default function VaultList({
     const headerTitle = title ?? (filter === 'deposited' ? 'Your Vaults' : 'Available Vaults');
 
     const baseVaults = useMemo(() => {
-        return Object.values(VAULTS)
-            .filter((vault) => effectiveVersion === 'all' || vault.version === effectiveVersion)
-            .map((vault) => ({
-                address: vault.address,
-                name: vault.name,
-                symbol: vault.symbol,
-                chainId: vault.chainId,
-                version: vault.version,
-            }));
-    }, [effectiveVersion]);
+        const all = Object.values(VAULTS).map((vault) => ({
+            address: vault.address,
+            name: vault.name,
+            symbol: vault.symbol,
+            chainId: vault.chainId,
+            version: vault.version,
+        }));
+
+        if (filter === 'deposited') {
+            const depositedAddresses = new Set(
+                morphoHoldings.positions.map((p) => p.vault.address.toLowerCase())
+            );
+            return all.filter((vault) => depositedAddresses.has(vault.address.toLowerCase()));
+        }
+
+        const versionFiltered = all.filter(
+            (vault) => effectiveVersion === 'all' || vault.version === effectiveVersion
+        );
+        return mergeRegistryVaultsWithDeposits(
+            versionFiltered,
+            morphoHoldings.positions,
+            effectiveVersion
+        );
+    }, [effectiveVersion, filter, morphoHoldings.positions]);
     
     const sortedVaults = useMemo(() => {
         if (!isMounted) {
             return baseVaults;
         }
-        
-        if (!morphoHoldings.positions || morphoHoldings.positions.length === 0) {
-            return baseVaults;
-        }
-        
-        return [...baseVaults].sort((a, b) => {
-            const positionA = morphoHoldings.positions.find(
-                pos => pos.vault.address.toLowerCase() === a.address.toLowerCase()
-            );
-            const positionB = morphoHoldings.positions.find(
-                pos => pos.vault.address.toLowerCase() === b.address.toLowerCase()
-            );
-            
-            const valueA = positionA && positionA.assetsUsd !== undefined && positionA.assetsUsd > 0
-                ? positionA.assetsUsd
-                : 0;
-            
-            const valueB = positionB && positionB.assetsUsd !== undefined && positionB.assetsUsd > 0
-                ? positionB.assetsUsd
-                : 0;
 
-            return valueB - valueA;
-        });
-    }, [baseVaults, isMounted, morphoHoldings.positions]);
+        return sortVaultsForDisplay(
+            baseVaults,
+            morphoHoldings.positions,
+            (address) => getVaultData(address)?.totalDeposits ?? 0
+        );
+    }, [baseVaults, isMounted, morphoHoldings.positions, getVaultData]);
 
     const displayedVaults = useMemo(() => {
         if (filter !== 'deposited') {

@@ -88,10 +88,6 @@ export async function GET(
               x
               y
             }
-            sharePrice(options: $options) {
-              x
-              y
-            }
             sharePriceUsd(options: $options) {
               x
               y

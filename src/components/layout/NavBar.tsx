@@ -183,6 +183,15 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                         >
                                             Privacy Policy
                                         </a>
+                                        <a
+                                            href="https://muscadine.io/risk"
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="block py-2 text-sm text-[var(--foreground)] hover:text-[var(--primary)] transition-colors cursor-pointer"
+                                            onClick={() => setIsMenuOpen(false)}
+                                        >
+                                            Risk Framework
+                                        </a>
                                     </div>
 
                                     {/* Social Icons */}

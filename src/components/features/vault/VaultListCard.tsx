@@ -4,7 +4,7 @@ import { useVaultData } from '../../../contexts/VaultDataContext';
 import { useWallet } from '../../../contexts/WalletContext';
 import { formatSmartCurrency, formatCurrency, formatNumber, formatPercentage } from '../../../lib/formatter';
 import { useRouter, usePathname } from 'next/navigation';
-import { getVaultRoute } from '../../../lib/vault-utils';
+import { getVaultRoute, hasOnChainVaultShares, resolvePositionAssetsUsd } from '../../../lib/vault-utils';
 import { useAccount, useReadContract } from 'wagmi';
 import { Skeleton } from '../../../components/ui/Skeleton';
 import { useMemo } from 'react';
@@ -60,9 +60,20 @@ export default function VaultListCard({ vault, onClick, isSelected }: VaultListC
 
     // Calculate user's position value using RPC data
     const userPositionValue = useMemo(() => {
-        // Use position from WalletContext (already calculated with RPC + price)
-        if (userPosition && userPosition.assetsUsd !== undefined && userPosition.assetsUsd > 0) {
-            return userPosition.assetsUsd;
+        if (userPosition) {
+            const fromContext = resolvePositionAssetsUsd(userPosition, {
+                assetDecimals: vaultData?.assetDecimals,
+                assetPriceUsd:
+                    vault.symbol.toUpperCase() === 'USDC'
+                        ? 1
+                        : vault.symbol.toUpperCase() === 'WETH'
+                          ? ethPrice || 0
+                          : vault.symbol.toUpperCase() === 'CBBTC'
+                            ? btcPrice || 0
+                            : 0,
+                symbol: vault.symbol,
+            });
+            if (fromContext > 0) return fromContext;
         }
         
         // Fallback: Calculate from RPC data if available
@@ -100,10 +111,13 @@ export default function VaultListCard({ vault, onClick, isSelected }: VaultListC
 
     // Get user's vault balance from RPC data
     const userVaultBalance = useMemo(() => {
-        if (!assetsRaw || !vaultData) {
+        const assetDecimals =
+            vaultData?.assetDecimals ?? (vault.symbol === 'USDC' ? 6 : vault.symbol === 'cbBTC' ? 8 : 18);
+
+        if (!assetsRaw) {
             // Fallback: Use position from WalletContext if available
-            if (userPosition && userPosition.assets && vaultData) {
-                const rawValue = parseFloat(userPosition.assets) / Math.pow(10, vaultData.assetDecimals || 18);
+            if (userPosition?.assets) {
+                const rawValue = parseFloat(userPosition.assets) / Math.pow(10, assetDecimals);
                 if (isNaN(rawValue) || rawValue === 0) return null;
                 
                 const integerPart = Math.floor(Math.abs(rawValue));
@@ -127,8 +141,11 @@ export default function VaultListCard({ vault, onClick, isSelected }: VaultListC
             }
             return null;
         }
+
+        if (!vaultData) {
+            return null;
+        }
         
-        const assetDecimals = vaultData.assetDecimals || (vault.symbol === 'USDC' ? 6 : 18);
         const rawValue = Number(assetsRaw) / Math.pow(10, assetDecimals);
         
         if (isNaN(rawValue) || rawValue === 0) return null;
@@ -186,12 +203,12 @@ export default function VaultListCard({ vault, onClick, isSelected }: VaultListC
             <div className="flex flex-row md:flex-row items-start md:items-center justify-between md:justify-end gap-4 md:gap-6 w-full md:w-auto md:flex-1">
                 {/* Your Position Column - Token balance on top, USD below */}
                 <div className="text-left md:text-right w-auto md:min-w-[140px]">
-                    {!isMounted || loading || morphoHoldings.isLoading || (address && !vaultData) ? (
+                    {!isMounted || morphoHoldings.isLoading || (loading && !vaultData && !userPosition?.assets && !assetsRaw) ? (
                         <div className="flex flex-col md:items-end gap-1.5">
                             <Skeleton width="5rem" height="1rem" />
                             <Skeleton width="4rem" height="0.875rem" />
                         </div>
-                    ) : (userPosition || assetsRaw) && userPositionValue > 0 && userVaultBalance ? (
+                    ) : hasOnChainVaultShares(userPosition) && userVaultBalance ? (
                         <div className="flex flex-col md:items-end">
                             <span className="text-sm md:text-base font-semibold text-[var(--foreground)]">
                                 {userVaultBalance} {vault.symbol}

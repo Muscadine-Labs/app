@@ -10,12 +10,13 @@ import { useVaultData } from '@/contexts/VaultDataContext';
 import { usePrices } from '@/contexts/PriceContext';
 import { useVaultVersion } from '@/contexts/VaultVersionContext';
 import { VAULTS } from '@/lib/vaults';
-import { VaultAccount, WalletAccount } from '@/types/vault';
+import { Account, VaultAccount, WalletAccount } from '@/types/vault';
 import { formatBigIntForInput, formatAvailableBalance, formatAssetAmountForMax, formatCurrency, formatAssetBalance } from '@/lib/formatter';
 import { Button } from '@/components/ui';
 import { Icon } from '@/components/ui/Icon';
 import { formatUnits } from 'viem';
 import { ERC4626_ABI } from '@/lib/abis';
+import { hasOnChainVaultShares } from '@/lib/vault-utils';
 import { TOKEN_ADDRESSES_LOWER, type TokenBalance } from '@/contexts/WalletContext';
 
 // Helper function to get asset decimals from vault symbol (no API needed)
@@ -53,6 +54,17 @@ const findTokenBySymbol = (
 };
 
 type TransactionTab = 'deposit' | 'withdraw';
+
+function accountsMatchTransactionTab(
+  tab: TransactionTab,
+  from: Account | null,
+  to: Account | null
+): boolean {
+  if (tab === 'deposit') {
+    return from?.type === 'wallet' && (to === null || to.type === 'vault');
+  }
+  return from?.type === 'vault' && to?.type === 'wallet';
+}
 
 export default function TransactionsPage() {
   const { isConnected } = useAccount();
@@ -234,7 +246,12 @@ export default function TransactionsPage() {
 
   // Handle tab changes - reset and pre-select accounts based on tab
   const handleTabChange = useCallback((tab: TransactionTab) => {
-    if (tab === activeTab || status !== 'idle') return;
+    if (status !== 'idle') return;
+    // activeTab can disagree with from/to (e.g. withdraw tab + wallet→vault accounts);
+    // only skip when the tab and account layout already match.
+    if (tab === activeTab && accountsMatchTransactionTab(tab, fromAccount, toAccount)) {
+      return;
+    }
 
     setActiveTab(tab);
     setAmount('');
@@ -250,7 +267,17 @@ export default function TransactionsPage() {
       setFromAccount(null);
       setToAccount(walletAccount);
     }
-  }, [activeTab, walletAccount, setFromAccount, setToAccount, setAmount, setPreferredAsset, status]);
+  }, [
+    activeTab,
+    fromAccount,
+    toAccount,
+    walletAccount,
+    setFromAccount,
+    setToAccount,
+    setAmount,
+    setPreferredAsset,
+    status,
+  ]);
 
   // Get vault position for share balance - use data already fetched in WalletContext
   const vaultPosition = useMemo(() => {
@@ -567,7 +594,14 @@ export default function TransactionsPage() {
     };
 
     const vaultAccounts: VaultAccount[] = Object.values(VAULTS)
-      .filter((vault) => version === 'all' || vault.version === version)
+      .filter((vault) => {
+        if (version === 'all' || vault.version === version) return true;
+        return morphoHoldings.positions.some(
+          (pos) =>
+            pos.vault.address.toLowerCase() === vault.address.toLowerCase() &&
+            hasOnChainVaultShares(pos)
+        );
+      })
       .map((vault): VaultAccount => {
       const position = morphoHoldings.positions.find(
         (pos) => pos.vault.address.toLowerCase() === vault.address.toLowerCase()
@@ -578,7 +612,7 @@ export default function TransactionsPage() {
         address: vault.address,
         name: vault.name,
         symbol: vault.symbol,
-        balance: position ? BigInt(position.shares) : BigInt(0),
+        balance: position && hasOnChainVaultShares(position) ? BigInt(position.shares) : BigInt(0),
         assetAddress: '',
         assetDecimals: getAssetDecimals(vault.symbol),
       };
@@ -624,7 +658,7 @@ export default function TransactionsPage() {
           address: vault.address,
           name: vault.name,
           symbol: vault.symbol,
-          balance: position ? BigInt(position.shares) : BigInt(0),
+          balance: position && hasOnChainVaultShares(position) ? BigInt(position.shares) : BigInt(0),
           assetAddress: '',
           assetDecimals: getAssetDecimals(vault.symbol),
         };
@@ -726,12 +760,13 @@ export default function TransactionsPage() {
       {status === 'idle' && (
         <div className="bg-[var(--surface)] rounded-lg border border-[var(--border-subtle)] p-4 md:p-6 space-y-4 md:space-y-6">
           {/* Deposit/Withdraw Tabs */}
-          <div className="flex gap-2">
+          <div className="relative z-10 flex gap-2">
             <button
+              type="button"
               onClick={() => handleTabChange('deposit')}
               disabled={status !== 'idle'}
-              className={`flex-1 px-4 py-3 md:py-2.5 rounded-lg font-medium text-sm md:text-sm transition-colors min-h-[44px] md:min-h-0 ${
-                effectiveActiveTab === 'deposit'
+              className={`flex-1 px-4 py-3 md:py-2.5 rounded-lg font-medium text-sm transition-colors min-h-[44px] md:min-h-0 cursor-pointer ${
+                activeTab === 'deposit'
                   ? 'bg-[var(--primary)] text-white'
                   : 'bg-[var(--background)] text-[var(--foreground-secondary)] hover:bg-[var(--surface-elevated)]'
               } disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-[var(--background)]`}
@@ -739,10 +774,11 @@ export default function TransactionsPage() {
               Deposit
             </button>
             <button
+              type="button"
               onClick={() => handleTabChange('withdraw')}
               disabled={status !== 'idle'}
-              className={`flex-1 px-4 py-3 md:py-2.5 rounded-lg font-medium text-sm md:text-sm transition-colors min-h-[44px] md:min-h-0 ${
-                effectiveActiveTab === 'withdraw'
+              className={`flex-1 px-4 py-3 md:py-2.5 rounded-lg font-medium text-sm transition-colors min-h-[44px] md:min-h-0 cursor-pointer ${
+                activeTab === 'withdraw'
                   ? 'bg-[var(--primary)] text-white'
                   : 'bg-[var(--background)] text-[var(--foreground-secondary)] hover:bg-[var(--surface-elevated)]'
               } disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-[var(--background)]`}

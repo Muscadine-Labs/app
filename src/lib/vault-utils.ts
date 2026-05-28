@@ -1,6 +1,155 @@
 import { VAULTS, VaultVersion } from './vaults';
 import { Vault } from '../types/vault';
 
+/** Morpho holding row from WalletContext (minimal shape for display helpers). */
+export interface WalletMorphoPosition {
+  shares: string;
+  assets?: string;
+  assetsUsd?: number;
+  vault: {
+    address: string;
+    name?: string;
+    symbol?: string;
+    state?: {
+      sharePriceUsd?: number;
+      totalAssetsUsd?: number;
+      totalSupply?: string;
+    };
+  };
+}
+
+export function hasOnChainVaultShares(
+  position: WalletMorphoPosition | undefined | null
+): boolean {
+  if (!position?.shares) return false;
+  try {
+    return BigInt(position.shares) > BigInt(0);
+  } catch {
+    return false;
+  }
+}
+
+/** USD value for tables/selectors; falls back when assetsUsd was not priced yet. */
+export function resolvePositionAssetsUsd(
+  position: WalletMorphoPosition,
+  options?: {
+    assetDecimals?: number;
+    assetPriceUsd?: number;
+    symbol?: string;
+  }
+): number {
+  if (position.assetsUsd !== undefined && position.assetsUsd > 0) {
+    return position.assetsUsd;
+  }
+
+  const symbol = (options?.symbol ?? position.vault.symbol ?? '').toUpperCase();
+  const decimals =
+    options?.assetDecimals ?? (symbol === 'USDC' ? 6 : symbol === 'CBBTC' || symbol === 'BTC' ? 8 : 18);
+
+  if (position.assets) {
+    try {
+      const assetsDecimal = Number(position.assets) / Math.pow(10, decimals);
+      let price = options?.assetPriceUsd ?? 0;
+      if (price <= 0 && symbol === 'USDC') price = 1;
+      if (assetsDecimal > 0 && price > 0) {
+        return assetsDecimal * price;
+      }
+    } catch {
+      // fall through to sharePriceUsd
+    }
+  }
+
+  const sharesDecimal = parseFloat(position.shares) / 1e18;
+  const sharePriceUsd = position.vault.state?.sharePriceUsd ?? 0;
+  if (sharesDecimal > 0 && sharePriceUsd > 0) {
+    return sharesDecimal * sharePriceUsd;
+  }
+
+  return 0;
+}
+
+/**
+ * Keep version filter for browsing, but always include vaults where the user has shares
+ * (e.g. v1 deposits while the UI default filter is v2).
+ */
+export function mergeRegistryVaultsWithDeposits(
+  registryVaults: Vault[],
+  positions: WalletMorphoPosition[],
+  versionFilter: VaultVersion | 'all'
+): Vault[] {
+  if (versionFilter === 'all') {
+    return registryVaults;
+  }
+
+  const seen = new Set(registryVaults.map((v) => v.address.toLowerCase()));
+  const extras: Vault[] = [];
+
+  for (const position of positions) {
+    if (!hasOnChainVaultShares(position)) continue;
+    const vault = findVaultByAddress(position.vault.address);
+    if (!vault) continue;
+    const key = vault.address.toLowerCase();
+    if (seen.has(key)) continue;
+    extras.push(vault);
+    seen.add(key);
+  }
+
+  return extras.length > 0 ? [...extras, ...registryVaults] : registryVaults;
+}
+
+function vaultVersionSortRank(version: VaultVersion): number {
+  return version === 'v2' ? 2 : 1;
+}
+
+function findWalletPosition(
+  positions: WalletMorphoPosition[],
+  vaultAddress: string
+): WalletMorphoPosition | undefined {
+  const key = vaultAddress.toLowerCase();
+  return positions.find((p) => p.vault.address.toLowerCase() === key);
+}
+
+/**
+ * Sort vault lists: user position USD (high → low), then v2 before v1, then TVL (high → low).
+ */
+export function compareVaultsForDisplay(
+  a: Vault,
+  b: Vault,
+  positions: WalletMorphoPosition[],
+  getTvlUsd: (address: string) => number
+): number {
+  const positionA = findWalletPosition(positions, a.address);
+  const positionB = findWalletPosition(positions, b.address);
+
+  const usdA = positionA
+    ? resolvePositionAssetsUsd(positionA, { symbol: a.symbol })
+    : 0;
+  const usdB = positionB
+    ? resolvePositionAssetsUsd(positionB, { symbol: b.symbol })
+    : 0;
+  if (usdA !== usdB) return usdB - usdA;
+
+  const versionDiff =
+    vaultVersionSortRank(b.version ?? 'v1') - vaultVersionSortRank(a.version ?? 'v1');
+  if (versionDiff !== 0) return versionDiff;
+
+  const tvlA = getTvlUsd(a.address);
+  const tvlB = getTvlUsd(b.address);
+  if (tvlA !== tvlB) return tvlB - tvlA;
+
+  return a.name.localeCompare(b.name);
+}
+
+export function sortVaultsForDisplay(
+  vaults: Vault[],
+  positions: WalletMorphoPosition[],
+  getTvlUsd: (address: string) => number
+): Vault[] {
+  return [...vaults].sort((a, b) =>
+    compareVaultsForDisplay(a, b, positions, getTvlUsd)
+  );
+}
+
 /**
  * Find a vault by its address (case-insensitive)
  * @param address - The vault address to search for
