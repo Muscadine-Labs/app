@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useCallback } from 'react';
 
-const TERMS_VERSION = '1.0.0'; // Increment this when terms change to force re-acceptance
+const TERMS_VERSION = '2.0.0'; // Increment this when terms change to force re-acceptance
 const STORAGE_KEY = 'advisory-agreement-accepted';
 const VERSION_KEY = 'advisory-agreement-version';
 
