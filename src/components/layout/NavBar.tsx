@@ -324,38 +324,32 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                         onMouseEnter={() => setIsSettingsOpen(true)}
                                         onMouseLeave={() => setIsSettingsOpen(false)}
                                     >
-                                    {/* Mode Section */}
+                                    {/* Vault scope: V2 by default; optional developer mode */}
                                     <div className="px-4 mb-4">
-                                        <div className="flex items-center justify-between gap-2">
+                                        <div className="flex items-center justify-between gap-3">
+                                            <p className="text-sm text-[var(--foreground)]">
+                                                Developer mode
+                                            </p>
                                             <button
                                                 type="button"
+                                                role="switch"
+                                                aria-checked={preference === 'all'}
+                                                aria-label="Developer mode"
                                                 onClick={(e) => {
                                                     e.stopPropagation();
-                                                    setPreference('v2');
-                                                    setIsSettingsOpen(false);
+                                                    setPreference(preference === 'all' ? 'v2' : 'all');
                                                 }}
-                                                className={`flex-1 py-2 px-3 text-sm rounded-lg transition-colors cursor-pointer ${
-                                                    preference === 'v2'
-                                                        ? 'bg-[var(--primary)] text-white'
-                                                        : 'text-[var(--foreground)] hover:bg-[var(--surface-hover)]'
-                                                }`}
-                                            >
-                                                V2
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    setPreference('all');
-                                                    setIsSettingsOpen(false);
-                                                }}
-                                                className={`flex-1 py-2 px-3 text-sm rounded-lg transition-colors cursor-pointer ${
+                                                className={`relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors cursor-pointer touch-manipulation ${
                                                     preference === 'all'
-                                                        ? 'bg-[var(--primary)] text-white'
-                                                        : 'text-[var(--foreground)] hover:bg-[var(--surface-hover)]'
+                                                        ? 'bg-[var(--primary)]'
+                                                        : 'bg-[var(--border)]'
                                                 }`}
                                             >
-                                                All
+                                                <span
+                                                    className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${
+                                                        preference === 'all' ? 'translate-x-5' : 'translate-x-0'
+                                                    }`}
+                                                />
                                             </button>
                                         </div>
                                     </div>

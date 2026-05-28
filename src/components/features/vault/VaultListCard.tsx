@@ -29,6 +29,7 @@ export default function VaultListCard({ vault, onClick, isSelected }: VaultListC
     const pathname = usePathname();
     const vaultData = getVaultData(vault.address);
     const loading = isLoading(vault.address);
+    const symbolUpper = vault.symbol.toUpperCase();
     
     // Check if this vault is active based on the current route
     // Only check pathname after mount to prevent hydration mismatch
@@ -78,12 +79,11 @@ export default function VaultListCard({ vault, onClick, isSelected }: VaultListC
         
         // Fallback: Calculate from RPC data if available
         if (assetsRaw && vaultData) {
-            const assetDecimals = vaultData.assetDecimals || (vault.symbol === 'USDC' ? 6 : 18);
+            const assetDecimals = vaultData.assetDecimals || (symbolUpper === 'USDC' ? 6 : symbolUpper === 'CBBTC' ? 8 : 18);
             const assetsDecimal = Number(assetsRaw) / Math.pow(10, assetDecimals);
             
             // Get asset price (same as liquid assets)
             let assetPrice = 0;
-            const symbolUpper = vault.symbol.toUpperCase();
             if (symbolUpper === 'USDC') {
                 assetPrice = 1;
             } else if (symbolUpper === 'WETH') {
@@ -96,7 +96,7 @@ export default function VaultListCard({ vault, onClick, isSelected }: VaultListC
         }
         
         return 0;
-    }, [userPosition, assetsRaw, vaultData, vault.symbol, ethPrice, btcPrice]);
+    }, [userPosition, assetsRaw, vaultData, vault.symbol, symbolUpper, ethPrice, btcPrice]);
 
 
     const handleClick = () => {
@@ -112,7 +112,7 @@ export default function VaultListCard({ vault, onClick, isSelected }: VaultListC
     // Get user's vault balance from RPC data
     const userVaultBalance = useMemo(() => {
         const assetDecimals =
-            vaultData?.assetDecimals ?? (vault.symbol === 'USDC' ? 6 : vault.symbol === 'cbBTC' ? 8 : 18);
+            vaultData?.assetDecimals ?? (symbolUpper === 'USDC' ? 6 : symbolUpper === 'CBBTC' ? 8 : 18);
 
         if (!assetsRaw) {
             // Fallback: Use position from WalletContext if available
@@ -169,7 +169,7 @@ export default function VaultListCard({ vault, onClick, isSelected }: VaultListC
             minimumFractionDigits: decimalPlaces,
             maximumFractionDigits: decimalPlaces
         });
-    }, [assetsRaw, vaultData, userPosition, vault.symbol]);
+    }, [assetsRaw, vaultData, userPosition, symbolUpper]);
 
     return (
         <div 

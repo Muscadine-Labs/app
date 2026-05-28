@@ -130,6 +130,7 @@ export default function WalletOverview() {
                 usdValue,
             };
         })
+        .filter((position) => position.usdValue > 0.02)
         .sort((a, b) => b.usdValue - a.usdValue)
         .slice(0, 10);
     

@@ -314,7 +314,7 @@ export function AccountSelector({
 
       const assetDecimals =
         vaultData?.assetDecimals ??
-        (vaultAccount.symbol === 'USDC' ? 6 : vaultAccount.symbol === 'cbBTC' ? 8 : 18);
+        (vaultAccount.symbol.toUpperCase() === 'USDC' ? 6 : vaultAccount.symbol.toUpperCase() === 'CBBTC' ? 8 : 18);
 
       // First priority: Use position.assets if available (from RPC via WalletContext)
       if (position.assets) {

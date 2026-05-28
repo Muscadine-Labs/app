@@ -10,13 +10,18 @@ import { useVaultData } from '@/contexts/VaultDataContext';
 import { usePrices } from '@/contexts/PriceContext';
 import { useVaultVersion } from '@/contexts/VaultVersionContext';
 import { VAULTS } from '@/lib/vaults';
-import { Account, VaultAccount, WalletAccount } from '@/types/vault';
+import { Account, Vault, VaultAccount, WalletAccount } from '@/types/vault';
 import { formatBigIntForInput, formatAvailableBalance, formatAssetAmountForMax, formatCurrency, formatAssetBalance } from '@/lib/formatter';
 import { Button } from '@/components/ui';
 import { Icon } from '@/components/ui/Icon';
 import { formatUnits } from 'viem';
 import { ERC4626_ABI } from '@/lib/abis';
-import { getVaultVersion, hasOnChainVaultShares } from '@/lib/vault-utils';
+import {
+  getVaultVersion,
+  hasOnChainVaultShares,
+  mergeRegistryVaultsWithDeposits,
+  type WalletMorphoPosition,
+} from '@/lib/vault-utils';
 import { TOKEN_ADDRESSES_LOWER, type TokenBalance } from '@/contexts/WalletContext';
 
 // Helper function to get asset decimals from vault symbol (no API needed)
@@ -32,6 +37,35 @@ const getAssetDecimals = (symbol: string): number => {
   }
   return 18; // Default to 18 for other tokens
 };
+
+function buildRegistryVaultList(): Vault[] {
+  return Object.values(VAULTS).map((vault) => ({
+    address: vault.address,
+    name: vault.name,
+    symbol: vault.symbol,
+    chainId: vault.chainId,
+    version: vault.version,
+  }));
+}
+
+function vaultToVaultAccount(
+  vault: Vault,
+  positions: WalletMorphoPosition[]
+): VaultAccount {
+  const position = positions.find(
+    (pos) => pos.vault.address.toLowerCase() === vault.address.toLowerCase()
+  );
+
+  return {
+    type: 'vault',
+    address: vault.address,
+    name: vault.name,
+    symbol: vault.symbol,
+    balance: position && hasOnChainVaultShares(position) ? BigInt(position.shares) : BigInt(0),
+    assetAddress: '',
+    assetDecimals: getAssetDecimals(vault.symbol),
+  };
+}
 
 // Helper function to find token by symbol using address-based matching for reliability
 // Note: wstETH and cbETH are intentionally excluded - only shown in wallet overview
@@ -608,6 +642,23 @@ export default function TransactionsPage() {
   }, [preference, fromAccount, toAccount]);
 
   const [v1DepositRiskAcknowledged, setV1DepositRiskAcknowledged] = useState(false);
+  const [balanceBypassAcknowledged, setBalanceBypassAcknowledged] = useState(false);
+
+  const allowOverBalanceOnAllPreference = preference === 'all';
+  const blockContinueForBalance =
+    exceedsBalance && !(allowOverBalanceOnAllPreference && balanceBypassAcknowledged);
+
+  const mergedRegistryVaults = useMemo(
+    () =>
+      mergeRegistryVaultsWithDeposits(
+        buildRegistryVaultList().filter(
+          (vault) => version === 'all' || vault.version === version
+        ),
+        morphoHoldings.positions,
+        version
+      ),
+    [morphoHoldings.positions, version]
+  );
 
   const handleStartTransaction = () => {
     if (fromAccount && toAccount && derivedAsset) {
@@ -639,30 +690,9 @@ export default function TransactionsPage() {
       balance: BigInt(0),
     };
 
-    const vaultAccounts: VaultAccount[] = Object.values(VAULTS)
-      .filter((vault) => {
-        if (version === 'all' || vault.version === version) return true;
-        return morphoHoldings.positions.some(
-          (pos) =>
-            pos.vault.address.toLowerCase() === vault.address.toLowerCase() &&
-            hasOnChainVaultShares(pos)
-        );
-      })
-      .map((vault): VaultAccount => {
-      const position = morphoHoldings.positions.find(
-        (pos) => pos.vault.address.toLowerCase() === vault.address.toLowerCase()
-      );
-
-      return {
-        type: 'vault' as const,
-        address: vault.address,
-        name: vault.name,
-        symbol: vault.symbol,
-        balance: position && hasOnChainVaultShares(position) ? BigInt(position.shares) : BigInt(0),
-        assetAddress: '',
-        assetDecimals: getAssetDecimals(vault.symbol),
-      };
-    });
+    const vaultAccounts = mergedRegistryVaults.map((vault) =>
+      vaultToVaultAccount(vault, morphoHoldings.positions)
+    );
 
     return [walletAccount, ...vaultAccounts].filter((account) => {
       // Exclude the account selected in "To" if it's the same
@@ -676,7 +706,7 @@ export default function TransactionsPage() {
       }
       return true;
     });
-  }, [toAccount, morphoHoldings.positions, version]);
+  }, [toAccount, morphoHoldings.positions, mergedRegistryVaults]);
 
   // Calculate available accounts for "To" selector
   const availableToAccounts = useMemo(() => {
@@ -692,23 +722,9 @@ export default function TransactionsPage() {
       return [walletAccount];
     }
 
-    const vaultAccounts: VaultAccount[] = Object.values(VAULTS)
-      .filter((vault) => version === 'all' || vault.version === version)
-      .map((vault): VaultAccount => {
-        const position = morphoHoldings.positions.find(
-          (pos) => pos.vault.address.toLowerCase() === vault.address.toLowerCase()
-        );
-
-        return {
-          type: 'vault' as const,
-          address: vault.address,
-          name: vault.name,
-          symbol: vault.symbol,
-          balance: position && hasOnChainVaultShares(position) ? BigInt(position.shares) : BigInt(0),
-          assetAddress: '',
-          assetDecimals: getAssetDecimals(vault.symbol),
-        };
-      });
+    const vaultAccounts = mergedRegistryVaults.map((vault) =>
+      vaultToVaultAccount(vault, morphoHoldings.positions)
+    );
 
     return [walletAccount, ...vaultAccounts].filter((account) => {
       if (!fromAccount) {
@@ -724,7 +740,7 @@ export default function TransactionsPage() {
       const fromVault = fromAccount as unknown as VaultAccount;
       return accountVault.address.toLowerCase() !== fromVault.address.toLowerCase();
     });
-  }, [fromAccount, morphoHoldings.positions, version]);
+  }, [fromAccount, morphoHoldings.positions, mergedRegistryVaults]);
 
   // Auto-select "From" account if there's only one option
   useEffect(() => {
@@ -1044,12 +1060,22 @@ export default function TransactionsPage() {
                   {fromAccount.type === 'wallet' ? getWalletBalanceText : getVaultBalanceText}
                 </p>
               )}
-              {/* Warning if amount exceeds available balance */}
               {exceedsBalance && (
-                <div className="p-3 bg-[var(--warning-subtle)] rounded-lg border border-[var(--warning)]">
+                <div className="p-3 bg-[var(--warning-subtle)] rounded-lg border border-[var(--warning)] space-y-2">
                   <p className="text-xs text-[var(--foreground)]">
                     <span className="font-medium">Warning:</span> Amount exceeds available balance. This transaction will fail if you proceed.
                   </p>
+                  {allowOverBalanceOnAllPreference && (
+                    <label className="flex items-start gap-2 cursor-pointer text-xs text-[var(--foreground)]">
+                      <input
+                        type="checkbox"
+                        checked={balanceBypassAcknowledged}
+                        onChange={(e) => setBalanceBypassAcknowledged(e.target.checked)}
+                        className="mt-0.5 rounded border-[var(--border-subtle)]"
+                      />
+                      <span>Proceed anyway (Dev mode — for testing)</span>
+                    </label>
+                  )}
                 </div>
               )}
             </div>
@@ -1083,6 +1109,7 @@ export default function TransactionsPage() {
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-[var(--primary)] hover:underline"
+                    onClick={(e) => e.stopPropagation()}
                   >
                     Risk Framework
                   </a>
@@ -1100,7 +1127,7 @@ export default function TransactionsPage() {
               !derivedAsset || 
               !amount || 
               parseFloat(amount) <= 0 ||
-              exceedsBalance ||
+              blockContinueForBalance ||
               (requiresV1DepositRiskAck && !v1DepositRiskAcknowledged) ||
               (fromAccount.type === 'wallet' && toAccount.type === 'wallet') || // Prevent wallet-to-wallet
               (fromAccount.type === 'vault' && toAccount.type === 'vault') // Prevent vault-to-vault

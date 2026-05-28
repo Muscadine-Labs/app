@@ -495,11 +495,14 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
             vaultInfoData = vaultData.data?.vaultByAddress ?? null;
           }
 
+          const assetSymbol = vaultInfo.symbol;
+          const registryAssetDecimals = getVaultAssetDecimals(vaultInfo.address, assetSymbol);
+
           // Registry fallback when Morpho API is unavailable (positions still exist on-chain)
           if (!vaultInfoData) {
             vaultInfoData = {
               name: vaultInfo.name,
-              asset: { symbol: vaultInfo.symbol },
+              asset: { symbol: assetSymbol, decimals: registryAssetDecimals },
               state: { sharePriceUsd: 0, totalAssetsUsd: 0, totalSupply: '0' },
             };
           }
@@ -509,13 +512,14 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
           const totalSupply = vaultInfoData.state?.totalSupply || '0';
           
           // Step 4: Calculate USD value using asset price (like liquid assets)
-          const assetSymbol = vaultInfoData.asset?.symbol || vaultInfo.symbol;
-          const assetDecimals = getVaultAssetDecimals(vaultInfo.address, assetSymbol);
+          const resolvedAssetSymbol = vaultInfoData.asset?.symbol || assetSymbol;
+          const assetDecimals =
+            vaultInfoData.asset?.decimals ?? registryAssetDecimals;
           const assetsDecimal = Number(assetsRaw) / Math.pow(10, assetDecimals);
           
           // Get asset price from prices API (same as liquid assets)
           let assetPrice = 0;
-          if (assetSymbol.toUpperCase() === 'USDC') {
+          if (resolvedAssetSymbol.toUpperCase() === 'USDC') {
             assetPrice = 1; // Stablecoins are $1
           } else {
             // Map symbols to price API symbols
@@ -525,7 +529,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
               'CBBTC': 'BTC',
               'CBTC': 'BTC',
             };
-            const priceSymbol = priceSymbolMap[assetSymbol.toUpperCase()] || assetSymbol;
+            const priceSymbol = priceSymbolMap[resolvedAssetSymbol.toUpperCase()] || resolvedAssetSymbol;
             
             try {
               const priceResponse = await fetch(`/api/prices?symbols=${priceSymbol}`);

@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useState, useMemo, ReactNode } from 'react';
 
-/** Nav settings: show V2-only experience or full v1+v2 explorer. */
+/** Nav settings: V2-only UI, or Dev (labeled "Dev"; stored as `all`) for v1+v2 explorer and test bypasses. */
 export type VaultVersionPreference = 'v2' | 'all';
 
 /** Explorer table filter when preference is `all`. */
