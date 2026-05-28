@@ -66,6 +66,23 @@ function accountsMatchTransactionTab(
   return from?.type === 'vault' && to?.type === 'wallet';
 }
 
+/** Restore wallet/vault slots for the selected tab while keeping the same vault. */
+function syncAccountsToTab(
+  tab: TransactionTab,
+  from: Account | null,
+  to: Account | null,
+  wallet: WalletAccount
+): { from: Account | null; to: Account | null } {
+  const vault =
+    (from?.type === 'vault' ? from : null) ??
+    (to?.type === 'vault' ? to : null);
+
+  if (tab === 'deposit') {
+    return { from: wallet, to: vault };
+  }
+  return { from: vault, to: wallet };
+}
+
 export default function TransactionsPage() {
   const { isConnected } = useAccount();
   const searchParams = useSearchParams();
@@ -125,15 +142,34 @@ export default function TransactionsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isConnected]);
 
+  // Memoize wallet account to avoid creating new objects on each render
+  const walletAccount = useMemo<WalletAccount>(() => ({
+    type: 'wallet' as const,
+    address: 'wallet',
+    symbol: 'Wallet',
+    balance: BigInt(0),
+  }), []);
+
   // Track previous status to detect transitions to idle
   const prevStatusRef = useRef<typeof status>(status);
-  
+  const appliedVaultUrlRef = useRef<string | null>(null);
+
   // Refresh balances when status returns to idle (after transaction completion/reset)
   useEffect(() => {
     // Only refresh when transitioning TO idle from another state (not on initial mount)
-    const wasIdle = prevStatusRef.current === 'idle';
+    const prevStatus = prevStatusRef.current;
+    const wasIdle = prevStatus === 'idle';
     const isNowIdle = status === 'idle';
     const transitionedToIdle = !wasIdle && isNowIdle;
+
+    // Returning from preview: keep deposit = wallet→vault, withdraw = vault→wallet
+    if (prevStatus === 'preview' && isNowIdle) {
+      if (!accountsMatchTransactionTab(activeTab, fromAccount, toAccount)) {
+        const synced = syncAccountsToTab(activeTab, fromAccount, toAccount, walletAccount);
+        setFromAccount(synced.from);
+        setToAccount(synced.to);
+      }
+    }
     
     if (isConnected && transitionedToIdle) {
       // Refresh wallet balances to get updated values (includes vault positions via RPC)
@@ -154,14 +190,23 @@ export default function TransactionsPage() {
     // Update previous status
     prevStatusRef.current = status;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, isConnected]);
+  }, [status, isConnected, activeTab, fromAccount, toAccount, walletAccount, setFromAccount, setToAccount]);
 
   // Handle URL params for pre-filling vault (when navigating from vault page)
   useEffect(() => {
     const vaultAddress = searchParams.get('vault');
     const action = searchParams.get('action'); // 'deposit' or 'withdraw'
 
-    if (!vaultAddress || !action) return;
+    if (!vaultAddress || !action) {
+      appliedVaultUrlRef.current = null;
+      return;
+    }
+
+    const urlSignature = `${vaultAddress.toLowerCase()}:${action}:${version}`;
+    if (appliedVaultUrlRef.current === urlSignature) {
+      return;
+    }
+    appliedVaultUrlRef.current = urlSignature;
 
     queueMicrotask(() => {
       const vault = Object.values(VAULTS).find((v) => 
@@ -218,14 +263,6 @@ export default function TransactionsPage() {
       }
     });
   }, [searchParams, version, morphoHoldings.positions, setFromAccount, setToAccount, setPreferredAsset]);
-
-  // Memoize wallet account to avoid creating new objects on each render
-  const walletAccount = useMemo<WalletAccount>(() => ({
-    type: 'wallet' as const,
-    address: 'wallet',
-    symbol: 'Wallet',
-    balance: BigInt(0),
-  }), []);
 
   // Initialize accounts based on active tab when page first loads (if no accounts set and no URL params)
   useEffect(() => {
