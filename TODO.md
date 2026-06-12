@@ -1,7 +1,7 @@
 *TO work on today:
 
 - Update the dependencies in packages, note no wagmi 3.x is able as of now.
-- fix portfolio value graph on dashboard for total aum with the v1 vaults and v2 vaults. On some wallets where I dont have v1 vault positions anymore, it is stuck at the amount I last had before i withdrew. Review the overivew grapgh.
+- fix portfolio value graph on dashboard for total aum with the v1 vaults and v2 vaults. On some wallets where I dont have v1 vault positions anymore, it is stuck at the amount I last had before i withdrew. Review the overivew graph. Also All, 90D, 30D and 7D are all at diferent numbers (for instance all would say 100$, 30D would say 2$, 7D would not even show a grapgh. Fix the issue.
 
 ///
 
