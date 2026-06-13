@@ -4,7 +4,16 @@ Comprehensive context for AI assistants and developers. This is the canonical �
 
 **Product:** Web app for Muscadine vaults on **Base (chain id 8453)** today — deposit, withdraw, portfolio view, vault analytics. Supports **v1 MetaMorpho** (legacy; soft-deprecated in UI) and **v2 Prime (VaultV2)** vaults for USDC, cbBTC, and WETH. **Roadmap:** add vaults on **Ethereum** and **Hyperliquid**; eventually **remove / fully deprecate v1** vaults and v1-only code paths (see [Future](#future--optional-upgrades)).
 
-**Version:** `package.json` → `1.0.6`
+**Version:** `package.json` → `1.0.7`
+
+---
+
+## Working agreement (read first)
+
+- **Review `TODO.md` at the start of every session.** It is the canonical task list: items under “TO work on today” are actionable now; “To work on another day” is backlog. Remove or update entries as work completes.
+- **Before every push to GitHub:** run `npm run lint` and `npm run build` and make sure both pass.
+- **Version bump on every push:** bump `package.json` version by `0.0.1`. Digits roll over at 9 → e.g. `0.2.9` → `0.3.0`, `1.9.9` → `2.0.0`.
+- Keep `CLAUDE.md` and `AGENTS.md` in sync when conventions or architecture knowledge change.
 
 ---
 
@@ -248,7 +257,12 @@ Both return `currentPosition` + `history[]` with `{ timestamp, assets, assetsUsd
 
 Morpho often returns a **trailing interval** (current hour/day) with **zeros** for TVL and/or position while the in-progress bucket is empty. That makes charts dip to zero on the last point.
 
-**Fix:** `stripIncompleteVaultHistoryBuckets` / `stripIncompletePositionHistoryBuckets` in `src/lib/api-utils.ts` — applied on **v1 and v2** `history` and `position-history` route responses before JSON is returned.
+**Fix:** `stripIncompleteVaultHistoryBuckets` (vault `history` routes) and `finalizePositionHistory` (`position-history` routes) in `src/lib/api-utils.ts` — applied on **v1 and v2** route responses before JSON is returned.
+
+**`finalizePositionHistory` (position-history only):** uses the live `currentPosition` to disambiguate trailing zeros:
+
+- **Position open** (shares/assets > 0): trailing zero buckets are the in-progress interval → stripped (`stripIncompletePositionHistoryBuckets`).
+- **Position closed** (fully withdrawn): trailing zeros are real → kept. If Morpho's stale v1 history still ends at a **pre-withdrawal value**, a **zero point** is appended one bucket after the last point, so the dashboard's forward-fill aggregation drops to zero instead of being stuck at the last held amount (the "portfolio stuck at old v1 balance" bug).
 
 ### V1 complete route
 
@@ -281,7 +295,7 @@ If `complete` routes return **HTTP 400**, validate queries against `https://api.
 
 ## Morpho npm packages
 
-Current ranges in `package.json` (v1.0.6): `blue-sdk` **^6**, `blue-sdk-viem` **^5**, `blue-sdk-wagmi` **^5**, `bundler-sdk-viem` **^5**, `simulation-sdk` **^4**, `simulation-sdk-wagmi` **^5**.
+Current ranges in `package.json` (v1.0.7): `blue-sdk` **^6**, `blue-sdk-viem` **^5**, `blue-sdk-wagmi` **^5**, `bundler-sdk-viem` **^5**, `simulation-sdk` **^4**, `simulation-sdk-wagmi` **^5**.
 
 | Package | Used for |
 |---------|----------|
@@ -617,7 +631,7 @@ Do not bump without checking compatibility:
 |------|----------------|
 | Dashboard layout | `src/app/page.tsx` |
 | Portfolio history chart | `PortfolioPositionChart.tsx`, `portfolio-utils.ts` (`preparePortfolioVaultHistories`, `aggregatePortfolioHistory`) |
-| Morpho timeseries tail fix | `api-utils.ts` (`stripIncomplete*`), used in vault `history` + `position-history` routes |
+| Morpho timeseries tail fix | `api-utils.ts` (`stripIncomplete*`, `finalizePositionHistory`), used in vault `history` + `position-history` routes |
 | Position table formatting | `formatter.ts` (`formatPositionUsd`, `formatPositionTokenAmount`) |
 | Vault explorer page | `src/app/vaults/page.tsx`, `VaultExplorer*.tsx` |
 | V2 deposit/withdraw/redeem | `src/lib/transactionUtilsV2.ts` |
