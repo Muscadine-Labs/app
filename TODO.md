@@ -1,13 +1,10 @@
 *TO work on today:
 
-- [x] Update the dependencies in packages, note no wagmi 3.x is able as of now. (done — all deps bumped within ranges; wagmi stays 2.19.5, eslint stays 9.x)
-- [x] fix portfolio value graph on dashboard for total aum with the v1 vaults and v2 vaults. (done — `finalizePositionHistory` in `api-utils.ts` zeros out stale v1 history after full withdrawal; All/90D/30D/7D windows now forward-fill instead of showing empty/diverging values)
-
 ///
 
-- [x] Run lint, build and test to make sure everything is functional (lint + build pass on 1.0.7)
-- [x] Bump the repo version by 0.0.1 each time we push to github. Once its at 9, you pump it to 0 and the next decimal up. Such as 0.2.9 to 0.3.0 and 1.9.9 to 2.0.0. (1.0.6 → 1.0.7; rule documented in CLAUDE.md + AGENTS.md)
-- [x] On CLAUDE.md and AGENTS.md add information to review the TODO.md. Put your new knowledge in the files. (AGENTS.md created; CLAUDE.md "Working agreement" section added)
+- Run lint, build and test to make sure everything is functional (lint + build pass on 1.0.7)
+-  Bump the repo version by 0.0.1 each time we push to github. Once its at 9, you pump it to 0 and the next decimal up. Such as 0.2.9 to 0.3.0 and 1.9.9 to 2.0.0. (1.0.7 → 1.0.78 rule documented in CLAUDE.md + AGENTS.md)
+-  On CLAUDE.md and AGENTS.md add information to review the TODO.md. Put your new knowledge in the files. (AGENTS.md created; CLAUDE.md "Working agreement" section added)
 
 
 **To work on another day:
