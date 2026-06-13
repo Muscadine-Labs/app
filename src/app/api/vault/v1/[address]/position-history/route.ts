@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import type { GraphQLError } from '@/types/api';
 import { logger } from '@/lib/logger';
 import { isValidEthereumAddress } from '@/lib/vault-utils';
-import { isValidChainId, isValidPeriod, MIN_VALID_TIMESTAMP, PERIOD_SECONDS, INTERVAL_MAP, stripIncompletePositionHistoryBuckets } from '@/lib/api-utils';
+import { isValidChainId, isValidPeriod, MIN_VALID_TIMESTAMP, PERIOD_SECONDS, INTERVAL_MAP, INTERVAL_SECONDS, finalizePositionHistory } from '@/lib/api-utils';
 
 export async function GET(
   request: NextRequest,
@@ -247,7 +247,10 @@ export async function GET(
       })
       .filter(item => item.timestamp >= MIN_VALID_TIMESTAMP);
 
-    const history = stripIncompletePositionHistoryBuckets(rawHistory);
+    // V1 quirk: Morpho position history can stay stuck at the last held amount after a
+    // full withdrawal. finalizePositionHistory appends a zero point when the live
+    // position is closed, and strips incomplete trailing buckets when it is open.
+    const history = finalizePositionHistory(rawHistory, currentPosition, now, INTERVAL_SECONDS[interval]);
 
     return NextResponse.json({
       history,

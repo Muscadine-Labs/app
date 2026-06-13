@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import type { GraphQLError } from '@/types/api';
 import { logger } from '@/lib/logger';
 import { isValidEthereumAddress } from '@/lib/vault-utils';
-import { isValidChainId, isValidPeriod, MIN_VALID_TIMESTAMP, PERIOD_SECONDS, INTERVAL_MAP, stripIncompletePositionHistoryBuckets } from '@/lib/api-utils';
+import { isValidChainId, isValidPeriod, MIN_VALID_TIMESTAMP, PERIOD_SECONDS, INTERVAL_MAP, INTERVAL_SECONDS, finalizePositionHistory } from '@/lib/api-utils';
 
 export async function GET(
   request: NextRequest,
@@ -259,7 +259,9 @@ export async function GET(
       })
       .filter(item => item.timestamp >= MIN_VALID_TIMESTAMP);
 
-    const history = stripIncompletePositionHistoryBuckets(rawHistory);
+    // Strip incomplete trailing buckets while the position is open; once fully
+    // withdrawn, ensure the series actually ends at zero (see finalizePositionHistory).
+    const history = finalizePositionHistory(rawHistory, currentPosition, now, INTERVAL_SECONDS[interval]);
 
     return NextResponse.json({
       history,

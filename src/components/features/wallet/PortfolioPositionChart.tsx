@@ -225,6 +225,17 @@ export default function PortfolioPositionChart() {
     if (selectedTimeFrame !== 'all' && activeHistory.length > 0) {
       const cutoffTimestamp = now - TIME_FRAME_SECONDS[selectedTimeFrame];
       data = activeHistory.filter((point) => point.timestamp >= cutoffTimestamp);
+
+      // The aggregated series is forward-filled, so if no datapoint falls inside the
+      // window (e.g. stale upstream buckets), carry the last known value forward
+      // instead of rendering an empty chart.
+      if (data.length === 0) {
+        const lastPoint = activeHistory[activeHistory.length - 1];
+        data = [
+          { ...lastPoint, timestamp: cutoffTimestamp, date: formatDate(cutoffTimestamp) },
+          { ...lastPoint, timestamp: now, date: formatDate(now) },
+        ];
+      }
     }
 
     const firstNonZeroIndex = data.findIndex((point) => point.value > 0);
