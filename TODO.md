@@ -4,7 +4,7 @@
 - Add on the vaults my position page to include: Earned Interest, with token first than usd value. Research with morpho how to formulate an interest earned function, either with grapgh ql morpho api or abi. The gemeral formula to find how much interest is earned is take the current position tokens, subtract the depsoits and add withdraws to find interest earned. Included Interest earned on the dahsboard for total for wallet next to morpho vaults on dashbaord, than for each indiviual vault on the dahsboard at the bottom, inbetween Your Position	and APY / TVL.
 ///
 
-- Run lint, build and test to make sure everything is functional (lint + build pass on 1.0.7)
+- Run lint, build and test to make sure everything is functional. Reivew your changes and double check your work and code. 
 -  Bump the repo version by 0.0.1 each time we push to github. Once its at 9, you pump it to 0 and the next decimal up. Such as 0.2.9 to 0.3.0 and 1.9.9 to 2.0.0. (1.0.8 → 1.0.9 rule documented in CLAUDE.md + AGENTS.md)
 -  On CLAUDE.md and AGENTS.md add information to review the TODO.md. Put your new knowledge in the files. (AGENTS.md created; CLAUDE.md "Working agreement" section added) Make sure other md files like readme is updated, consise and quick. 
 
