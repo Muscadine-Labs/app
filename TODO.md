@@ -1,5 +1,6 @@
 *TO work on today:
-
+- Issue with depositing into V2 vaults using the abi on a smart wallet that uses USDC for gas, check your math and contract abi functions
+- With withdraws for V2, research about the morpho v2 vaults, and what "liquditity" is, and if we would need to call the function "force withdraw" if they want to withdraw more than whats in the liqudity market. 
 ///
 
 - Run lint, build and test to make sure everything is functional (lint + build pass on 1.0.7)
