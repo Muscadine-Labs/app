@@ -2,7 +2,8 @@
 - Issue with depositing into V2 vaults using the abi on a smart wallet that uses USDC for gas, check your math and contract abi functions when a smart wallet uses usdc as gas. When regular wallets do transcactions there are no issues.
 - With withdraws for V2, research about the morpho v2 vaults, and what "liquditity" is, and if we would need to call the function "force withdraw" if they want to withdraw more than whats in the liqudity market. And, for the vault pages if we should have it has the forceibile liquitity or the liquidaty adaptor liquyidity. 
 - Add on the vaults my position page to include: Earned Interest, with token first than usd value. Research with morpho how to formulate an interest earned function, either with grapgh ql morpho api or abi. The gemeral formula to find how much interest is earned is take the current position tokens, subtract the depsoits and add withdraws to find interest earned. Included Interest earned on the dahsboard for total for wallet next to morpho vaults on dashbaord, than for each indiviual vault on the dahsboard at the bottom, inbetween Your Position	and APY / TVL.
-- Look at if the new morpho grapgh ql or sdk has any breaking updates we have to change. 
+- Look at if the new morpho grapgh ql or sdk has any breaking updates we have to change.
+- Net APY on vault pages are diferent than the NET APY on app.morpho.org. See how we calculate it.
 ///
 
 - Run lint, build and test to make sure everything is functional. Reivew your changes and double check your work and code. 
