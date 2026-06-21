@@ -5,7 +5,7 @@
 - On /vaults page for the filters to select vaults, add a filter for Strategy, keep it auto default at "Prime" but soon we will be adding a "Frontier" Vault. Also include "All" in the selection, and on Dev mode the the defult can be All for all of the filters like network, asset, version and risk.
 - Here is our Muscadine USDC Frontier vault address on BASE: 0x314fD07319ef645bA7D548915CCd91F4788A1839
 - When we add the Frontier vault, is the constants set up right to add it simply? It is a V2 vault, and it would be called Muscadine USDC Frontier. Also on the vaults.ts file, the symbol currently is the underlying asset symbol for the vaults, lets also add the vault symbol also, but we dont have to connect it to the repo just for dev looks. Muscadine Prime (mpUSDC, mpcbBTC, mpWETH) Frontier would be (mfUSDC). 
-- Make this website a safe app i can use for my multi sigs - https://github.com/safe-global/safe-apps-sdk. Also, on rainbow wallet when I try to connect to wallet connect, website give me an error: "Something went wrong invalid border=0"
+- On rainbow wallet when I try to connect to wallet connect, website give me an error: "Something went wrong invalid border=0"
 - Deprecate V1 vaults, currently on soft deprication, so delete it off dev mode also. Also give me a rundown on developer mode vs standard mode after everything with v1 vaults is gone, we wouldnt need on vaults page of the list of vaults with v1 and v2 tags. The transcactions, constants, apis, vault/v1 page ect.
 
 
@@ -25,3 +25,4 @@ Needs confirmation first:
 - Add support for new vaults in the summer I'll make new v2 vaults on ethereum and/or other networks if implimented.
 -  Add a function to claim rewards through merkl on the transcact page. We earn rewards in morpho tokens, add function to claim all rewards to wallet through merkl
 - Look into if we should keep abi functions to deposit/withdraw for v2 vaults, or change to the V2 vault sdk for transctions with updated Morpho SDKs. Or have the abis just as backup or a feature on dev mode.
+- Make this website a safe app i can use for my multi sigs - https://github.com/safe-global/safe-apps-sdk.
