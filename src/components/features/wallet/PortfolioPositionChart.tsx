@@ -1,8 +1,11 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useAccount } from 'wagmi';
-import { VAULTS } from '@/lib/vaults';
+import { BASE_CHAIN_ID } from '@/lib/constants';
+import {
+  getLegacyV1VaultForSymbol,
+} from '@/lib/legacy-vaults';
 import { calculateYAxisDomain } from '@/lib/vault-utils';
 import {
   aggregatePortfolioHistory,
@@ -37,9 +40,56 @@ const formatDate = (timestamp: number) => {
 
 interface PortfolioVault {
   address: string;
-  version: 'v1' | 'v2';
   chainId: number;
   symbol: string;
+  version: 'v1' | 'v2';
+}
+
+async function fetchUserPortfolioVaults(
+  userAddress: string,
+  signal?: AbortSignal
+): Promise<PortfolioVault[]> {
+  const response = await fetch(
+    `/api/user/morpho-positions?address=${userAddress}&chainId=${BASE_CHAIN_ID}&includeEmpty=true`,
+    { signal }
+  );
+
+  if (!response.ok) return [];
+
+  const data = await response.json().catch(() => ({ positions: [] }));
+  const vaults: PortfolioVault[] = [];
+  const seenAddresses = new Set<string>();
+
+  const addVault = (vault: PortfolioVault) => {
+    const key = vault.address.toLowerCase();
+    if (seenAddresses.has(key)) return;
+    seenAddresses.add(key);
+    vaults.push(vault);
+  };
+
+  for (const p of data.positions ?? []) {
+    addVault({
+      address: p.vault.address,
+      chainId: BASE_CHAIN_ID,
+      symbol: p.vault.symbol,
+      version: p.version ?? 'v2',
+    });
+  }
+
+  // Muscadine v1→v2 migrations: Morpho may omit zero-share v1 positions; backfill history.
+  for (const p of data.positions ?? []) {
+    if (p.version !== 'v2') continue;
+    const legacy = getLegacyV1VaultForSymbol(p.vault.symbol);
+    if (!legacy) continue;
+    addVault({
+      address: legacy.address,
+      chainId: BASE_CHAIN_ID,
+      symbol: legacy.symbol,
+      version: 'v1',
+    });
+  }
+
+  return vaults;
 }
 
 async function fetchVaultHistory(
@@ -73,15 +123,23 @@ export default function PortfolioPositionChart() {
   const [dailyHistory, setDailyHistory] = useState<PositionHistoryPoint[]>([]);
   const [hourly7dHistory, setHourly7dHistory] = useState<PositionHistoryPoint[]>([]);
   const [hourly30dHistory, setHourly30dHistory] = useState<PositionHistoryPoint[]>([]);
+  const portfolioVaultsCache = useRef<{ address: string; vaults: PortfolioVault[] } | null>(null);
 
-  const portfolioVaults = useMemo<PortfolioVault[]>(
-    () =>
-      Object.values(VAULTS).map((vault) => ({
-        address: vault.address,
-        version: vault.version,
-        chainId: vault.chainId,
-        symbol: vault.symbol,
-      })),
+  const getPortfolioVaults = useCallback(
+    async (userAddress: string, signal: AbortSignal): Promise<PortfolioVault[]> => {
+      if (
+        portfolioVaultsCache.current?.address === userAddress.toLowerCase()
+      ) {
+        return portfolioVaultsCache.current.vaults;
+      }
+
+      const vaults = await fetchUserPortfolioVaults(userAddress, signal);
+      portfolioVaultsCache.current = {
+        address: userAddress.toLowerCase(),
+        vaults,
+      };
+      return vaults;
+    },
     []
   );
 
@@ -97,11 +155,17 @@ export default function PortfolioPositionChart() {
       }
 
       try {
+        const portfolioVaults = await getPortfolioVaults(address, signal);
+        if (portfolioVaults.length === 0) {
+          setter([]);
+          return;
+        }
+
         const vaultHistories = await Promise.all(
           portfolioVaults.map(async (vault): Promise<PortfolioVaultHistoryInput> => {
             try {
               const history = await fetchVaultHistory(vault, address, period, signal);
-              return { symbol: vault.symbol, version: vault.version, history };
+              return { address: vault.address, symbol: vault.symbol, version: vault.version, history };
             } catch (error) {
               if (error instanceof Error && error.name === 'AbortError') {
                 throw error;
@@ -113,7 +177,7 @@ export default function PortfolioPositionChart() {
                 error: error instanceof Error ? error.message : String(error),
               });
 
-              return { symbol: vault.symbol, version: vault.version, history: [] };
+              return { address: vault.address, symbol: vault.symbol, version: vault.version, history: [] };
             }
           })
         );
@@ -127,8 +191,12 @@ export default function PortfolioPositionChart() {
         setter([]);
       }
     },
-    [address, portfolioVaults]
+    [address, getPortfolioVaults]
   );
+
+  useEffect(() => {
+    portfolioVaultsCache.current = null;
+  }, [address]);
 
   useEffect(() => {
     if (!address) {

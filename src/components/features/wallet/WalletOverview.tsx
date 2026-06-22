@@ -352,9 +352,14 @@ export default function WalletOverview() {
                         ) : sortedVaultPositions.length > 0 ? (
                             sortedVaultPositions.map((position) => (
                                 <div key={position.address} className="flex justify-between items-center gap-4">
-                                    <span className="text-sm font-medium text-[var(--foreground)] whitespace-nowrap">
-                                        {position.name}
-                                    </span>
+                                    <div className="flex flex-col min-w-0">
+                                        <span className="text-sm font-medium text-[var(--foreground)] truncate">
+                                            {position.name}
+                                        </span>
+                                        <span className="text-xs text-[var(--foreground-secondary)]">
+                                            {position.symbol}
+                                        </span>
+                                    </div>
                                     <span className="text-sm text-[var(--foreground)] font-medium whitespace-nowrap">
                                         {formatCurrency(position.usdValue)}
                                     </span>

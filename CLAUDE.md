@@ -2,9 +2,9 @@
 
 Comprehensive context for AI assistants and developers. This is the canonical “extra README” for the repo: architecture, Morpho integration, file map, conventions, and operational notes.
 
-**Product:** Web app for Muscadine vaults on **Base (chain id 8453)** today — deposit, withdraw, portfolio view, vault analytics. Supports **v1 MetaMorpho** (legacy; soft-deprecated in UI) and **v2 Prime (VaultV2)** vaults for USDC, cbBTC, and WETH. **Roadmap:** add vaults on **Ethereum** and **Hyperliquid**; eventually **remove / fully deprecate v1** vaults and v1-only code paths (see [Future](#future--optional-upgrades)).
+**Product:** Web app for Muscadine vaults on **Base (chain id 8453)** — deposit, withdraw, portfolio view, vault analytics. **v2 Prime and Frontier** vaults for USDC, cbBTC, and WETH. **v1 MetaMorpho removed** from registry and codebase (v2-only writes).
 
-**Version:** `package.json` → `1.0.7`
+**Version:** `package.json` → `1.1.2`
 
 ---
 
@@ -93,16 +93,14 @@ Never commit real keys. `.env.example` documents placeholders.
 │                         Browser (client)                         │
 │  RainbowKit / wagmi ──► viem PublicClient + WalletClient         │
 │                                                                  │
-│  TransactionFlow ──┬── v1 ──► useVaultTransactions (bundler)   │
-│                    └── v2 ──► transactionUtilsV2 (ERC-4626 ABI)  │
-│                                                                  │
-│  WalletContext, VaultDataContext, TransactionContext, …          │
+│  TransactionFlow ──► transactionUtilsV2 (ERC-4626 ABI)             │
+│  WalletContext ──► /api/user/morpho-positions                    │
 └───────────────────────────┬─────────────────────────────────────┘
                             │
 ┌───────────────────────────▼─────────────────────────────────────┐
 │              Next.js Route Handlers (/api/...)                   │
 │  POST https://api.morpho.org/graphql  (revalidate ~5 min)         │
-│  vaultByAddress (v1)  |  vaultV2ByAddress (v2)                   │
+│  vaultV2ByAddress (v2)  |  v1 position-history (backfill only)   │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -118,65 +116,50 @@ Single source of truth: `src/lib/vaults.ts` → `VAULTS` record.
 
 Always resolve version with `getVaultVersion(address)` / `findVaultByAddress()` from `src/lib/vault-utils.ts`. Do not infer v1/v2 from asset symbol alone.
 
-| Asset | V1 MetaMorpho | V2 Prime |
-|-------|---------------|----------|
-| USDC | `0xf7e26Fa48A568b8b0038e104DfD8ABdf0f99074F` | `0x89712980Cb434eF5aE4AB29349419eb976B0b496` |
-| cbBTC | `0xAeCc8113a7bD0CFAF7000EA7A31afFD4691ff3E9` | `0x99dcd0D75822BA398F13B2A8852B07c7e137EC70` |
-| WETH | `0x21e0d366272798da3A977FEBA699FCB91959d120` | `0xD6DCAd2f7Da91FBb27BdA471540d9770c97a5a43` |
+| Asset | V2 Prime | V2 Frontier |
+|-------|----------|-------------|
+| USDC | `0x89712980Cb434eF5aE4AB29349419eb976B0b496` (mpUSDC) | `0x314fD07319ef645bA7D548915CCd91F4788A1839` (mfUSDC) |
+| cbBTC | `0x99dcd0D75822BA398F13B2A8852B07c7e137EC70` (mpcbBTC) | — |
+| WETH | `0xD6DCAd2f7Da91FBb27BdA471540d9770c97a5a43` (mpWETH) | — |
 
-**Routes:** `/vault/v1/{address}`, `/vault/v2/{address}`  
-**API:** `/api/vault/{v1|v2}/{address}/{complete|history|activity|position-history}`
+**Routes:** `/vault/v2/{address}` only  
+**API:** `/api/vault/v2/{address}/{complete|history|activity|position-history|earned-interest}`
 
-**Vault version UX (`VaultVersionContext`):** Not used on the dashboard.
+**Vault registry fields:** `symbol` (underlying asset), `vaultSymbol` (share token label), `strategy` (`prime` | `frontier`).
 
-| Setting | Storage key | Values | Effect |
-|---------|-------------|--------|--------|
-| **Preference** (NavBar Settings) | `muscadine-vault-version-default-v2` | `v2` (default) \| `all` (UI: **Dev**) | `v2` → effective filter is always **v2**. `all` → Dev mode: explorer Version dropdown, v1/v2 badges, transact test bypasses. |
-| **Explorer filter** (only when Dev) | `muscadine-vault-explorer-version-filter-v2-default` | `v2` (default) \| `v1` \| `all` | Table filter on `/vaults` when `preference === 'all'`. |
+**Dev mode (`VaultVersionContext`, `preference === 'all'`):** Transact **over-balance bypass** only. Explorer filters default to **All** (network, strategy, asset) for everyone — not dev-gated. **No v1/v2 version filter** (v1 removed).
 
-**Resolved `version`** for lists/transact: `preference === 'v2' ? 'v2' : explorerVersion`. **`mergeRegistryVaultsWithDeposits`** always includes vaults where the user has on-chain shares (e.g. withdraw from v1 while preference is v2).
-
-**Planned registry changes:** `vaults.ts` is Base-only for now. Future work: register Morpho vaults on **Ethereum** and **Hyperliquid** (per-chain `chainId`, wagmi config, API routes, explorer Network filter). In parallel, plan to **drop v1 MetaMorpho** from the registry and UI once positions are migrated — keep withdraw paths until sunset, then delete v1 bundler routes, `/vault/v1/*` pages, and Dev-mode v1 deposit acks.
+**Dashboard:** Shows all Morpho v1+v2 positions via `/api/user/morpho-positions`; non-curated vaults are read-only on dashboard. Portfolio chart aggregates position-history for **every** deposited Morpho vault (v1 + v2).
 
 ---
 
-## V1 vs V2 — the most important split
+## V2 transactions (only write path)
 
-**Today:** v2 is the default product surface; v1 remains for legacy positions and withdrawals. **Direction:** retire v1 from the registry and codebase after migration (do not add new v1-first features).
+All vault writes use **`src/lib/transactionUtilsV2.ts`** (direct ERC-4626 + viem). v1 bundler / `useVaultTransactions` removed.
 
-| | **V1 (MetaMorpho)** | **V2 (Prime / VaultV2)** |
-|--|----------------------|---------------------------|
-| On-chain type | ERC-4626 MetaMorpho | Morpho VaultV2 (ERC-4626-like interface) |
-| **Write path** | `useVaultTransactions.ts` + `setupBundle` | `transactionUtilsV2.ts` + viem `writeContract` |
-| Bundler | Yes (`@morpho-org/bundler-sdk-viem`) | **No** — bundler does not expose v2 MetaMorpho ops |
-| Simulation | `useVaultSimulationState` + simulation-sdk-wagmi | Same hook can load v2 vaults in simulation state; **tx execution does not use bundler** |
-| Deposit slippage | Bundler / blue-sdk defaults | Direct `deposit` on vault (no Bundler3 path in app) |
-| Vault-to-vault transfer | Supported (single bundle) | **Not supported** — explicit error in `TransactionFlow` |
-| GraphQL entity | `vaultByAddress` | `vaultV2ByAddress` |
+**Routing:** `TransactionFlow.tsx` → `depositToVaultV2` / `withdrawFromVaultV2` / `redeemFromVaultV2` only.
 
-**Do not** call v1 `MetaMorpho_Deposit` / bundler operations against v2 addresses.
+### ERC-4626 reads and UI sources (v2)
 
-**Optional future path:** Morpho’s `@morpho-org/morpho-sdk` v2 supports VaultV2 deposits via Bundler3 with slippage guards and `forceWithdraw`/`forceRedeem` for low idle liquidity. This app **intentionally** uses direct ABIs for v2 unless that decision is reversed.
+| Concern | Source |
+|---------|--------|
+| **Live Morpho positions** | `/api/user/morpho-positions` → `WalletContext` (not per-vault RPC) |
+| **Liquid balances** | Alchemy + wagmi in `WalletContext` |
+| **Position history (charts)** | `vaultV2PositionByAddress` → `history` via `/api/vault/v2/.../position-history` |
+| **Earned interest** | Morpho `pnl` or activity-based fallback via `/api/vault/v2/.../earned-interest` |
+| **Vault TVL / APY** | `vaultV2ByAddress` via `/api/vault/v2/.../complete` and `history` |
+| **Headline APY** | `avgNetApyExcludingRewards` (fallback `avgNetApy`) |
+| **Liquidity in UI** | GraphQL `liquidity` / `liquidityUsd`, not `totalAssets` |
 
-### ERC-4626 vaults — reads, shares, and UI sources
+Share tokens use **18 decimals**; underlying assets use registry decimals (USDC **6**, cbBTC **8**, WETH **18**).
 
-Both v1 MetaMorpho and v2 Prime expose an **ERC-4626-style** interface for deposits/withdrawals (`asset`, `deposit`, `withdraw`, `redeem`, `convertToAssets`, `previewWithdraw`, etc.). Share tokens use **18 decimals**; underlying assets use registry decimals (USDC **6**, cbBTC/WETH **18**).
-
-| Concern | V1 (MetaMorpho) | V2 (Prime / VaultV2) |
-|---------|-----------------|----------------------|
-| **Live position (dashboard, tables)** | `WalletContext` — on-chain `balanceOf` + `convertToAssets` per vault | Same RPC path |
-| **Position history (charts)** | GraphQL `vaultPosition` → `historicalState` | GraphQL `vaultV2PositionByAddress` → `history` |
-| **Vault TVL / APY history** | `vaultByAddress` → `historicalState` | `vaultV2ByAddress` → `historicalState` |
-| **Headline APY (complete API)** | `state.apy` / `avgApy` | `avgNetApyExcludingRewards` (fallback `avgNetApy`) — **`avgApy` deprecated** on v2 |
-| **Liquidity in UI** | MetaMorpho idle/liquidity fields | Use GraphQL **`liquidity`** / `liquidityUsd`, **not** `totalAssets` (deposits) |
-
-**v1 → v2 migration:** Users may hold the same asset in both vault versions over time. Morpho **v1 position history often remains non-zero after withdrawal** while `currentPosition` is already 0. Naïvely summing all six registry vaults with forward-fill **double-counts** (~2× portfolio USD from the migration date onward). The dashboard fixes this in `preparePortfolioVaultHistories()` (see [Dashboard](#dashboard--vault-explorer-ui)).
+**v1 → v2 migration (portfolio chart only):** `legacy-vaults.ts` + `preparePortfolioVaultHistories()` truncates known Muscadine v1 history at first related **curated** v2 deposit — not symbol-only pairing with external vaults.
 
 ---
 
-## On-chain transactions
+## On-chain transactions (v2)
 
-### V2 — `src/lib/transactionUtilsV2.ts`
+### `src/lib/transactionUtilsV2.ts`
 
 Header comment: bundler does not support v2; use direct contract calls.
 
@@ -204,16 +187,7 @@ Header comment: bundler does not support v2; use direct contract calls.
 
 **Progress:** Uses `TransactionProgressCallback` — `approving` for approvals, `confirming` for main tx (same UX rules as v1: do not treat approval hash as final success).
 
-**Routing:** `TransactionFlow.tsx` calls these when `getVaultVersion(...) === 'v2'`.
-
-### V1 — `src/hooks/useVaultTransactions.ts`
-
-- `setupBundle` from `@morpho-org/bundler-sdk-viem`
-- Actions: `deposit`, `withdraw`, `withdrawAll`, `transfer`
-- Uses `useVaultSimulationState` for bundler + simulation
-- WETH: can include unwrap in bundle via bundler operations
-- `DEFAULT_SLIPPAGE_TOLERANCE` from `@morpho-org/blue-sdk`
-- `GENERAL_ADAPTER_ADDRESS` in `constants.ts` for adapter flows
+**Routing:** `TransactionFlow.tsx` calls v2 helpers only (`getVaultVersion` always returns `'v2'`).
 
 ### Shared transaction utilities — `src/lib/transactionUtils.ts`
 
@@ -222,10 +196,7 @@ Header comment: bundler does not support v2; use direct contract calls.
 
 ### Transaction orchestration — `TransactionFlow.tsx`
 
-1. Detect v1/v2 from vault addresses involved.
-2. v2 → `depositToVaultV2` / `withdrawFromVaultV2` / `redeemFromVaultV2` (redeem when amount ≈ max via `shouldUseWithdrawAll`).
-3. v1 → `executeVaultAction` from `useVaultTransactions`.
-4. Simulation hook enabled for preview/execute when `vaultAddress` set (**includes v2 address** for holdings/sim state, but v2 execution bypasses bundler).
+v2-only: `depositToVaultV2` / `withdrawFromVaultV2` / `redeemFromVaultV2` (redeem when amount ≈ max via `shouldUseWithdrawAll`).
 
 **Max withdraw detection:** Compares entered amount to `convertToAssets(fullShares)` within 0.1% → uses redeem path.
 
@@ -264,9 +235,9 @@ Morpho often returns a **trailing interval** (current hour/day) with **zeros** f
 - **Position open** (shares/assets > 0): trailing zero buckets are the in-progress interval → stripped (`stripIncompletePositionHistoryBuckets`).
 - **Position closed** (fully withdrawn): trailing zeros are real → kept. If Morpho's stale v1 history still ends at a **pre-withdrawal value**, a **zero point** is appended one bucket after the last point, so the dashboard's forward-fill aggregation drops to zero instead of being stuck at the last held amount (the "portfolio stuck at old v1 balance" bug).
 
-### V1 complete route
+### V1 API (portfolio backfill only)
 
-Query root: `vaultByAddress` (v1 schema). Post-fetch normalization in `src/app/api/vault/v1/[address]/complete/route.ts`: maps `listed` → `whitelisted`, computes `state.sharePrice` from `totalAssets` / `totalSupply`, sets `state.avgApy` from `avgNetApy` / `apy`.
+- **`/api/vault/v1/[address]/position-history`** — kept for Muscadine v1 migration chart backfill (`legacy-vaults.ts`). No v1 complete, activity, history, or `/vault/v1/*` pages.
 
 ### Morpho GraphQL schema changes (2025–2026)
 
@@ -281,7 +252,7 @@ If `complete` routes return **HTTP 400**, validate queries against `https://api.
 | `market.uniqueKey` (v1) | `id` (alias as `uniqueKey: id` in query) |
 | `historicalState.sharePrice` (v1 VaultHistory) | Removed — derive from `totalAssets` / `totalSupply` in route handler |
 
-**Positions in the UI** depend on `/api/vault/.../complete` after RPC `balanceOf` — broken GraphQL breaks explorer/transact position columns even when on-chain shares exist. `WalletContext` falls back to registry metadata if complete fails.
+**Positions in the UI** use `/api/user/morpho-positions` for Morpho holdings; vault metadata from `/api/vault/v2/.../complete`. Broken GraphQL breaks explorer columns; `WalletContext` falls back to registry metadata when complete fails.
 
 ### Caching
 
@@ -295,21 +266,9 @@ If `complete` routes return **HTTP 400**, validate queries against `https://api.
 
 ## Morpho npm packages
 
-Current ranges in `package.json` (v1.0.7): `blue-sdk` **^6**, `blue-sdk-viem` **^5**, `blue-sdk-wagmi` **^5**, `bundler-sdk-viem` **^5**, `simulation-sdk` **^4**, `simulation-sdk-wagmi` **^5**.
+**Removed from `package.json`:** `@morpho-org/*` bundler/simulation SDKs (v1 path deleted). Morpho reads use **server `fetch`** to `api.morpho.org` and **Apollo Client** (`graphql@16`) on the client where needed.
 
-| Package | Used for |
-|---------|----------|
-| `@morpho-org/bundler-sdk-viem` | **V1 only** — bundle construction |
-| `@morpho-org/blue-sdk` | Entities, slippage constants, types |
-| `@morpho-org/blue-sdk-viem` | Low-level reads / ABIs in Morpho ecosystem |
-| `@morpho-org/blue-sdk-wagmi` | Wagmi hooks for simulation / holdings |
-| `@morpho-org/simulation-sdk` | Transaction simulation |
-| `@morpho-org/simulation-sdk-wagmi` | React integration for simulation |
-| `@morpho-org/morpho-ts` | Shared utilities |
-
-**Not a dependency (by design):** `@morpho-org/morpho-sdk` — optional if migrating v2 writes to official SDK later.
-
-**Note:** Dashboard **position loading** uses RPC + Morpho **GraphQL API routes**, not these SDKs for reads. SDK bumps affect v1 simulation/bundler primarily; broken GraphQL queries are a separate failure mode.
+**Not a dependency:** `@morpho-org/morpho-sdk` — optional future path for v2 writes via official SDK.
 
 ---
 
@@ -318,16 +277,16 @@ Current ranges in `package.json` (v1.0.7): `blue-sdk` **^6**, `blue-sdk-viem` **
 | Path | Description |
 |------|-------------|
 | `/` | **Dashboard** — wallet-focused: `WalletOverview`, `PortfolioPositionChart`, `DashboardVaultTable` (deposited vaults only) |
-| `/vaults` | **Vault explorer** — filter bar + Morpho-style table of all registry vaults |
+| `/vaults` | **Vault explorer** — filter bar + table of registry vaults |
 | `/transact` | Deposit/withdraw flow (`TransactionContext` + `TransactionFlow`) |
-| `/vault/v1/[address]` | V1 vault detail (tabs: overview, position, history) |
 | `/vault/v2/[address]` | V2 vault detail |
 | `/api/prices` | Price proxy/cache |
-| `/api/vault/v1/...` | V1 Morpho GraphQL proxies |
+| `/api/user/morpho-positions` | User Morpho v1+v2 positions (deduped v2-first) |
+| `/api/vault/v1/[address]/position-history` | v1 position history (portfolio backfill only) |
 | `/api/vault/v2/...` | V2 Morpho GraphQL proxies |
 | `/.well-known/farcaster.json` | Farcaster mini app manifest |
 
-**NavBar:** Dashboard → `/`, Vaults → `/vaults`, Transact → `/transact`. Settings: **Developer mode** toggle (`preference` `v2` ↔ `all` stored as Dev). Explorer **Version** filter (V2 / V1 / All) only when Dev is on.
+**NavBar:** Dashboard → `/`, Vaults → `/vaults`, Transact → `/transact`. Settings: **Developer mode** toggle (`preference` `v2` ↔ `all`) — transact test bypass only.
 
 **App title:** metadata in `layout.tsx` uses **Muscadine Vaults** (not “Muscadine Earn”).
 
@@ -343,17 +302,17 @@ Three-row layout:
 |------|-----------|----------|
 | Top | `WalletOverview` | Total / liquid / Morpho USD; dropdown breakdowns |
 | Bottom left | `PortfolioPositionChart` | Combined USD portfolio history (Recharts) |
-| Bottom right | `DashboardVaultTable` | Vaults where user has **non-zero** position |
+| Bottom right | `DashboardVaultTable` | **v2** vaults where user has non-zero position (registry + external) |
 
-**Important:** Dashboard **ignores** `VaultVersionContext`. Positions and charts include **both v1 and v2** vaults from the registry.
+**Important:** Dashboard ignores `VaultVersionContext`. Portfolio chart includes **all** Morpho v1+v2 positions from the API; **Your Vaults** is **v2-only**.
 
-- **Your Vaults** lists only vaults with a current deposit (`morphoHoldings.positions`), sorted by USD value. Empty state links to `/vaults`.
+- **Your Vaults** lists v2 deposits only (`position.version === 'v2'`), sorted by USD. External (non-curated) vaults are shown but **not clickable**.
 - **Layout:** Chart + Your Vaults use **`min-[1000px]:grid-cols-2`** (side-by-side from ~1000px width; stacked below). `DashboardVaultTable` uses a **compact** `table-fixed` layout at `min-[1000px]+`; card layout below that.
 - **Portfolio chart** (`PortfolioPositionChart.tsx`):
-  1. Fetches position history for **all 6 registry vaults** (`period=all` / `7d` / `30d`).
-  2. **`preparePortfolioVaultHistories()`** — per asset (USDC, cbBTC, WETH), if v2 has deposits: truncate v1 history before first v2 deposit and append a **$0 point at cutover** so forward-fill does not stack v1 + v2 balances after migration.
-  3. **`aggregatePortfolioHistory()`** — forward-fill each prepared series and sum USD.
-  - **Current holdings** in `WalletOverview` / Your Vaults come from **RPC** (`WalletContext`), not the chart aggregate — they should match when dedupe is correct.
+  1. Discovers vaults via `/api/user/morpho-positions?includeEmpty=true` (+ legacy v1 backfill for Muscadine migrations).
+  2. **`preparePortfolioVaultHistories()`** — curated v1→v2 cutover per `legacy-vaults.ts`.
+  3. **`aggregatePortfolioHistory()`** — forward-fill each series and sum USD.
+  - **Current holdings** in `WalletOverview` / Your Vaults from **`WalletContext`** (`/api/user/morpho-positions`).
 - Preloads vault API data for deposited vaults via `useVaultListPreloader`.
 - **Position display:** `formatPositionUsd` / `formatPositionTokenAmount` in `formatter.ts` (full values, no K/M/B; USDC 2 decimals, WETH/cbBTC 4).
 
@@ -365,29 +324,20 @@ Three-row layout:
 
 | Filter | Options | Notes |
 |--------|---------|-------|
-| Network | All, Base | Default **All**; `base` filters `chainId === 8453` (ready for more chains) |
-| Version | V2, V1, All | **`explorerVersion`** via `VaultVersionContext` — visible only when **Dev** (`preference === 'all'`) |
+| Network | All, Base | Default **All**; `base` filters `chainId === 8453` |
+| Strategy | All, Prime, Frontier | Default **All** (shows Prime + Frontier) |
 | Asset | All, USDC, cbBTC, WETH | Local filter state |
 | In Wallet | Toggle | Shows only vaults user is deposited in |
 
-**Table columns** (`VaultExplorerTable.tsx`): Network, Vault (logo + name + v1/v2 badge), **Your Position** (when wallet connected), Deposits, Liquidity, APY. No Exposure/Curator columns. Rows navigate to vault detail.
+**Table columns** (`VaultExplorerTable.tsx`): Vault, **Your Position**, **Earned Interest**, **APY / TVL** (compact layout). Rows navigate to `/vault/v2/{address}`.
 
-**Vault list sort order** (`sortVaultsForDisplay` in `vault-utils.ts`): (1) user position USD high → low, (2) **v2 before v1**, (3) TVL high → low, (4) name. Used on `/vaults`, dashboard Your Vaults, `VaultList`, NavBar Muscadine dropdown, and transact account ordering ties.
+**Vault list sort order** (`sortVaultsForDisplay`): (1) position USD high → low, (2) v2 before v1 (external positions), (3) TVL high → low, (4) name.
 
-**Version filter + deposits:** Default filter is **v2**, but vaults where the user holds shares are **always included** (`mergeRegistryVaultsWithDeposits`) so v1 positions still appear on `/vaults` and in transact pickers. Dashboard ignores version filter entirely.
-
-**Your Position column:** Show when on-chain shares &gt; 0 (`hasOnChainVaultShares`); USD via `resolvePositionAssetsUsd` (not only `assetsUsd`).
-
-**Liquidity data:** `VaultDataContext` maps v2 `liquidityUsd` / `liquidity` from GraphQL when available (`liquidityAssets` on `Vault` type).
+**Earned interest:** `useVaultEarnedInterest` for curated vaults; shows **0** when never deposited.
 
 ### Vault detail charts (`VaultOverview.tsx`)
 
-Chart tabs (order): **APY** → **Total Deposits** → **Share Price** (`chartType`: `'apy' | 'tvl' | 'sharePrice'`). **Total Deposits** and **Share Price** support USD / token toggle. Axis labels and tooltips use **full values with 2 decimals** (`formatCurrency` / `formatAssetAmount`) — not `k`/`M` abbreviations on the chart itself. Stat cards above still use `formatSmartCurrency` for compact display. V2 history may derive share price from `totalAssets` / `totalSupply` when GraphQL omits `sharePrice`.
-
-### Legacy list components
-
-- `VaultList` / `VaultListCard` — still exported; used for selection flows (e.g. transact). Dashboard no longer uses full `VaultList`.
-- `VaultsDropdown` — still in `layout/` exports; primary nav uses `/vaults` link instead.
+Chart tabs (order): **APY** → **Total Deposits** → **Share Price**. **Total Deposits** and **Share Price** support USD / token toggle. Axis labels and tooltips use full values with 2 decimals (`formatCurrency` / `formatAssetAmount`). Stat cards use `formatSmartCurrency`.
 
 ---
 
@@ -399,10 +349,10 @@ Provider tree (`src/app/Providers.tsx`):
 
 | Context | File | Role |
 |---------|------|------|
-| `WalletContext` | `contexts/WalletContext.tsx` | ETH + ERC-20 balances (Alchemy), Morpho positions, USD totals, refresh/polling after txs |
+| `WalletContext` | `contexts/WalletContext.tsx` | Alchemy liquid balances; Morpho positions via `/api/user/morpho-positions`; refresh after txs |
 | `VaultDataContext` | `contexts/VaultDataContext.tsx` | Cached vault metadata from `/api/vault/.../complete` |
 | `TransactionContext` | `contexts/TransactionContext.tsx` | Transact page: from/to accounts, amount, status, `preferredAsset` |
-| `VaultVersionContext` | `contexts/VaultVersionContext.tsx` | `preference` (v2 \| Dev/`all`), `explorerVersion`, resolved `version`; see [Vault registry](#vault-registry) — **not dashboard** |
+| `VaultVersionContext` | `contexts/VaultVersionContext.tsx` | `preference` (v2 \| Dev/`all`), `isDevMode` — transact bypass only; **not dashboard** |
 | `PriceContext` | `contexts/PriceContext.tsx` | Asset USD prices |
 | `ToastContext` | `contexts/ToastContext.tsx` | Toasts |
 | `ThemeContext` | `contexts/ThemeContext.tsx` | Light/dark |
@@ -432,8 +382,7 @@ Same Risk Framework link appears in **NavBar** Muscadine dropdown (Protocol sect
 
 | Hook | File | Purpose |
 |------|------|---------|
-| `useVaultTransactions` | `hooks/useVaultTransactions.ts` | V1 execute + simulation gate |
-| `useVaultSimulationState` | `hooks/useVaultSimulationState.ts` | Bundler/simulation state (v1 + v2 vault entities) |
+| `useVaultEarnedInterest` | `hooks/useVaultEarnedInterest.ts` | Earned interest for curated vaults |
 | `useVaultDataFetch` | `hooks/useVaultDataFetch.ts` | Fetch/cache vault API data, list preloader |
 | `useClientOnly` | `hooks/useClientOnly.ts` | `useIsClient()`, `useUnixTimestamp()` — SSR-safe patterns |
 | `onClickOutside` | `hooks/onClickOutside.ts` | Dropdown dismiss |
@@ -449,11 +398,11 @@ src/
     vaults/page.tsx       # Vault explorer
   components/
     features/
-      vault/              # VaultExplorer*, VaultOverview, VaultPosition, VaultHistory, VaultList, …
+      vault/              # VaultExplorer*, VaultOverview, VaultPosition, VaultHistory, …
       wallet/             # WalletOverview, PortfolioPositionChart, ConnectButton, …
       transactions/       # TransactionFlow, AccountSelector, confirmation UI
       learn/              # LearnContent
-    layout/               # AppLayout, NavBar, RightSidebar, VaultsDropdown
+    layout/               # AppLayout, NavBar, RightSidebar
     ui/                   # Button, Modal, Toast, Skeleton, Icon
     common/               # ErrorBoundary, CopiableAddress, MiniAppInit
   config/
@@ -466,8 +415,11 @@ src/
     api-utils.ts          # Period/interval helpers; strip incomplete Morpho timeseries tails
     transactionUtilsV2.ts # ★ V2 on-chain (ERC-4626 ABI)
     transactionUtils.ts   # Errors, shared tx helpers
-    vaults.ts             # ★ Vault registry (6 vaults)
-    vault-utils.ts        # Version, routes, sortVaultsForDisplay, mergeRegistryVaultsWithDeposits, resolvePositionAssetsUsd
+    vaults.ts             # ★ Vault registry (v2 Prime + Frontier)
+    vault-utils.ts        # Routes, sortVaultsForDisplay, resolvePositionAssetsUsd, isCuratedVaultAddress
+    legacy-vaults.ts      # Muscadine v1 addresses for portfolio chart backfill
+    interest-utils.ts     # Earned interest from activity
+    asset-decimals.ts     # Morpho amount normalization
     constants.ts          # Chain, WETH, cache TTLs, GENERAL_ADAPTER
     abis.ts               # Shared ERC20 balance + ERC4626 convertToAssets
     formatter.ts          # formatCurrency, formatSmartCurrency, formatAssetAmount, …
@@ -491,7 +443,7 @@ src/
 - Approval txs use `approving`; only the main vault op should set `confirming` with the hash users care about.
 - After success, balances refresh via `refreshBalancesWithPolling` in `TransactionFlow`.
 
-**Transact page** (`app/transact/page.tsx`): Deposit/Withdraw tabs, account pickers, amount, MAX, WETH asset preference, deep links via query params. Vault lists use **`mergeRegistryVaultsWithDeposits`** + `sortVaultsForDisplay`. **Dev mode** (`preference === 'all'`): optional ack for **v1 deposit** risk; optional **over-balance bypass** checkbox when amount exceeds wallet balance.
+**Transact page** (`app/transact/page.tsx`): Deposit/Withdraw tabs, account pickers, amount, MAX, WETH asset preference, deep links. Registry vaults from `VAULTS` + `sortVaultsForDisplay`. **Dev mode** (`preference === 'all'`): **over-balance bypass** checkbox when amount exceeds wallet balance.
 
 **Transact tabs:** Tab highlight uses `activeTab` (user selection). `effectiveActiveTab` infers deposit vs withdraw from From/To when both accounts are set (WETH prefs, max amount). `handleTabChange` resets accounts per tab; do not no-op on `tab === activeTab` alone — use `accountsMatchTransactionTab()` so mismatched From/To does not block clicks.
 
@@ -508,9 +460,8 @@ src/
 
 `WalletContext`:
 
-- Native ETH + tokens: USDC, cbBTC, WETH, cbETH, wstETH (`TOKEN_ADDRESSES` on Base)
-- **Morpho positions:** RPC `balanceOf` + `convertToAssets` per registry vault, then `/api/vault/{v1|v2}/{address}/complete` for metadata; registry fallback if complete fails
-- Alchemy token balance API (see `types/api.ts`)
+- Native ETH + tokens: USDC, cbBTC, WETH, cbETH, wstETH (`TOKEN_ADDRESSES` on Base) via Alchemy
+- **Morpho positions:** `/api/user/morpho-positions` (v1+v2 from Morpho GraphQL, deduped v2-first); metadata from `/api/vault/v2/.../complete`
 - `refreshBalances`, `refreshBalancesWithPolling` after transactions
 
 ---
@@ -609,7 +560,7 @@ Do not bump without checking compatibility:
 ### Product / registry (planned)
 
 1. **Multi-chain vaults** — Extend beyond Base to **Ethereum** and **Hyperliquid**: multi-chain `VAULTS` entries, RPC/wagmi chains, Morpho GraphQL `chainId` on API routes, explorer Network filter (today only Base is real; “All” is forward-compatible).
-2. **Deprecate and remove v1 MetaMorpho** — UI already defaults to v2 and soft-deprecates v1 (Dev mode + `mergeRegistryVaultsWithDeposits` for existing shares). End state: registry and transact/explorer show **v2 only**; remove `useVaultTransactions` / bundler path, `/vault/v1/*`, v1 API proxies, portfolio v1→v2 cutover logic once no active v1 TVL.
+2. **Finish v1 sunset** — v1 UI and most API routes removed; only `position-history` remains for portfolio backfill. Remove cutover logic once no active v1 TVL.
 
 ### Technical (optional)
 
@@ -635,17 +586,15 @@ Do not bump without checking compatibility:
 | Position table formatting | `formatter.ts` (`formatPositionUsd`, `formatPositionTokenAmount`) |
 | Vault explorer page | `src/app/vaults/page.tsx`, `VaultExplorer*.tsx` |
 | V2 deposit/withdraw/redeem | `src/lib/transactionUtilsV2.ts` |
-| V1 deposit/withdraw/transfer | `src/hooks/useVaultTransactions.ts` |
-| Route v1 vs v2 txs | `src/components/features/transactions/TransactionFlow.tsx` |
+| Transaction orchestration | `src/components/features/transactions/TransactionFlow.tsx` |
 | Vault addresses | `src/lib/vaults.ts` |
-| Version / API paths / vault sort | `src/lib/vault-utils.ts` (`sortVaultsForDisplay`, `mergeRegistryVaultsWithDeposits`) |
+| Vault sort / routing | `src/lib/vault-utils.ts` (`sortVaultsForDisplay`, `getVaultRoute`) |
+| Earned interest API | `src/app/api/vault/v2/[address]/earned-interest/route.ts` |
+| Morpho positions API | `src/app/api/user/morpho-positions/route.ts` |
 | Advisory agreement modal | `src/components/features/wallet/AdvisoryAgreementModal.tsx` |
-| Terms re-acceptance version | `AdvisoryAgreementContext.tsx` (`TERMS_VERSION`, e.g. `2.0.0`) |
-| Dev mode / vault version filter | `VaultVersionContext.tsx`, `NavBar.tsx` Settings toggle |
-| Morpho GraphQL query fixes | `src/app/api/vault/v1/[address]/complete/route.ts`, `v2/.../complete`, `v1/.../history` |
+| Dev mode (transact bypass) | `VaultVersionContext.tsx`, `NavBar.tsx` Settings toggle |
+| Morpho GraphQL / fetch helper | `src/lib/api-utils.ts` (`fetchMorphoGraphQL`) |
 | V2 vault API data | `src/app/api/vault/v2/[address]/complete/route.ts` |
-| Wagmi config | `src/config/wagmi.ts` |
-| v1/v2 filter (not dashboard) | `src/contexts/VaultVersionContext.tsx` |
 | Transact state | `src/contexts/TransactionContext.tsx` |
 | Total Deposits chart formatting | `src/components/features/vault/VaultOverview.tsx` |
 | User-facing README | `README.md` |

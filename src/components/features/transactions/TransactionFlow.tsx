@@ -5,7 +5,6 @@ import { useWaitForTransactionReceipt, useReadContract, useWalletClient, usePubl
 import { formatUnits, type Address, type PublicClient, type WalletClient } from 'viem';
 import { VaultAccount } from '@/types/vault';
 import { useTransactionState } from '@/contexts/TransactionContext';
-import { useVaultTransactions } from '@/hooks/useVaultTransactions';
 import type { TransactionProgressStep } from '@/types/transactions';
 import { isCancellationError, formatTransactionError } from '@/lib/transactionUtils';
 import { depositToVaultV2, withdrawFromVaultV2, redeemFromVaultV2 } from '@/lib/transactionUtilsV2';
@@ -17,7 +16,6 @@ import { useVaultData } from '@/contexts/VaultDataContext';
 import { logger } from '@/lib/logger';
 import { useRouter } from 'next/navigation';
 import { ERC4626_ABI } from '@/lib/abis';
-import { getVaultVersion } from '@/lib/vault-utils';
 
 interface TransactionFlowProps {
   onSuccess?: () => void;
@@ -52,18 +50,6 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
   const effectiveStepsInfo = shouldClearFlowState ? [] : stepsInfo;
   const effectiveTotalSteps = shouldClearFlowState ? 0 : totalSteps;
 
-  // Determine which vault address to use for transaction hook
-  // Enable simulation when we're in preview or executing
-  const vaultAddress = transactionType === 'deposit' 
-    ? (toAccount as VaultAccount)?.address 
-    : transactionType === 'withdraw' || transactionType === 'transfer'
-    ? (fromAccount as VaultAccount)?.address
-    : undefined;
-
-  const shouldEnableSimulation =
-    (status === 'preview' || status === 'signing' || status === 'approving' || status === 'confirming') &&
-    !!vaultAddress;
-  const { executeVaultAction, isLoading } = useVaultTransactions(vaultAddress, shouldEnableSimulation);
   const { getVaultData } = useVaultData();
 
   // Get vault position for withdrawals to check if MAX was used
@@ -249,12 +235,6 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
   const handleConfirm = async () => {
     if (!fromAccount || !toAccount || !amount || !transactionType) return;
 
-    // Check if transaction involves a v2 vault
-    const fromVaultVersion = fromAccount.type === 'vault' ? getVaultVersion((fromAccount as VaultAccount).address) : null;
-    const toVaultVersion = toAccount.type === 'vault' ? getVaultVersion((toAccount as VaultAccount).address) : null;
-    const isV2Transaction = fromVaultVersion === 'v2' || toVaultVersion === 'v2';
-
-    // Derive asset if not already computed
     const assetToUse = derivedAsset || (fromAccount.type === 'vault' 
       ? { symbol: (fromAccount as VaultAccount).symbol, decimals: (fromAccount as VaultAccount).assetDecimals ?? 18 }
       : toAccount.type === 'vault'
@@ -268,7 +248,6 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
       return;
     }
 
-    // Validate wallet and public clients are available
     if (!walletClient || !publicClient) {
       const errorMessage = 'Wallet not connected. Please connect your wallet and try again.';
       setStatus('error', errorMessage);
@@ -276,19 +255,13 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
       return;
     }
 
-    // WETH unwrap for v2 withdrawals is handled in transactionUtilsV2.ts
-
     try {
-      // Don't set status here - let onProgress callback set it based on actual step
-      // This ensures we start with the correct status (signing/approving) for pre-authorization
-      
       logger.info('Transaction execution started', {
         transactionType,
         fromAccount: fromAccount?.type === 'wallet' ? 'wallet' : (fromAccount as VaultAccount)?.address,
         toAccount: toAccount?.type === 'wallet' ? 'wallet' : (toAccount as VaultAccount)?.address,
         amount,
         assetSymbol: assetToUse.symbol,
-        isV2: isV2Transaction,
         timestamp: new Date().toISOString(),
       });
       
@@ -339,69 +312,45 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
 
       let txHash: string;
 
-      // V2: direct ERC-4626 + viem (transactionUtilsV2) — V1: bundler-sdk-viem
-      if (isV2Transaction) {
-        if (transactionType === 'deposit') {
-          const vaultAddr = (toAccount as VaultAccount).address as Address;
-          txHash = await depositToVaultV2(
+      if (transactionType === 'deposit') {
+        const vaultAddr = (toAccount as VaultAccount).address as Address;
+        txHash = await depositToVaultV2(
+          publicClient as PublicClient,
+          walletClient as WalletClient,
+          vaultAddr,
+          amount,
+          assetToUse.decimals,
+          preferredAsset,
+          onProgress
+        );
+      } else if (transactionType === 'withdraw') {
+        const vaultAddr = (fromAccount as VaultAccount).address as Address;
+        const withdrawPreferredAsset =
+          preferredAsset === 'ALL' ? undefined : (preferredAsset as 'ETH' | 'WETH' | undefined);
+        if (shouldUseWithdrawAll) {
+          txHash = await redeemFromVaultV2(
+            publicClient as PublicClient,
+            walletClient as WalletClient,
+            vaultAddr,
+            assetToUse.decimals,
+            withdrawPreferredAsset,
+            onProgress
+          );
+        } else {
+          txHash = await withdrawFromVaultV2(
             publicClient as PublicClient,
             walletClient as WalletClient,
             vaultAddr,
             amount,
             assetToUse.decimals,
-            preferredAsset,
+            withdrawPreferredAsset,
             onProgress
           );
-        } else if (transactionType === 'withdraw') {
-          const vaultAddr = (fromAccount as VaultAccount).address as Address;
-          const withdrawPreferredAsset =
-            preferredAsset === 'ALL' ? undefined : (preferredAsset as 'ETH' | 'WETH' | undefined);
-          if (shouldUseWithdrawAll) {
-            txHash = await redeemFromVaultV2(
-              publicClient as PublicClient,
-              walletClient as WalletClient,
-              vaultAddr,
-              assetToUse.decimals,
-              withdrawPreferredAsset,
-              onProgress
-            );
-          } else {
-            txHash = await withdrawFromVaultV2(
-              publicClient as PublicClient,
-              walletClient as WalletClient,
-              vaultAddr,
-              amount,
-              assetToUse.decimals,
-              withdrawPreferredAsset,
-              onProgress
-            );
-          }
-        } else if (transactionType === 'transfer') {
-          throw new Error('Vault-to-vault transfers are not yet supported for v2 vaults');
-        } else {
-          throw new Error('Invalid transaction type');
         }
+      } else if (transactionType === 'transfer') {
+        throw new Error('Vault-to-vault transfers are not supported');
       } else {
-        // Use v1 bundler-based transactions
-        if (transactionType === 'deposit') {
-          const vaultAddress = (toAccount as VaultAccount).address;
-          txHash = await executeVaultAction('deposit', vaultAddress, amount, onProgress, undefined, assetToUse.decimals, preferredAsset);
-        } else if (transactionType === 'withdraw') {
-          const vaultAddress = (fromAccount as VaultAccount).address;
-          // Use withdrawAll (redeem) if amount matches max, otherwise use regular withdraw
-          if (shouldUseWithdrawAll) {
-            txHash = await executeVaultAction('withdrawAll', vaultAddress, undefined, onProgress, undefined, assetToUse.decimals, preferredAsset);
-          } else {
-            txHash = await executeVaultAction('withdraw', vaultAddress, amount, onProgress, undefined, assetToUse.decimals, preferredAsset);
-          }
-        } else if (transactionType === 'transfer') {
-          // For transfer, withdraw from source vault and deposit to destination vault in single bundle
-          const sourceVaultAddress = (fromAccount as VaultAccount).address;
-          const destVaultAddress = (toAccount as VaultAccount).address;
-          txHash = await executeVaultAction('transfer', sourceVaultAddress, amount, onProgress, destVaultAddress, assetToUse.decimals);
-        } else {
-          throw new Error('Invalid transaction type');
-        }
+        throw new Error('Invalid transaction type');
       }
 
       if (!currentTxHash && txHash) {
@@ -508,7 +457,7 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
           assetSymbol={assetSymbol}
           assetDecimals={derivedAsset?.decimals}
           transactionType={transactionType}
-          isLoading={isLoading || isSigning || isApproving || isConfirming}
+          isLoading={isSigning || isApproving || isConfirming}
           progressSteps={walletSteps}
           showProgress={isSigning || isApproving || isConfirming}
           isSuccess={isSuccess}

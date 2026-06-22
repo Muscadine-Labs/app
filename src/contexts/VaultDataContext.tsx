@@ -47,7 +47,11 @@ interface VaultDataState {
 
 interface VaultDataContextType {
   vaultData: VaultDataState;
-  fetchVaultData: (address: string, chainId?: number, forceRefresh?: boolean) => Promise<void>;
+  fetchVaultData: (
+    address: string,
+    chainId?: number,
+    forceRefresh?: boolean
+  ) => Promise<void>;
   getVaultData: (address: string) => MorphoVaultData | null;
   getVaultMarketIds: (address: string) => `0x${string}`[]; // Get market uniqueKeys for simulation
   getVaultAdapters: (address: string) => `0x${string}`[]; // Get adapter addresses for v2 vaults
@@ -100,10 +104,15 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
   }, []);
 
   // NEW: Fetch complete vault data in ONE API call
-  const fetchCompleteVaultData = useCallback(async (address: string, chainId?: number, forceRefresh?: boolean) => {
+  const fetchCompleteVaultData = useCallback(async (
+    address: string,
+    chainId?: number,
+    forceRefresh?: boolean
+  ) => {
     const effectiveChainId = chainId ?? 8453;
     const shouldForceRefresh = forceRefresh ?? false;
-    const cacheKey = `vault-complete-${address}-${effectiveChainId}`;
+    const vaultVersion = getVaultVersion(address);
+    const cacheKey = `vault-complete-${vaultVersion}-${address}-${effectiveChainId}`;
     
     // Check if we already have fresh data (unless forcing refresh)
     // Use ref to read current state without adding to dependencies
@@ -132,10 +141,7 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
       }));
 
       try {
-        // NOTE: APY and vault metrics use Graph API (via /api/vault/v1|v2/[address]/complete)
-        // This provides APY, netApy, rewards, and other vault state data
-        // Balance calculations use RPC (balanceOf + convertToAssets) - see WalletContext
-        const vaultVersion = getVaultVersion(address);
+        // APY and vault metrics: /api/vault/v2/[address]/complete only (no v1 complete route).
         const response = await fetch(`/api/vault/${vaultVersion}/${address}/complete?chainId=${effectiveChainId}`);
         const data = await response.json();
 
@@ -365,8 +371,8 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
   const preloadVaults = useCallback(async (vaults: Vault[]) => {
     // Preload complete vault data for all vaults in parallel (maximum efficiency)
     // Promise.allSettled allows all requests to complete even if some fail
-    const promises = vaults.map(vault => 
-      fetchCompleteVaultData(vault.address, vault.chainId)
+    const promises = vaults.map((vault) =>
+      fetchCompleteVaultData(vault.address, vault.chainId, false)
     );
     
     await Promise.allSettled(promises);

@@ -1,14 +1,13 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { useAccount, usePublicClient } from 'wagmi';
+import { useAccount } from 'wagmi';
 import { useBalance, useReadContract } from 'wagmi';
 import type { AlchemyTokenBalancesResponse, AlchemyTokenMetadataResponse, AlchemyTokenBalance } from '@/types/api';
 import { formatCurrency } from '@/lib/formatter';
 import { logger } from '@/lib/logger';
-import { VAULTS } from '@/lib/vaults';
-import { ERC20_BALANCE_ABI, ERC4626_ABI } from '@/lib/abis';
-import { getVaultVersion } from '@/lib/vault-utils';
+import { findVaultByAddress } from '@/lib/vault-utils';
+import type { VaultStrategy } from '@/lib/vaults';
 
 export interface TokenBalance {
   address: string;
@@ -20,10 +19,14 @@ export interface TokenBalance {
 }
 
 interface VaultPosition {
+  version: 'v1' | 'v2';
   vault: {
     address: string;
     name: string;
     symbol: string;
+    vaultSymbol?: string;
+    strategy?: VaultStrategy;
+    isCurated?: boolean;
     state: {
       sharePriceUsd: number;
       totalAssetsUsd: number;
@@ -32,7 +35,10 @@ interface VaultPosition {
   };
   shares: string;
   assets?: string;
-  assetsUsd?: number; // USD value from GraphQL API (most accurate)
+  assetsUsd?: number;
+  pnl?: number;
+  pnlUsd?: number;
+  pnlRaw?: string;
 }
 
 interface MorphoHoldings {
@@ -118,7 +124,6 @@ const ERC20_ABI = [
 
 export function WalletProvider({ children }: { children: React.ReactNode }) {
   const { address, isConnected } = useAccount();
-  const publicClient = usePublicClient();
   const [tokenPrices, setTokenPrices] = useState<Record<string, number>>({});
   const [alchemyTokenBalances, setAlchemyTokenBalances] = useState<TokenBalance[]>([]);
   const [morphoHoldings, setMorphoHoldings] = useState<MorphoHoldings>({
@@ -421,177 +426,95 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     }
   }, [address]);
 
-  // Helper to get asset decimals for a vault (USDC=6, WETH/ETH=18, cbBTC=8)
-  const getVaultAssetDecimals = (vaultAddress: string, vaultSymbol: string): number => {
-    const symbol = vaultSymbol.toUpperCase();
-    // USDC vault uses 6 decimals
-    if (symbol === 'USDC' || symbol === 'MVUSDC' || vaultAddress.toLowerCase() === '0xf7e26Fa48A568b8b0038e104DfD8ABdf0f99074F'.toLowerCase()) {
-      return 6;
-    }
-    // cbBTC vault uses 8 decimals
-    if (symbol === 'CBBTC' || symbol === 'MVCBBTC' || vaultAddress.toLowerCase() === '0xAeCc8113a7bD0CFAF7000EA7A31afFD4691ff3E9'.toLowerCase()) {
-      return 8;
-    }
-    // WETH/ETH uses 18 decimals
-    return 18;
-  };
-
-  // Fetch vault positions using RPC calls (balanceOf + convertToAssets)
+  // Fetch all Morpho vault positions from the API (v1 + v2, curated + external).
   const fetchVaultPositions = useCallback(async (): Promise<void> => {
-    if (!address || !publicClient) {
-      setMorphoHoldings(prev => ({ 
-        ...prev, 
-        totalValueUsd: 0, 
+    if (!address) {
+      setMorphoHoldings(prev => ({
+        ...prev,
+        totalValueUsd: 0,
         positions: [],
-        isLoading: false 
+        isLoading: false,
       }));
       return;
     }
 
     setMorphoHoldings(prev => ({ ...prev, isLoading: true, error: null }));
 
+    const url = `/api/user/morpho-positions?address=${encodeURIComponent(address)}&chainId=8453`;
+    const maxAttempts = 3;
+    const retryDelayMs = 750;
+
     try {
-      const vaults = Object.values(VAULTS);
-      
-      logger.debug('Fetching vault positions from RPC (balanceOf + convertToAssets)', {
-        address,
-        timestamp: new Date().toISOString(),
-      });
+      let morphoResponse: Response | null = null;
+      let lastFetchError: unknown;
 
-      const rpcPositionPromises = vaults.map(async (vaultInfo) => {
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
         try {
-          // Step 1: Get shares using balanceOf
-          const sharesRaw = await publicClient.readContract({
-            address: vaultInfo.address as `0x${string}`,
-            abi: ERC20_BALANCE_ABI,
-            functionName: 'balanceOf',
-            args: [address as `0x${string}`],
-          }) as bigint;
-
-          // Skip if no shares
-          if (!sharesRaw || sharesRaw === BigInt(0)) {
-            return null;
-          }
-
-          // Step 2: Convert shares to assets using convertToAssets
-          const assetsRaw = await publicClient.readContract({
-            address: vaultInfo.address as `0x${string}`,
-            abi: ERC4626_ABI,
-            functionName: 'convertToAssets',
-            args: [sharesRaw],
-          }) as bigint;
-
-          // Step 3: Fetch vault metadata to get vault info (for sharePriceUsd, etc.)
-          const vaultVersion = getVaultVersion(vaultInfo.address);
-          const vaultResponse = await fetch(`/api/vault/${vaultVersion}/${vaultInfo.address}/complete?chainId=${vaultInfo.chainId}`);
-          let vaultInfoData: {
-            name?: string;
-            asset?: { symbol?: string; decimals?: number };
-            state?: { sharePriceUsd?: number; totalAssetsUsd?: number; totalSupply?: string };
-          } | null = null;
-
-          if (vaultResponse.ok) {
-            const vaultData = await vaultResponse.json();
-            vaultInfoData = vaultData.data?.vaultByAddress ?? null;
-          }
-
-          const assetSymbol = vaultInfo.symbol;
-          const registryAssetDecimals = getVaultAssetDecimals(vaultInfo.address, assetSymbol);
-
-          // Registry fallback when Morpho API is unavailable (positions still exist on-chain)
-          if (!vaultInfoData) {
-            vaultInfoData = {
-              name: vaultInfo.name,
-              asset: { symbol: assetSymbol, decimals: registryAssetDecimals },
-              state: { sharePriceUsd: 0, totalAssetsUsd: 0, totalSupply: '0' },
-            };
-          }
-
-          const sharePriceUsd = vaultInfoData.state?.sharePriceUsd || 0;
-          const totalAssetsUsd = vaultInfoData.state?.totalAssetsUsd || 0;
-          const totalSupply = vaultInfoData.state?.totalSupply || '0';
-          
-          // Step 4: Calculate USD value using asset price (like liquid assets)
-          const resolvedAssetSymbol = vaultInfoData.asset?.symbol || assetSymbol;
-          const assetDecimals =
-            vaultInfoData.asset?.decimals ?? registryAssetDecimals;
-          const assetsDecimal = Number(assetsRaw) / Math.pow(10, assetDecimals);
-          
-          // Get asset price from prices API (same as liquid assets)
-          let assetPrice = 0;
-          if (resolvedAssetSymbol.toUpperCase() === 'USDC') {
-            assetPrice = 1; // Stablecoins are $1
-          } else {
-            // Map symbols to price API symbols
-            const priceSymbolMap: Record<string, string> = {
-              'WETH': 'ETH',
-              'cbBTC': 'BTC',
-              'CBBTC': 'BTC',
-              'CBTC': 'BTC',
-            };
-            const priceSymbol = priceSymbolMap[resolvedAssetSymbol.toUpperCase()] || resolvedAssetSymbol;
-            
-            try {
-              const priceResponse = await fetch(`/api/prices?symbols=${priceSymbol}`);
-              if (priceResponse.ok) {
-                const priceData = await priceResponse.json();
-                const priceKey = priceSymbol.toLowerCase();
-                assetPrice = priceData[priceKey] || 0;
-              }
-            } catch {
-              // If price fetch fails, use sharePriceUsd as fallback
-              const sharesDecimal = Number(sharesRaw) / 1e18;
-              if (sharesDecimal > 0 && sharePriceUsd > 0 && assetsDecimal > 0) {
-                const priceRatio = assetsDecimal / sharesDecimal;
-                if (priceRatio > 0) {
-                  assetPrice = sharePriceUsd / priceRatio;
-                }
-              }
-            }
-          }
-          
-          const assetsUsd = assetsDecimal * assetPrice;
-
-          const position: VaultPosition = {
-            vault: {
-              address: vaultInfo.address,
-              name: vaultInfoData.name || vaultInfo.name,
-              symbol: assetSymbol,
-              state: {
-                sharePriceUsd,
-                totalAssetsUsd,
-                totalSupply,
-              },
-            },
-            shares: sharesRaw.toString(),
-            assets: assetsRaw.toString(),
-            assetsUsd, // Calculate USD value from asset amount * price (like liquid assets)
-          };
-          
-          return position;
+          morphoResponse = await fetch(url);
+          break;
         } catch (err) {
-          logger.warn('Failed to fetch vault position from RPC', {
-            vaultAddress: vaultInfo.address,
-            error: err instanceof Error ? err.message : String(err),
-          });
-          return null;
+          lastFetchError = err;
+          if (attempt < maxAttempts - 1) {
+            await new Promise((resolve) => setTimeout(resolve, retryDelayMs * (attempt + 1)));
+          }
         }
-      });
-      
-      // Fetch all positions from RPC
-      const rpcPositions = await Promise.all(rpcPositionPromises);
-      const positions = rpcPositions.filter((pos): pos is VaultPosition => pos !== null);
-      
-      // Calculate total USD value using assetsUsd (calculated from asset amount * price)
-      const totalValueUsd = positions.reduce((sum, position) => {
-        if (position.assetsUsd !== undefined && position.assetsUsd > 0) {
-          return sum + position.assetsUsd;
+      }
+
+      if (!morphoResponse) {
+        throw lastFetchError instanceof Error
+          ? lastFetchError
+          : new Error('Failed to fetch vault positions');
+      }
+
+      if (!morphoResponse.ok) {
+        throw new Error(`Morpho positions API returned ${morphoResponse.status}`);
+      }
+
+      const morphoData = await morphoResponse.json();
+      const positions: VaultPosition[] = (morphoData.positions ?? []).map(
+        (p: {
+          version: 'v1' | 'v2';
+          vault: {
+            address: string;
+            name: string;
+            symbol: string;
+            vaultSymbol?: string;
+            strategy?: string;
+            isCurated?: boolean;
+          };
+          shares: string;
+          assets: string;
+          assetsUsd: number;
+          pnl?: number;
+          pnlUsd?: number;
+          pnlRaw?: string;
+        }) => {
+          const curated = findVaultByAddress(p.vault.address);
+          return {
+            version: p.version ?? 'v2',
+            vault: {
+              address: p.vault.address,
+              name: curated?.name ?? p.vault.name,
+              symbol: p.vault.symbol,
+              vaultSymbol: curated?.vaultSymbol ?? p.vault.vaultSymbol,
+              strategy: (curated?.strategy ?? p.vault.strategy) as VaultStrategy | undefined,
+              isCurated: !!curated,
+              state: { sharePriceUsd: 0, totalAssetsUsd: 0, totalSupply: '0' },
+            },
+            shares: p.shares,
+            assets: p.assets,
+            assetsUsd: p.assetsUsd,
+            pnl: p.pnl,
+            pnlUsd: p.pnlUsd,
+            pnlRaw: p.pnlRaw,
+          };
         }
-        // Fallback: use shares * sharePriceUsd if assetsUsd not available
-        const shares = parseFloat(position.shares) / 1e18;
-        const sharePriceUsd = position.vault.state.sharePriceUsd || 0;
-        return sum + (shares * sharePriceUsd);
-      }, 0);
+      );
+
+      const totalValueUsd = positions.reduce(
+        (sum, position) => sum + (position.assetsUsd ?? 0),
+        0
+      );
 
       setMorphoHoldings({
         totalValueUsd,
@@ -600,7 +523,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
         error: null,
       });
 
-      logger.info('Vault positions fetched from RPC', {
+      logger.info('Morpho vault positions fetched from API', {
         positionCount: positions.length,
         totalValueUsd: totalValueUsd.toFixed(2),
         timestamp: new Date().toISOString(),
@@ -609,13 +532,13 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       logger.error('Failed to fetch vault positions', err instanceof Error ? err : new Error(String(err)), {
         address,
       });
-      setMorphoHoldings(prev => ({ 
-        ...prev, 
-        isLoading: false, 
-        error: err instanceof Error ? err.message : 'Failed to fetch vault positions' 
+      setMorphoHoldings(prev => ({
+        ...prev,
+        isLoading: false,
+        error: err instanceof Error ? err.message : 'Failed to fetch vault positions',
       }));
     }
-  }, [address, publicClient]);
+  }, [address]);
 
   // Stable wallet state management - only clear data on actual disconnect
   useEffect(() => {

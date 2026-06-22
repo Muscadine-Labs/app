@@ -31,18 +31,58 @@ export const INTERVAL_MAP: Record<string, string> = {
   'all': 'DAY',
 };
 
+const MORPHO_GRAPHQL_URL = 'https://api.morpho.org/graphql';
+export const MORPHO_GRAPHQL_REVALIDATE_SECONDS = 300;
+const MORPHO_FETCH_TIMEOUT_MS = 10_000;
+
+/** POST to Morpho GraphQL with project cache TTL and abort timeout. */
+export async function fetchMorphoGraphQL(
+  body: { query: string; variables?: Record<string, unknown> },
+  options?: { revalidate?: number; timeoutMs?: number; tags?: string[] }
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutMs = options?.timeoutMs ?? MORPHO_FETCH_TIMEOUT_MS;
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(MORPHO_GRAPHQL_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+      next: {
+        revalidate: options?.revalidate ?? MORPHO_GRAPHQL_REVALIDATE_SECONDS,
+        ...(options?.tags ? { tags: options.tags } : {}),
+      },
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 /** Morpho timeseries often includes a trailing bucket for the in-progress period with zeros. */
 export function stripIncompleteVaultHistoryBuckets<
-  T extends { totalAssetsUsd: number; totalAssets: number; sharePrice?: number },
+  T extends {
+    totalAssetsUsd: number;
+    totalAssets: number;
+    sharePrice?: number;
+    apy?: number;
+    netApy?: number;
+  },
 >(history: T[]): T[] {
   let end = history.length;
   while (end > 0) {
     const point = history[end - 1];
-    const isIncomplete =
+    const zeroTvl =
       (point.totalAssetsUsd ?? 0) === 0 &&
       (point.totalAssets ?? 0) === 0 &&
       (point.sharePrice ?? 0) === 0;
-    if (!isIncomplete) break;
+    // In-progress buckets often have TVL but APY not yet computed.
+    const zeroApyWithTvl =
+      (point.totalAssetsUsd ?? 0) > 0 &&
+      (point.apy ?? 0) === 0 &&
+      (point.netApy ?? 0) === 0;
+    if (!zeroTvl && !zeroApyWithTvl) break;
     end--;
   }
   return end === history.length ? history : history.slice(0, end);
@@ -54,10 +94,9 @@ export function stripIncompletePositionHistoryBuckets<
   let end = history.length;
   while (end > 0) {
     const point = history[end - 1];
+    // Trailing buckets may still report shares while assets/assetsUsd are zero.
     const isIncomplete =
-      (point.assets ?? 0) === 0 &&
-      (point.assetsUsd ?? 0) === 0 &&
-      (point.shares ?? 0) === 0;
+      (point.assets ?? 0) === 0 && (point.assetsUsd ?? 0) === 0;
     if (!isIncomplete) break;
     end--;
   }

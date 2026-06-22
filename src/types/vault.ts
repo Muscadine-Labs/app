@@ -1,11 +1,18 @@
+import type { VaultStrategy } from '@/lib/vaults';
+
 // Unified Vault type definition
 export interface Vault {
     // Basic Information
     address: string;
     name: string;
     symbol: string;
+    /** Share token symbol (e.g. mpUSDC, mfUSDC). */
+    vaultSymbol?: string;
     chainId: number;
-    version?: 'v1' | 'v2'; // Vault version (v1 uses Morpho v1 API, v2 uses Morpho v2 API)
+    version?: 'v1' | 'v2';
+    strategy?: VaultStrategy;
+    /** True when vault is in the Muscadine registry (has detail/transact pages). */
+    isCurated?: boolean;
     
     // Financial Metrics
     totalValueLocked?: number; // TVL in USD

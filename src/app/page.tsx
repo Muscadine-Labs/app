@@ -6,9 +6,11 @@ import { WalletOverview, PortfolioPositionChart } from '@/components/features/wa
 import { DashboardVaultTable } from '@/components/features/vault/VaultExplorerTable';
 import { useVaultListPreloader } from '@/hooks/useVaultDataFetch';
 import { useWallet } from '@/contexts/WalletContext';
-import { findVaultByAddress, sortVaultsForDisplay } from '@/lib/vault-utils';
+import { findVaultByAddress, sortVaultsForDisplay, hasOnChainVaultShares } from '@/lib/vault-utils';
 import { useVaultData } from '@/contexts/VaultDataContext';
 import { Vault } from '@/types/vault';
+import { BASE_CHAIN_ID } from '@/lib/constants';
+import type { VaultStrategy } from '@/lib/vaults';
 
 export default function Home() {
   const { address } = useAccount();
@@ -16,14 +18,33 @@ export default function Home() {
   const { getVaultData } = useVaultData();
 
   const depositedVaults: Vault[] = useMemo(() => {
-    const vaults = morphoHoldings.positions
-      .map((position) => findVaultByAddress(position.vault.address))
-      .filter((vault): vault is Vault => vault !== null);
+    const vaults: Vault[] = morphoHoldings.positions
+      .filter(
+        (position) =>
+          position.version === 'v2' && hasOnChainVaultShares(position)
+      )
+      .map((position) => {
+        const curated = findVaultByAddress(position.vault.address);
+        if (curated) {
+          return { ...curated, version: position.version ?? curated.version };
+        }
+
+        return {
+          address: position.vault.address,
+          name: position.vault.name,
+          symbol: position.vault.symbol,
+          vaultSymbol: position.vault.vaultSymbol,
+          chainId: BASE_CHAIN_ID,
+          version: position.version ?? 'v2',
+          strategy: position.vault.strategy as VaultStrategy | undefined,
+          isCurated: false,
+        };
+      });
 
     return sortVaultsForDisplay(
       vaults,
       morphoHoldings.positions,
-      (address) => getVaultData(address)?.totalDeposits ?? 0
+      (addr) => getVaultData(addr)?.totalDeposits ?? 0
     );
   }, [morphoHoldings.positions, getVaultData]);
 

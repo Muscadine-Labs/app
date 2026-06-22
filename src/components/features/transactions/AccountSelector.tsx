@@ -6,7 +6,6 @@ import { Account, WalletAccount, VaultAccount, getVaultLogo } from '@/types/vaul
 import { useWallet } from '@/contexts/WalletContext';
 import { useVaultData } from '@/contexts/VaultDataContext';
 import { usePrices } from '@/contexts/PriceContext';
-import { useVaultVersion } from '@/contexts/VaultVersionContext';
 import { VAULTS } from '@/lib/vaults';
 import { formatUnits } from 'viem';
 import { formatAssetBalance, truncateAddress } from '@/lib/formatter';
@@ -20,6 +19,7 @@ import {
   findVaultByAddress,
   hasOnChainVaultShares,
 } from '@/lib/vault-utils';
+import { resolveAssetDecimals } from '@/lib/asset-decimals';
 
 // Helper function to find token by symbol using address-based matching for reliability
 // Note: wstETH and cbETH are intentionally excluded - only shown in wallet overview
@@ -64,7 +64,6 @@ export function AccountSelector({
   const { tokenBalances, ethBalance, morphoHoldings } = useWallet();
   const { getVaultData, fetchVaultData, isLoading: isVaultDataLoading } = useVaultData();
   const { btc: btcPrice, eth: ethPrice } = usePrices();
-  const { version } = useVaultVersion();
   const hasPreloadedRef = useRef(false);
 
   useOnClickOutside(dropdownRef, () => setIsOpen(false));
@@ -101,8 +100,7 @@ export function AccountSelector({
     }];
   }, []);
 
-  // Build vault account options - filter by asset symbol if provided and by version
-  // Always show at least some vaults (if no filter, show all; if filter, show matching)
+  // Build vault account options - filter by asset symbol if provided
   const vaultAccounts: VaultAccount[] = useMemo(() => {
     return Object.values(VAULTS)
       .filter((vault) => {
@@ -111,15 +109,11 @@ export function AccountSelector({
             pos.vault.address.toLowerCase() === vault.address.toLowerCase() &&
             hasOnChainVaultShares(pos)
         );
-        // Always show vaults where the user has shares (even if version filter is v2 and deposit is v1)
         if (hasPosition) {
           if (filterByAssetSymbol) {
             return vault.symbol.toUpperCase() === filterByAssetSymbol.toUpperCase();
           }
           return true;
-        }
-        if (version !== 'all' && vault.version !== version) {
-          return false;
         }
         if (filterByAssetSymbol) {
           return vault.symbol.toUpperCase() === filterByAssetSymbol.toUpperCase();
@@ -150,7 +144,7 @@ export function AccountSelector({
           assetDecimals: vaultData?.assetDecimals ?? 18,
         };
       });
-  }, [filterByAssetSymbol, getVaultData, morphoHoldings.positions, version]);
+  }, [filterByAssetSymbol, getVaultData, morphoHoldings.positions]);
 
   // Calculate USD value for sorting accounts
   const getAccountUsdValue = useCallback((account: Account): number => {
@@ -312,9 +306,10 @@ export function AccountSelector({
         return null;
       }
 
-      const assetDecimals =
-        vaultData?.assetDecimals ??
-        (vaultAccount.symbol.toUpperCase() === 'USDC' ? 6 : vaultAccount.symbol.toUpperCase() === 'CBBTC' ? 8 : 18);
+      const assetDecimals = resolveAssetDecimals(
+        vaultAccount.symbol,
+        vaultData?.assetDecimals
+      );
 
       // First priority: Use position.assets if available (from RPC via WalletContext)
       if (position.assets) {

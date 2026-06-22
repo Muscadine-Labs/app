@@ -32,7 +32,7 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
 
     const isActive = useCallback((item: NavItem): boolean => {
         if (item.id === 'vaults') {
-            return pathname === '/vaults' || pathname?.startsWith('/vault/v1/') || pathname?.startsWith('/vault/v2/') || false;
+            return pathname === '/vaults' || pathname?.startsWith('/vault/v2/') || false;
         }
         return false;
     }, [pathname]);
