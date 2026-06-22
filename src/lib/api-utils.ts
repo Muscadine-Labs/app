@@ -38,7 +38,7 @@ const MORPHO_FETCH_TIMEOUT_MS = 10_000;
 /** POST to Morpho GraphQL with project cache TTL and abort timeout. */
 export async function fetchMorphoGraphQL(
   body: { query: string; variables?: Record<string, unknown> },
-  options?: { revalidate?: number; timeoutMs?: number }
+  options?: { revalidate?: number; timeoutMs?: number; tags?: string[] }
 ): Promise<Response> {
   const controller = new AbortController();
   const timeoutMs = options?.timeoutMs ?? MORPHO_FETCH_TIMEOUT_MS;
@@ -50,7 +50,10 @@ export async function fetchMorphoGraphQL(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
       signal: controller.signal,
-      next: { revalidate: options?.revalidate ?? MORPHO_GRAPHQL_REVALIDATE_SECONDS },
+      next: {
+        revalidate: options?.revalidate ?? MORPHO_GRAPHQL_REVALIDATE_SECONDS,
+        ...(options?.tags ? { tags: options.tags } : {}),
+      },
     });
   } finally {
     clearTimeout(timeoutId);

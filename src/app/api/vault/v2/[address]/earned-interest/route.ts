@@ -109,10 +109,13 @@ export async function GET(
       }
     `;
 
-    const positionResponse = await fetchMorphoGraphQL({
-      query: positionQuery,
-      variables: { userAddress, vaultAddress, chainId },
-    });
+    const positionResponse = await fetchMorphoGraphQL(
+      {
+        query: positionQuery,
+        variables: { userAddress, vaultAddress, chainId },
+      },
+      { tags: [`vault-${vaultAddress}-${chainId}`] }
+    );
 
     const positionJson = (await positionResponse.json()) as GraphQLResponse<{
       vaultV2PositionByAddress: VaultV2PositionData | null;
