@@ -1,8 +1,8 @@
 # Muscadine App
 
-A Next.js app for Muscadine **v2** vaults on Base — Prime & Frontier strategies. Dashboard, vault explorer, and transact flows.
+A Next.js app for Muscadine vaults on Base — Prime & Frontier strategies. Dashboard, vault explorer, and transact flows.
 
-**Registry:** `src/lib/vaults.ts` (4 vaults today: 3 Prime + 1 USDC Frontier).  
+**Registry:** `src/lib/vaults.ts`.  
 **Dev:** `npm run dev` → http://localhost:3000  
 **Docs:** `CLAUDE.md` (architecture), `AGENTS.md` (agent rules), `TODO.md` (task list).
 
