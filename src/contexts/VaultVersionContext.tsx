@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useState, useMemo, ReactNode } from 'react';
+import { createContext, useContext, useState, useMemo, useCallback, ReactNode } from 'react';
 
 /** Standard UI, or Dev mode for extra explorer filters and test bypasses. */
 export type VaultVersionPreference = 'v2' | 'all';
@@ -26,12 +26,12 @@ function readPreference(): VaultVersionPreference {
 export function VaultVersionProvider({ children }: { children: ReactNode }) {
   const [preference, setPreferenceState] = useState<VaultVersionPreference>(readPreference);
 
-  const setPreference = (newPreference: VaultVersionPreference) => {
+  const setPreference = useCallback((newPreference: VaultVersionPreference) => {
     setPreferenceState(newPreference);
     if (typeof window !== 'undefined') {
       localStorage.setItem(PREFERENCE_STORAGE_KEY, newPreference);
     }
-  };
+  }, []);
 
   const isDevMode = preference === 'all';
 
@@ -41,7 +41,7 @@ export function VaultVersionProvider({ children }: { children: ReactNode }) {
       setPreference,
       isDevMode,
     }),
-    [preference, isDevMode]
+    [preference, setPreference, isDevMode]
   );
 
   return (

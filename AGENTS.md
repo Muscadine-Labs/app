@@ -27,19 +27,20 @@ Instructions for AI agents working in this repo. Full architecture docs live in 
 
 | Mode | Storage (`preference`) | Effect |
 |------|------------------------|--------|
-| **Standard** | `v2` | Explorer Strategy defaults to **Prime**; normal product surface. |
-| **Developer** | `all` (UI: Dev) | Explorer filters default to **All** (network, strategy, asset); transact over-balance bypass. No v1/v2 toggles (v1 removed). |
+| **Standard** | `v2` | Normal product surface. Explorer filters default to **All** (network, strategy, asset). |
+| **Developer** | `all` (UI: Dev) | Same explorer defaults as standard; **transact over-balance bypass** only. No v1/v2 toggles (v1 removed). |
 
 ## Dashboard & positions
 
-- **Morpho Vaults total** and **Your Vaults** include **all** user v2 positions from Morpho (`/api/user/morpho-positions`), not only Muscadine registry vaults.
-- **External vaults** (not in `vaults.ts`): shown on dashboard, **not clickable** (no detail/transact pages).
-- **Portfolio chart:** all Morpho **v1 + v2** positions via `/api/user/morpho-positions` + per-vault `position-history` (v1 read-only API restored for chart).
-- **Earned interest:** use `earnedInterestRaw` / `pnlRaw` with `getAssetDecimalsForSymbol` (USDC 6, cbBTC 8, WETH 18).
+- **Your Vaults** (dashboard): **v2** positions only (registry + external Morpho v2 vaults).
+- **Morpho Vaults total** includes **all** user v2 positions from Morpho (`/api/user/morpho-positions`), not only Muscadine registry vaults.
+- **External vaults** (not in `vaults.ts`): shown on dashboard totals, **not clickable** (no detail/transact pages).
+- **Portfolio chart:** all Morpho **v1 + v2** positions via `/api/user/morpho-positions` + per-vault `position-history` (v1 `position-history` API kept for Muscadine migration backfill only).
+- **Earned interest:** `/api/vault/v2/.../earned-interest` + `useVaultEarnedInterest`; shows **0** (not `-`) when user never deposited. Use `resolveAssetDecimals` / `getAssetDecimalsForSymbol`.
 
 ## Known gotchas
 
-- Don't sum raw histories across duplicate asset vaults without cutover logic — v1 cutover removed with v1; still aggregate per **vault address**.
+- Portfolio v1→v2 cutover: `preparePortfolioVaultHistories()` + `legacy-vaults.ts` — only for known Muscadine v1 addresses, not symbol-only pairing.
 - Morpho GraphQL invalid fields fail the whole request (HTTP 400).
 - Turbopack chunk errors: `rm -rf .next .turbo && npm run dev`.
 

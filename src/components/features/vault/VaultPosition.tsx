@@ -546,7 +546,16 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
                 try {
                   const raw = BigInt(earnedInterest.earnedInterestRaw || '0');
                   if (raw <= BigInt(0) && earnedInterest.earnedInterestUsd <= 0) {
-                    return <p className="text-sm text-[var(--foreground-muted)]">-</p>;
+                    return (
+                      <>
+                        <p className="text-2xl font-bold text-[var(--foreground)]">
+                          {formatVaultDetailTokenAmount('0', interestDecimals, vaultData.symbol)}
+                        </p>
+                        <p className="text-xs text-[var(--foreground-secondary)] mt-1">
+                          {formatCurrency(0)}
+                        </p>
+                      </>
+                    );
                   }
                   return (
                     <>

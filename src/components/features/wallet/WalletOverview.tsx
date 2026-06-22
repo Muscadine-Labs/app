@@ -353,7 +353,7 @@ export default function WalletOverview() {
                             sortedVaultPositions.map((position) => (
                                 <div key={position.address} className="flex justify-between items-center gap-4">
                                     <div className="flex flex-col min-w-0">
-                                        <span className="text-sm font-medium text-[var(--foreground)] whitespace-nowrap truncate">
+                                        <span className="text-sm font-medium text-[var(--foreground)] truncate">
                                             {position.name}
                                         </span>
                                         <span className="text-xs text-[var(--foreground-secondary)]">

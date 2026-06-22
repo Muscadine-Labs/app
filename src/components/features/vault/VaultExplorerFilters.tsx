@@ -13,8 +13,6 @@ import {
   useInteractions,
   useRole,
 } from '@floating-ui/react';
-import { useVaultVersion } from '@/contexts/VaultVersionContext';
-import { useIsClient } from '@/hooks/useClientOnly';
 import type { VaultStrategy } from '@/lib/vaults';
 
 interface FilterDropdownProps {
@@ -153,20 +151,14 @@ interface VaultExplorerFiltersProps {
   onFiltersChange: (filters: VaultExplorerFilterState) => void;
 }
 
-export function getDefaultExplorerFilters(isDevMode: boolean): VaultExplorerFilterState {
-  if (isDevMode) {
-    return { network: 'all', asset: 'all', strategy: 'all', inWalletOnly: false };
-  }
-  return { network: 'all', asset: 'all', strategy: 'prime', inWalletOnly: false };
+export function getDefaultExplorerFilters(): VaultExplorerFilterState {
+  return { network: 'all', asset: 'all', strategy: 'all', inWalletOnly: false };
 }
 
 export default function VaultExplorerFilters({
   filters,
   onFiltersChange,
 }: VaultExplorerFiltersProps) {
-  const { isDevMode } = useVaultVersion();
-  const isMounted = useIsClient();
-
   const update = (partial: Partial<VaultExplorerFilterState>) => {
     onFiltersChange({ ...filters, ...partial });
   };
@@ -215,11 +207,6 @@ export default function VaultExplorerFilters({
           onChange={(inWalletOnly) => update({ inWalletOnly })}
         />
       </div>
-      {isMounted && isDevMode && (
-        <div className="px-4 sm:px-6 pb-2 text-[10px] text-[var(--foreground-muted)]">
-          Dev mode: filters default to All
-        </div>
-      )}
     </div>
   );
 }

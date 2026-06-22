@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useAccount } from 'wagmi';
 import { BASE_CHAIN_ID } from '@/lib/constants';
 import {
@@ -123,6 +123,25 @@ export default function PortfolioPositionChart() {
   const [dailyHistory, setDailyHistory] = useState<PositionHistoryPoint[]>([]);
   const [hourly7dHistory, setHourly7dHistory] = useState<PositionHistoryPoint[]>([]);
   const [hourly30dHistory, setHourly30dHistory] = useState<PositionHistoryPoint[]>([]);
+  const portfolioVaultsCache = useRef<{ address: string; vaults: PortfolioVault[] } | null>(null);
+
+  const getPortfolioVaults = useCallback(
+    async (userAddress: string, signal: AbortSignal): Promise<PortfolioVault[]> => {
+      if (
+        portfolioVaultsCache.current?.address === userAddress.toLowerCase()
+      ) {
+        return portfolioVaultsCache.current.vaults;
+      }
+
+      const vaults = await fetchUserPortfolioVaults(userAddress, signal);
+      portfolioVaultsCache.current = {
+        address: userAddress.toLowerCase(),
+        vaults,
+      };
+      return vaults;
+    },
+    []
+  );
 
   const fetchAggregatedHistory = useCallback(
     async (
@@ -136,7 +155,7 @@ export default function PortfolioPositionChart() {
       }
 
       try {
-        const portfolioVaults = await fetchUserPortfolioVaults(address, signal);
+        const portfolioVaults = await getPortfolioVaults(address, signal);
         if (portfolioVaults.length === 0) {
           setter([]);
           return;
@@ -172,8 +191,12 @@ export default function PortfolioPositionChart() {
         setter([]);
       }
     },
-    [address]
+    [address, getPortfolioVaults]
   );
+
+  useEffect(() => {
+    portfolioVaultsCache.current = null;
+  }, [address]);
 
   useEffect(() => {
     if (!address) {

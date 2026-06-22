@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { BASE_CHAIN_ID } from '@/lib/constants';
+import { fetchMorphoGraphQL } from '@/lib/api-utils';
 import {
   getAssetDecimalsForSymbol,
   morphoAmountToDecimal,
@@ -90,7 +91,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid user address' }, { status: 400 });
   }
 
-  const chainId = parseInt(chainIdParam, 10);
+  const chainId = Number(chainIdParam);
+  if (!Number.isInteger(chainId) || chainId !== BASE_CHAIN_ID) {
+    return NextResponse.json({ error: 'Unsupported chainId' }, { status: 400 });
+  }
   const includeEmpty = searchParams.get('includeEmpty') === 'true';
 
   const query = `
@@ -135,14 +139,9 @@ export async function GET(request: NextRequest) {
   `;
 
   try {
-    const response = await fetch('https://api.morpho.org/graphql', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        query,
-        variables: { address: userAddress, chainId },
-      }),
-      next: { revalidate: 60 },
+    const response = await fetchMorphoGraphQL({
+      query,
+      variables: { address: userAddress, chainId },
     });
 
     if (!response.ok) {
@@ -206,7 +205,13 @@ export async function GET(request: NextRequest) {
           'UNKNOWN';
         const assetDecimals =
           p.vault.asset?.decimals ?? getAssetDecimalsForSymbol(assetSymbol);
-        const state = p.state!;
+        const state = p.state ?? {
+          shares: 0,
+          assets: 0,
+          assetsUsd: 0,
+          pnl: 0,
+          pnlUsd: 0,
+        };
         return mapPosition(
           p.vault.address,
           p.vault.name,

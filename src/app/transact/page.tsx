@@ -454,8 +454,7 @@ export default function TransactionsPage() {
       const symbol = derivedAsset.symbol;
       if (toAccount?.type === 'vault') {
         const toVault = toAccount as VaultAccount;
-        const isWethVault = toVault.address.toLowerCase() === VAULTS.WETH_VAULT_V2.address.toLowerCase() ||
-                           toVault.address.toLowerCase() === VAULTS.WETH_VAULT_V2.address.toLowerCase();
+        const isWethVault = toVault.address.toLowerCase() === VAULTS.WETH_VAULT_V2.address.toLowerCase();
         if (isWethVault && (symbol === 'WETH' || symbol === 'ETH')) {
           // For WETH vault deposits: respect preferredAsset selection
           const assetPreference = preferredAsset || 'ALL';
@@ -538,8 +537,7 @@ export default function TransactionsPage() {
       // Check if this is a WETH vault deposit - respect preferredAsset selection
       if (toAccount?.type === 'vault') {
         const toVault = toAccount as VaultAccount;
-        const isWethVault = toVault.address.toLowerCase() === VAULTS.WETH_VAULT_V2.address.toLowerCase() || 
-                           toVault.address.toLowerCase() === VAULTS.WETH_VAULT_V2.address.toLowerCase();
+        const isWethVault = toVault.address.toLowerCase() === VAULTS.WETH_VAULT_V2.address.toLowerCase();
         if (isWethVault && (symbol === 'WETH' || symbol === 'ETH')) {
           // For WETH vault deposits: use calculated max based on preferredAsset
           const assetPreference = preferredAsset || 'ALL';
@@ -839,8 +837,7 @@ export default function TransactionsPage() {
               // Set default preferredAsset for WETH vault withdrawals
               if (account?.type === 'vault' && toAccount?.type === 'wallet' && effectiveActiveTab === 'withdraw') {
                 const vault = account as VaultAccount;
-                if (vault.address.toLowerCase() === VAULTS.WETH_VAULT_V2.address.toLowerCase() ||
-                    vault.address.toLowerCase() === VAULTS.WETH_VAULT_V2.address.toLowerCase()) {
+                if (vault.address.toLowerCase() === VAULTS.WETH_VAULT_V2.address.toLowerCase()) {
                   setPreferredAsset('WETH');
                 } else {
                   // Reset preferredAsset for non-WETH vaults
@@ -891,8 +888,7 @@ export default function TransactionsPage() {
               // Set default preferredAsset to 'ALL' when WETH vault is selected for deposit
               if (account?.type === 'vault' && fromAccount?.type === 'wallet' && effectiveActiveTab === 'deposit') {
                 const vault = account as VaultAccount;
-                if (vault.address.toLowerCase() === VAULTS.WETH_VAULT_V2.address.toLowerCase() ||
-                    vault.address.toLowerCase() === VAULTS.WETH_VAULT_V2.address.toLowerCase()) {
+                if (vault.address.toLowerCase() === VAULTS.WETH_VAULT_V2.address.toLowerCase()) {
                   setPreferredAsset('ALL');
                 } else {
                   // Reset preferredAsset for non-WETH vaults
@@ -923,14 +919,12 @@ export default function TransactionsPage() {
                     const isWethVaultDeposit = effectiveActiveTab === 'deposit' && 
                       toAccount?.type === 'vault' && 
                       fromAccount?.type === 'wallet' &&
-                      ((toAccount as VaultAccount).address.toLowerCase() === VAULTS.WETH_VAULT_V2.address.toLowerCase() || 
-                       (toAccount as VaultAccount).address.toLowerCase() === VAULTS.WETH_VAULT_V2.address.toLowerCase());
+                      (toAccount as VaultAccount).address.toLowerCase() === VAULTS.WETH_VAULT_V2.address.toLowerCase();
                     
                     const isWethVaultWithdraw = effectiveActiveTab === 'withdraw' && 
                       fromAccount?.type === 'vault' && 
                       toAccount?.type === 'wallet' &&
-                      ((fromAccount as VaultAccount).address.toLowerCase() === VAULTS.WETH_VAULT_V2.address.toLowerCase() || 
-                       (fromAccount as VaultAccount).address.toLowerCase() === VAULTS.WETH_VAULT_V2.address.toLowerCase());
+                      (fromAccount as VaultAccount).address.toLowerCase() === VAULTS.WETH_VAULT_V2.address.toLowerCase();
                     
                     if (isWethVaultDeposit) {
                       const currentAsset = preferredAsset || 'ALL';

@@ -50,8 +50,7 @@ interface VaultDataContextType {
   fetchVaultData: (
     address: string,
     chainId?: number,
-    forceRefresh?: boolean,
-    version?: 'v1' | 'v2'
+    forceRefresh?: boolean
   ) => Promise<void>;
   getVaultData: (address: string) => MorphoVaultData | null;
   getVaultMarketIds: (address: string) => `0x${string}`[]; // Get market uniqueKeys for simulation
@@ -108,10 +107,8 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
   const fetchCompleteVaultData = useCallback(async (
     address: string,
     chainId?: number,
-    forceRefresh?: boolean,
-    _version?: 'v1' | 'v2'
+    forceRefresh?: boolean
   ) => {
-    void _version;
     const effectiveChainId = chainId ?? 8453;
     const shouldForceRefresh = forceRefresh ?? false;
     const vaultVersion = getVaultVersion(address);
@@ -145,7 +142,6 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
 
       try {
         // APY and vault metrics: /api/vault/v2/[address]/complete only (no v1 complete route).
-        const vaultVersion = getVaultVersion(address);
         const response = await fetch(`/api/vault/${vaultVersion}/${address}/complete?chainId=${effectiveChainId}`);
         const data = await response.json();
 
@@ -376,7 +372,7 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
     // Preload complete vault data for all vaults in parallel (maximum efficiency)
     // Promise.allSettled allows all requests to complete even if some fail
     const promises = vaults.map((vault) =>
-      fetchCompleteVaultData(vault.address, vault.chainId, false, vault.version)
+      fetchCompleteVaultData(vault.address, vault.chainId, false)
     );
     
     await Promise.allSettled(promises);

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useAccount } from 'wagmi';
 import { logger } from '@/lib/logger';
 
@@ -30,10 +30,12 @@ export function useVaultEarnedInterest(
 ): VaultEarnedInterest {
   const { address } = useAccount();
   const enabled = Boolean(address && vaultAddress);
-  const [state, setState] = useState<VaultEarnedInterest>({
-    ...EMPTY_STATE,
-    isLoading: enabled,
-  });
+  const queryKey = `${address ?? ''}:${vaultAddress ?? ''}:${assetSymbol ?? ''}`;
+
+  const [cached, setCached] = useState<{
+    key: string;
+    state: VaultEarnedInterest;
+  }>({ key: '', state: EMPTY_STATE });
 
   useEffect(() => {
     if (!enabled || !address || !vaultAddress) {
@@ -64,14 +66,17 @@ export function useVaultEarnedInterest(
 
         if (cancelled) return;
 
-        setState({
-          earnedInterest: data.earnedInterest ?? 0,
-          earnedInterestUsd: data.earnedInterestUsd ?? 0,
-          earnedInterestRaw: data.earnedInterestRaw ?? '0',
-          assetDecimals: data.assetDecimals ?? 18,
-          source: data.source ?? 'unknown',
-          isLoading: false,
-          error: null,
+        setCached({
+          key: queryKey,
+          state: {
+            earnedInterest: data.earnedInterest ?? 0,
+            earnedInterestUsd: data.earnedInterestUsd ?? 0,
+            earnedInterestRaw: data.earnedInterestRaw ?? '0',
+            assetDecimals: data.assetDecimals ?? 18,
+            source: data.source ?? 'unknown',
+            isLoading: false,
+            error: null,
+          },
         });
       } catch (err) {
         if (cancelled) return;
@@ -79,10 +84,13 @@ export function useVaultEarnedInterest(
           vaultAddress,
           error: err instanceof Error ? err.message : String(err),
         });
-        setState({
-          ...EMPTY_STATE,
-          isLoading: false,
-          error: err instanceof Error ? err.message : 'Failed to load',
+        setCached({
+          key: queryKey,
+          state: {
+            ...EMPTY_STATE,
+            isLoading: false,
+            error: err instanceof Error ? err.message : 'Failed to load',
+          },
         });
       }
     };
@@ -92,11 +100,15 @@ export function useVaultEarnedInterest(
     return () => {
       cancelled = true;
     };
-  }, [address, vaultAddress, assetSymbol, enabled]);
+  }, [address, vaultAddress, assetSymbol, enabled, queryKey]);
 
-  if (!enabled) {
-    return EMPTY_STATE;
-  }
-
-  return state;
+  return useMemo((): VaultEarnedInterest => {
+    if (!enabled) {
+      return EMPTY_STATE;
+    }
+    if (cached.key !== queryKey) {
+      return { ...EMPTY_STATE, isLoading: true };
+    }
+    return cached.state;
+  }, [enabled, cached, queryKey]);
 }

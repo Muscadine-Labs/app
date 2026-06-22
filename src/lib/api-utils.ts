@@ -31,6 +31,32 @@ export const INTERVAL_MAP: Record<string, string> = {
   'all': 'DAY',
 };
 
+const MORPHO_GRAPHQL_URL = 'https://api.morpho.org/graphql';
+export const MORPHO_GRAPHQL_REVALIDATE_SECONDS = 300;
+const MORPHO_FETCH_TIMEOUT_MS = 10_000;
+
+/** POST to Morpho GraphQL with project cache TTL and abort timeout. */
+export async function fetchMorphoGraphQL(
+  body: { query: string; variables?: Record<string, unknown> },
+  options?: { revalidate?: number; timeoutMs?: number }
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutMs = options?.timeoutMs ?? MORPHO_FETCH_TIMEOUT_MS;
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(MORPHO_GRAPHQL_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+      next: { revalidate: options?.revalidate ?? MORPHO_GRAPHQL_REVALIDATE_SECONDS },
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 /** Morpho timeseries often includes a trailing bucket for the in-progress period with zeros. */
 export function stripIncompleteVaultHistoryBuckets<
   T extends {

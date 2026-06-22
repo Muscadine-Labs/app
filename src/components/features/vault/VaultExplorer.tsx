@@ -7,7 +7,6 @@ import { Vault } from '@/types/vault';
 import { sortVaultsForDisplay } from '@/lib/vault-utils';
 import { useWallet } from '@/contexts/WalletContext';
 import { useVaultData } from '@/contexts/VaultDataContext';
-import { useVaultVersion } from '@/contexts/VaultVersionContext';
 import { useIsClient } from '@/hooks/useClientOnly';
 import VaultExplorerFilters, {
   VaultExplorerFilterState,
@@ -23,10 +22,9 @@ interface VaultExplorerProps {
 function VaultExplorerContent({
   initialFilters,
   showFilters = true,
-  isDevMode,
-}: VaultExplorerProps & { isDevMode: boolean }) {
+}: VaultExplorerProps) {
   const [filters, setFilters] = useState<VaultExplorerFilterState>(() => ({
-    ...getDefaultExplorerFilters(isDevMode),
+    ...getDefaultExplorerFilters(),
     ...initialFilters,
   }));
   const { morphoHoldings } = useWallet();
@@ -87,8 +85,7 @@ function VaultExplorerContent({
 }
 
 export default function VaultExplorer(props: VaultExplorerProps) {
-  const { isDevMode } = useVaultVersion();
-  return <VaultExplorerContent key={isDevMode ? 'dev' : 'standard'} {...props} isDevMode={isDevMode} />;
+  return <VaultExplorerContent {...props} />;
 }
 
 export { getDefaultExplorerFilters as DEFAULT_FILTERS };

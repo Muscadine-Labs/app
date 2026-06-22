@@ -2,6 +2,7 @@ import {
   isLegacyMuscadineV1Vault,
   normalizePortfolioAssetSymbol,
 } from '@/lib/legacy-vaults';
+import { findVaultByAddress } from '@/lib/vault-utils';
 
 export interface PositionHistoryPoint {
   timestamp: number;
@@ -36,9 +37,10 @@ export function preparePortfolioVaultHistories(
       v2Vaults.length > 0
     ) {
       const symbolKey = normalizePortfolioAssetSymbol(vault.symbol);
-      const relatedV2 = v2Vaults.filter(
-        (v) => normalizePortfolioAssetSymbol(v.symbol) === symbolKey
-      );
+      const relatedV2 = v2Vaults.filter((v) => {
+        if (normalizePortfolioAssetSymbol(v.symbol) !== symbolKey) return false;
+        return Boolean(findVaultByAddress(v.address));
+      });
 
       if (relatedV2.length > 0) {
         const firstV2Deposit = relatedV2

@@ -1,4 +1,5 @@
 import type { Transaction } from '@/types/api';
+import { morphoAmountToRaw } from '@/lib/asset-decimals';
 
 /**
  * Earned interest = current assets − net deposits (deposits − withdrawals).
@@ -11,26 +12,19 @@ export function computeEarnedInterestFromActivity(options: {
 }): bigint {
   const { currentAssetsRaw, deposits, withdrawals } = options;
 
+  const toRaw = (value: Transaction['assets']) => {
+    const raw = morphoAmountToRaw(value as string | number | null | undefined);
+    return raw === '0' ? BigInt(0) : BigInt(raw);
+  };
+
   let totalDeposits = BigInt(0);
   for (const tx of deposits) {
-    if (tx.assets) {
-      try {
-        totalDeposits += BigInt(tx.assets);
-      } catch {
-        // skip malformed
-      }
-    }
+    totalDeposits += toRaw(tx.assets);
   }
 
   let totalWithdrawals = BigInt(0);
   for (const tx of withdrawals) {
-    if (tx.assets) {
-      try {
-        totalWithdrawals += BigInt(tx.assets);
-      } catch {
-        // skip malformed
-      }
-    }
+    totalWithdrawals += toRaw(tx.assets);
   }
 
   const netDeposits = totalDeposits - totalWithdrawals;

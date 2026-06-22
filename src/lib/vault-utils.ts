@@ -1,6 +1,6 @@
-import { VAULTS, VaultStrategy } from './vaults';
-import { Vault } from '../types/vault';
-import { getAssetDecimalsForSymbol } from './asset-decimals';
+import { VAULTS, VaultStrategy } from '@/lib/vaults';
+import { Vault } from '@/types/vault';
+import { getAssetDecimalsForSymbol } from '@/lib/asset-decimals';
 
 /** Morpho holding row from WalletContext (minimal shape for display helpers). */
 export interface WalletMorphoPosition {
@@ -84,7 +84,7 @@ function findWalletPosition(
 }
 
 /**
- * Sort vault lists: user position USD (high → low), then TVL (high → low).
+ * Sort vault lists: user position USD (high → low), v2 before v1, then TVL (high → low).
  */
 export function compareVaultsForDisplay(
   a: Vault,
@@ -102,6 +102,10 @@ export function compareVaultsForDisplay(
     ? resolvePositionAssetsUsd(positionB, { symbol: b.symbol })
     : 0;
   if (usdA !== usdB) return usdB - usdA;
+
+  const versionA = a.version ?? 'v2';
+  const versionB = b.version ?? 'v2';
+  if (versionA !== versionB) return versionA === 'v2' ? -1 : 1;
 
   const tvlA = getTvlUsd(a.address);
   const tvlB = getTvlUsd(b.address);

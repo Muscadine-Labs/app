@@ -129,7 +129,16 @@ function EarnedInterestCell({
   })();
 
   if (earnedRawBigInt <= BigInt(0) && earnedUsd <= 0) {
-    return <span className="text-sm text-[var(--foreground-muted)]">-</span>;
+    return (
+      <div className="flex flex-col items-end gap-0.5">
+        <span className="text-sm font-medium text-[var(--foreground)] tabular-nums">
+          {formatPositionTokenAmount('0', resolvedDecimals, vault.symbol)}
+        </span>
+        <span className="text-xs text-[var(--foreground-secondary)] tabular-nums">
+          {formatPositionUsd(0)}
+        </span>
+      </div>
+    );
   }
 
   return (

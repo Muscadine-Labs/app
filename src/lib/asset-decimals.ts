@@ -23,7 +23,9 @@ export function resolveAssetDecimals(
 /** Convert a human-readable token amount to raw integer string. */
 export function tokenAmountToRaw(amount: number, decimals: number): string {
   if (!Number.isFinite(amount) || amount <= 0) return '0';
-  return BigInt(Math.round(amount * 10 ** decimals)).toString();
+  const scaled = amount * 10 ** decimals;
+  if (!Number.isFinite(scaled) || scaled <= 0) return '0';
+  return BigInt(Math.trunc(scaled)).toString();
 }
 
 /**
@@ -66,9 +68,5 @@ export function normalizeMorphoShares(shares: number | string | null | undefined
     }
   }
   if (!Number.isFinite(shares) || shares <= 0) return '0';
-  // Values below 1e15 are human share counts; larger values are already raw wei.
-  if (shares < 1e15) {
-    return BigInt(Math.round(shares * 1e18)).toString();
-  }
-  return BigInt(Math.round(shares)).toString();
+  return BigInt(Math.trunc(shares)).toString();
 }
