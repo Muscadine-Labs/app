@@ -160,13 +160,8 @@ function VaultExplorerMobileCard({ vault, showYourPosition }: VaultExplorerRowPr
       <div className="flex items-start gap-3 mb-3">
         <VaultLogo vault={vault} />
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-medium text-[var(--foreground)]">{vault.name}</span>
-            {vault.vaultSymbol && (
-              <span className="inline-flex rounded-md bg-[var(--surface-elevated)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--foreground-muted)]">
-                {vault.vaultSymbol}
-              </span>
-            )}
             <span className="inline-flex rounded-md bg-[var(--surface-elevated)] px-2 py-0.5 text-[10px] font-medium text-[var(--foreground-secondary)]">
               Base
             </span>
@@ -441,11 +436,6 @@ function VaultExplorerRow({ vault, showYourPosition }: VaultExplorerRowProps) {
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <span className="text-sm font-medium text-[var(--foreground)] truncate">{vault.name}</span>
-              {vault.vaultSymbol && (
-                <span className="inline-flex rounded-md bg-[var(--surface-elevated)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--foreground-muted)]">
-                  {vault.vaultSymbol}
-                </span>
-              )}
             </div>
           </div>
         </div>

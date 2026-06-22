@@ -1,5 +1,6 @@
 **To work on another day:**
 
+- **Vault v2 My Position chart — stacked principal + interest:** On `/vault/v2/[address]` My Position tab, show two stacked area lines instead of one total line: bottom = deposited amount (cumulative net deposits from activity), top = earned interest (position value − principal), summing to total. Fetch `/api/vault/v2/{address}/activity` (deposits/withdrawals) and split each position-history point via `interest-utils` (`buildActivityFlowEvents`, `netDepositRawAtTime`, `splitPositionValueAtPoint`). Recharts stacked `Area` (primary = deposited, success = interest), legend + tooltip with Deposited / Earned interest / Total. Fallback to single line if activity unavailable. Morpho v2 has no historical PnL series — interest over time is derived from activity + position history.
 - Smart wallet (AA) deposit issue when USDC is used for gas — investigate math and contract ABI paths before changing transaction code.
 - Add support for new vaults in the summer I'll make new v2 vaults on ethereum and/or other networks if implimented.
 - Add a function to claim rewards through merkl on the transcact page. We earn rewards in morpho tokens, add function to claim all rewards to wallet through merkl
