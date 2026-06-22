@@ -139,10 +139,13 @@ export async function GET(request: NextRequest) {
   `;
 
   try {
-    const response = await fetchMorphoGraphQL({
-      query,
-      variables: { address: userAddress, chainId },
-    });
+    const response = await fetchMorphoGraphQL(
+      {
+        query,
+        variables: { address: userAddress, chainId },
+      },
+      { timeoutMs: 20_000 }
+    );
 
     if (!response.ok) {
       throw new Error(`Morpho API returned ${response.status}`);

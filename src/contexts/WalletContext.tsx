@@ -440,10 +440,31 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
 
     setMorphoHoldings(prev => ({ ...prev, isLoading: true, error: null }));
 
+    const url = `/api/user/morpho-positions?address=${encodeURIComponent(address)}&chainId=8453`;
+    const maxAttempts = 3;
+    const retryDelayMs = 750;
+
     try {
-      const morphoResponse = await fetch(
-        `/api/user/morpho-positions?address=${address}&chainId=8453`
-      );
+      let morphoResponse: Response | null = null;
+      let lastFetchError: unknown;
+
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        try {
+          morphoResponse = await fetch(url);
+          break;
+        } catch (err) {
+          lastFetchError = err;
+          if (attempt < maxAttempts - 1) {
+            await new Promise((resolve) => setTimeout(resolve, retryDelayMs * (attempt + 1)));
+          }
+        }
+      }
+
+      if (!morphoResponse) {
+        throw lastFetchError instanceof Error
+          ? lastFetchError
+          : new Error('Failed to fetch vault positions');
+      }
 
       if (!morphoResponse.ok) {
         throw new Error(`Morpho positions API returned ${morphoResponse.status}`);

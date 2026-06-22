@@ -993,7 +993,7 @@ export default function TransactionsPage() {
                   
                   if (!vaultAddress) return null;
                   
-                  const btcVaultAddress = VAULTS.cbBTC_VAULT.address.toLowerCase();
+                  const btcVaultAddress = VAULTS.cbBTC_VAULT_V2.address.toLowerCase();
                   const wethVaultAddress = VAULTS.WETH_VAULT_V2.address.toLowerCase();
                   const isBtcVault = vaultAddress === btcVaultAddress;
                   const isWethVault = vaultAddress === wethVaultAddress;
