@@ -3,21 +3,18 @@ import { VAULTS } from "@/lib/vaults";
 import VaultListCard from "./VaultListCard";
 import { Vault } from "../../../types/vault";
 import { useWallet } from "../../../contexts/WalletContext";
-import { useVaultVersion, DEFAULT_VAULT_FILTER_VERSION } from "../../../contexts/VaultVersionContext";
 import { useMemo } from "react";
 import { useIsClient } from "@/hooks/useClientOnly";
-import { mergeRegistryVaultsWithDeposits, sortVaultsForDisplay } from "@/lib/vault-utils";
+import { sortVaultsForDisplay } from "@/lib/vault-utils";
 import { useVaultData } from "../../../contexts/VaultDataContext";
 
 export type VaultListFilter = 'all' | 'deposited';
-export type VaultVersionFilter = 'v1' | 'v2' | 'all';
 
 interface VaultListProps {
     onVaultSelect?: (vault: Vault | null) => void;
     selectedVaultAddress?: string;
     filter?: VaultListFilter;
     title?: string;
-    versionOverride?: VaultVersionFilter;
     emptyMessage?: string;
     showBrowseLink?: boolean;
 }
@@ -27,16 +24,13 @@ export default function VaultList({
     selectedVaultAddress,
     filter = 'all',
     title,
-    versionOverride,
     emptyMessage,
     showBrowseLink = false,
 }: VaultListProps = {} as VaultListProps) {
     const { morphoHoldings } = useWallet();
     const { getVaultData } = useVaultData();
-    const { version: contextVersion } = useVaultVersion();
     const isMounted = useIsClient();
 
-    const effectiveVersion = versionOverride ?? (isMounted ? contextVersion : DEFAULT_VAULT_FILTER_VERSION);
     const headerTitle = title ?? (filter === 'deposited' ? 'Your Vaults' : 'Available Vaults');
 
     const baseVaults = useMemo(() => {
@@ -44,8 +38,11 @@ export default function VaultList({
             address: vault.address,
             name: vault.name,
             symbol: vault.symbol,
+            vaultSymbol: vault.vaultSymbol,
             chainId: vault.chainId,
             version: vault.version,
+            strategy: vault.strategy,
+            isCurated: true,
         }));
 
         if (filter === 'deposited') {
@@ -55,15 +52,8 @@ export default function VaultList({
             return all.filter((vault) => depositedAddresses.has(vault.address.toLowerCase()));
         }
 
-        const versionFiltered = all.filter(
-            (vault) => effectiveVersion === 'all' || vault.version === effectiveVersion
-        );
-        return mergeRegistryVaultsWithDeposits(
-            versionFiltered,
-            morphoHoldings.positions,
-            effectiveVersion
-        );
-    }, [effectiveVersion, filter, morphoHoldings.positions]);
+        return all;
+    }, [filter, morphoHoldings.positions]);
     
     const sortedVaults = useMemo(() => {
         if (!isMounted) {

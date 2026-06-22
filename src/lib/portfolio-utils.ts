@@ -1,66 +1,60 @@
+import {
+  isLegacyMuscadineV1Vault,
+  normalizePortfolioAssetSymbol,
+} from '@/lib/legacy-vaults';
+
 export interface PositionHistoryPoint {
   timestamp: number;
   assetsUsd: number;
 }
 
 export interface PortfolioVaultHistoryInput {
+  address: string;
   symbol: string;
   version: 'v1' | 'v2';
   history: PositionHistoryPoint[];
 }
 
-/** Normalize asset symbols so v1/v2 pairs group correctly (USDC, cbBTC, WETH). */
-function normalizeAssetSymbol(symbol: string): string {
-  const upper = symbol.toUpperCase();
-  if (upper === 'CBBTC' || upper === 'CBTC' || upper === 'BTC') return 'CBBTC';
-  if (upper === 'WETH' || upper === 'ETH') return 'WETH';
-  if (upper === 'USDC') return 'USDC';
-  return upper;
-}
-
 /**
- * Avoid double-counting when a user migrates from MetaMorpho (v1) to Prime (v2).
- * Morpho v1 history often stays non-zero after withdrawal; forward-fill would
- * stack v1 + v2 balances for the same asset. Truncate v1 at the first v2 deposit.
+ * Prepare per-vault histories for portfolio aggregation.
+ *
+ * Cutover (truncate v1 at first related v2 deposit) applies only to known Muscadine
+ * v1→v2 migration pairs — not external v1/v2 vaults that share the same asset symbol.
  */
 export function preparePortfolioVaultHistories(
   vaults: PortfolioVaultHistoryInput[]
 ): PositionHistoryPoint[][] {
-  const bySymbol = new Map<string, PortfolioVaultHistoryInput[]>();
+  const prepared: PositionHistoryPoint[][] = [];
+  const v2Vaults = vaults.filter((v) => v.version === 'v2');
 
   for (const vault of vaults) {
-    const key = normalizeAssetSymbol(vault.symbol);
-    const group = bySymbol.get(key) ?? [];
-    group.push(vault);
-    bySymbol.set(key, group);
-  }
+    let history = vault.history;
 
-  const prepared: PositionHistoryPoint[][] = [];
+    if (
+      vault.version === 'v1' &&
+      isLegacyMuscadineV1Vault(vault.address) &&
+      v2Vaults.length > 0
+    ) {
+      const symbolKey = normalizePortfolioAssetSymbol(vault.symbol);
+      const relatedV2 = v2Vaults.filter(
+        (v) => normalizePortfolioAssetSymbol(v.symbol) === symbolKey
+      );
 
-  for (const group of bySymbol.values()) {
-    const v2Vault = group.find((v) => v.version === 'v2');
-    let v2CutoverTimestamp: number | null = null;
+      if (relatedV2.length > 0) {
+        const firstV2Deposit = relatedV2
+          .flatMap((v) => v.history.filter((p) => p.assetsUsd > 0))
+          .sort((a, b) => a.timestamp - b.timestamp)[0];
 
-    if (v2Vault) {
-      const firstV2Deposit = v2Vault.history
-        .filter((p) => p.assetsUsd > 0)
-        .sort((a, b) => a.timestamp - b.timestamp)[0];
-      if (firstV2Deposit) {
-        v2CutoverTimestamp = firstV2Deposit.timestamp;
+        if (firstV2Deposit) {
+          const cutover = firstV2Deposit.timestamp;
+          history = history.filter((p) => p.timestamp < cutover);
+          history.push({ timestamp: cutover, assetsUsd: 0 });
+        }
       }
     }
 
-    for (const vault of group) {
-      let history = vault.history;
-      if (vault.version === 'v1' && v2CutoverTimestamp !== null) {
-        history = history.filter((p) => p.timestamp < v2CutoverTimestamp!);
-        // Zero out v1 forward-fill once Prime (v2) deposits begin — v1 history often
-        // stays non-zero after withdrawal, which would double-count with v2.
-        history.push({ timestamp: v2CutoverTimestamp, assetsUsd: 0 });
-      }
-      if (history.length > 0) {
-        prepared.push(history);
-      }
+    if (history.length > 0) {
+      prepared.push(history);
     }
   }
 

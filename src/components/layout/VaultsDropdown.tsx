@@ -6,14 +6,12 @@ import { VAULTS } from '@/lib/vaults';
 import {
   getVaultRoute,
   findVaultByAddress,
-  mergeRegistryVaultsWithDeposits,
   sortVaultsForDisplay,
 } from '@/lib/vault-utils';
 import { useWallet } from '@/contexts/WalletContext';
 import { useVaultData } from '@/contexts/VaultDataContext';
 import { Vault } from '@/types/vault';
 import { getVaultLogo } from '@/types/vault';
-import { useVaultVersion } from '@/contexts/VaultVersionContext';
 import Image from 'next/image';
 import { Button } from '../ui/Button';
 
@@ -27,42 +25,30 @@ export function VaultsDropdown({ isActive, onVaultSelect }: VaultsDropdownProps)
   const dropdownRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const pathname = usePathname();
-  const { version } = useVaultVersion();
   const { morphoHoldings } = useWallet();
   const { getVaultData } = useVaultData();
 
-  // Filter vaults based on selected version; always include vaults with user deposits
   const vaults = useMemo(() => {
     const registryVaults: Vault[] = Object.values(VAULTS).map((vault) => ({
       address: vault.address,
       name: vault.name,
       symbol: vault.symbol,
+      vaultSymbol: vault.vaultSymbol,
       chainId: vault.chainId,
       version: vault.version,
+      strategy: vault.strategy,
+      isCurated: true,
     }));
 
-    const merged =
-      version === 'all'
-        ? registryVaults
-        : mergeRegistryVaultsWithDeposits(
-            registryVaults.filter((vault) => vault.version === version),
-            morphoHoldings.positions,
-            version
-          );
-
     return sortVaultsForDisplay(
-      merged,
+      registryVaults,
       morphoHoldings.positions,
       (address) => getVaultData(address)?.totalDeposits ?? 0
     );
-  }, [version, morphoHoldings.positions, getVaultData]);
+  }, [morphoHoldings.positions, getVaultData]);
 
-  // Check if we're currently on a vault page (v1 or v2) - memoized for performance
   const currentVaultAddress = useMemo(() => {
     if (!pathname) return null;
-    if (pathname.startsWith('/vault/v1/')) {
-      return pathname.split('/vault/v1/')[1]?.split('?')[0] || null;
-    }
     if (pathname.startsWith('/vault/v2/')) {
       return pathname.split('/vault/v2/')[1]?.split('?')[0] || null;
     }
@@ -74,7 +60,7 @@ export function VaultsDropdown({ isActive, onVaultSelect }: VaultsDropdownProps)
   }, [currentVaultAddress]);
 
   const handleVaultClick = useCallback((address: string, e: React.MouseEvent) => {
-    e.stopPropagation(); // Prevent click from bubbling to click-outside handler
+    e.stopPropagation();
     router.push(getVaultRoute(address));
     setIsOpen(false);
     onVaultSelect?.();
@@ -85,7 +71,6 @@ export function VaultsDropdown({ isActive, onVaultSelect }: VaultsDropdownProps)
     setIsOpen((prev) => !prev);
   }, []);
 
-  // Close on click outside (essential for mobile where onMouseLeave doesn't fire)
   useEffect(() => {
     if (!isOpen) return;
 
@@ -109,7 +94,7 @@ export function VaultsDropdown({ isActive, onVaultSelect }: VaultsDropdownProps)
     <div 
       ref={dropdownRef} 
       className="relative"
-      onClick={(e) => e.stopPropagation()} // Stop clicks from bubbling
+      onClick={(e) => e.stopPropagation()}
     >
       <Button
         variant="ghost"
@@ -168,7 +153,7 @@ export function VaultsDropdown({ isActive, onVaultSelect }: VaultsDropdownProps)
                       {vault.name}
                     </div>
                     <div className="text-xs text-[var(--foreground-secondary)]">
-                      {vault.symbol}
+                      {vault.vaultSymbol ?? vault.symbol}
                     </div>
                   </div>
                   {isCurrentVault && (
@@ -184,4 +169,3 @@ export function VaultsDropdown({ isActive, onVaultSelect }: VaultsDropdownProps)
     </div>
   );
 }
-

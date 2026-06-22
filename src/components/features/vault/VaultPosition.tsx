@@ -5,7 +5,12 @@ import { useRouter } from 'next/navigation';
 import { useAccount, useReadContract } from 'wagmi';
 import { MorphoVaultData } from '@/types/vault';
 import { useWallet } from '@/contexts/WalletContext';
-import { formatAssetAmount, formatCurrency, formatNumber } from '@/lib/formatter';
+import {
+  formatAssetAmount,
+  formatCurrency,
+  formatNumber,
+  formatVaultDetailTokenAmount,
+} from '@/lib/formatter';
 import { calculateYAxisDomain } from '@/lib/vault-utils';
 import { logger } from '@/lib/logger';
 import { useToast } from '@/contexts/ToastContext';
@@ -15,6 +20,8 @@ import { Button } from '@/components/ui';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { ERC20_BALANCE_ABI, ERC4626_ABI } from '@/lib/abis';
 import { useUnixTimestamp } from '@/hooks/useClientOnly';
+import { useVaultEarnedInterest } from '@/hooks/useVaultEarnedInterest';
+import { resolveAssetDecimals } from '@/lib/asset-decimals';
 
 interface VaultPositionProps {
   vaultData: MorphoVaultData;
@@ -44,6 +51,15 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
   const { morphoHoldings } = useWallet();
   const { btc: btcPrice, eth: ethPrice } = usePrices();
   const { error: showErrorToast } = useToast();
+  const earnedInterest = useVaultEarnedInterest(
+    isConnected ? vaultData.address : undefined,
+    vaultData.symbol
+  );
+  const interestDecimals = resolveAssetDecimals(
+    vaultData.symbol,
+    earnedInterest.assetDecimals || vaultData.assetDecimals
+  );
+
   const now = useUnixTimestamp();
   const [loading, setLoading] = useState(true);
   const [selectedTimeFrame, setSelectedTimeFrame] = useState<TimeFrame>('all');
@@ -120,22 +136,12 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
     return 0;
   }, [currentVaultPosition, assetsRaw, vaultData, ethPrice, btcPrice]);
 
-  // Calculate asset amount from RPC data
-  const userVaultAssetAmount = useMemo(() => {
-    // Use position from WalletContext if available
-    if (currentVaultPosition && currentVaultPosition.assets) {
-      const assetDecimals = vaultData.assetDecimals || 18;
-      return parseFloat(currentVaultPosition.assets) / Math.pow(10, assetDecimals);
-    }
-    
-    // Fallback: Use RPC data
-    if (assetsRaw && vaultData) {
-      const assetDecimals = vaultData.assetDecimals || 18;
-      return Number(assetsRaw) / Math.pow(10, assetDecimals);
-    }
-    
-    return 0;
-  }, [currentVaultPosition, assetsRaw, vaultData]);
+  const depositAssetDecimals = resolveAssetDecimals(
+    vaultData.symbol,
+    vaultData.assetDecimals
+  );
+  const depositRawValue =
+    assetsRaw?.toString() ?? currentVaultPosition?.assets ?? '0';
 
   useEffect(() => {
     const fetchPositionHistory = async () => {
@@ -505,31 +511,62 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
       {/* Position Value */}
       <div>
         <div className="flex flex-col md:flex-row items-start justify-between gap-6 mb-4">
-          {/* Your Deposits */}
-          <div className="flex-1 w-full md:w-auto">
-            <h2 className="text-lg font-semibold text-[var(--foreground)] mb-1">Your Deposits</h2>
-            {!isConnected ? (
-              <p className="text-sm text-[var(--foreground-muted)]">Connect wallet</p>
-            ) : !currentVaultPosition && !assetsRaw ? (
-              <p className="text-sm text-[var(--foreground-muted)]">No holdings</p>
-            ) : (
-              <>
-                <p className="text-3xl md:text-4xl font-bold text-[var(--foreground)]">
-                  {formatAssetAmount(
-                    BigInt(Math.floor(userVaultAssetAmount * Math.pow(10, vaultData.assetDecimals || 18))),
-                    vaultData.assetDecimals || 18,
-                    vaultData.symbol,
-                    { 
-                      minimumFractionDigits: 0,
-                      maximumFractionDigits: (['WETH', 'CBBTC', 'CBTC'].includes((vaultData.symbol || '').toUpperCase())) ? 8 : undefined
-                    }
-                  )}
-                </p>
-                <p className="text-sm text-[var(--foreground-secondary)] mt-1">
-                  {formatCurrency(userVaultValueUsd)}
-                </p>
-              </>
-            )}
+          <div className="flex flex-col md:flex-row flex-1 w-full gap-6 md:gap-10">
+            {/* Your Deposits */}
+            <div className="flex-1 w-full md:w-auto">
+              <p className="text-xs text-[var(--foreground-secondary)] mb-1">Your Deposits</p>
+              {!isConnected ? (
+                <p className="text-sm text-[var(--foreground-muted)]">Connect wallet</p>
+              ) : !currentVaultPosition && !assetsRaw ? (
+                <p className="text-sm text-[var(--foreground-muted)]">No holdings</p>
+              ) : (
+                <>
+                  <p className="text-2xl font-bold text-[var(--foreground)]">
+                    {formatVaultDetailTokenAmount(
+                      depositRawValue,
+                      depositAssetDecimals,
+                      vaultData.symbol
+                    )}
+                  </p>
+                  <p className="text-xs text-[var(--foreground-secondary)] mt-1">
+                    {formatCurrency(userVaultValueUsd)}
+                  </p>
+                </>
+              )}
+            </div>
+
+            {/* Earned Interest */}
+            <div className="flex-1 w-full md:w-auto md:text-right">
+              <p className="text-xs text-[var(--foreground-secondary)] mb-1">Earned Interest</p>
+              {!isConnected ? (
+                <p className="text-sm text-[var(--foreground-muted)]">Connect wallet</p>
+              ) : earnedInterest.isLoading ? (
+                <Skeleton width="8rem" height="2rem" />
+              ) : (() => {
+                try {
+                  const raw = BigInt(earnedInterest.earnedInterestRaw || '0');
+                  if (raw <= BigInt(0) && earnedInterest.earnedInterestUsd <= 0) {
+                    return <p className="text-sm text-[var(--foreground-muted)]">-</p>;
+                  }
+                  return (
+                    <>
+                      <p className="text-2xl font-bold text-[var(--foreground)]">
+                        {formatVaultDetailTokenAmount(
+                          earnedInterest.earnedInterestRaw || '0',
+                          interestDecimals,
+                          vaultData.symbol
+                        )}
+                      </p>
+                      <p className="text-xs text-[var(--foreground-secondary)] mt-1">
+                        {formatCurrency(earnedInterest.earnedInterestUsd)}
+                      </p>
+                    </>
+                  );
+                } catch {
+                  return <p className="text-sm text-[var(--foreground-muted)]">-</p>;
+                }
+              })()}
+            </div>
           </div>
 
           {/* Transaction Buttons - Desktop: Show in second column */}

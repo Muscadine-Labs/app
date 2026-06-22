@@ -6,6 +6,7 @@ Instructions for AI agents working in this repo. Full architecture docs live in 
 
 1. **Review `TODO.md` at the start of every session.** It is the canonical task list:
    - “TO work on today” → actionable now.
+   - “Needs confirmation first” → research or report only; do not implement without user OK.
    - “To work on another day” → backlog; do not start without being asked.
    - Update/remove entries as work completes.
 2. **Before every push to GitHub:** run `npm run lint` and `npm run build`; both must pass.
@@ -15,23 +16,37 @@ Instructions for AI agents working in this repo. Full architecture docs live in 
 
 ## Key constraints
 
-- **wagmi must stay on 2.x** (RainbowKit 2 requirement; wagmi 3 not adopted). **eslint stays on 9.x** (`eslint-config-next` breaks on 10). `@morpho-org/*-wagmi` 4.x+ ranges often require wagmi 3 — check before bumping.
-- Base only today (chain id 8453). v2 Prime vaults are the default surface; v1 MetaMorpho is soft-deprecated (withdrawals still supported).
-- v1 writes go through the bundler (`useVaultTransactions.ts`); v2 writes use direct ERC-4626 ABIs (`src/lib/transactionUtilsV2.ts`). Never mix the two paths.
-- Resolve vault version via `getVaultVersion` / `findVaultByAddress` from `src/lib/vault-utils.ts`, never by asset symbol.
+- **wagmi must stay on 2.x** (RainbowKit 2 requirement). **eslint stays on 9.x**. Pin **`qr@0.5.5`** in `package.json` overrides (WalletConnect QR `border=0` crash with `qr@0.6.0`).
+- **Base only** (chain id 8453). **v1 MetaMorpho removed** — registry and writes are v2 Prime/Frontier only.
+- **v2 writes:** direct ERC-4626 ABIs in `src/lib/transactionUtilsV2.ts` (no Morpho bundler SDK in repo).
+- Registry: `src/lib/vaults.ts` — fields include `strategy` (`prime` | `frontier`), `vaultSymbol` (e.g. `mpUSDC`, `mfUSDC`).
+- Use `findVaultByAddress` / `isCuratedVaultAddress` from `src/lib/vault-utils.ts` — never infer vault by asset symbol alone.
 - Use `logger` from `src/lib/logger.ts`, not `console.log`.
 
-## Known gotchas (hard-won knowledge)
+## Dev mode vs standard
 
-- **Morpho v1 position history can stay stuck at the last held amount after a full withdrawal** while the live position is already 0. `finalizePositionHistory` in `src/lib/api-utils.ts` (used by both `position-history` routes) appends a zero point when the live position is closed, and strips Morpho's incomplete trailing zero buckets when the position is open. Without this, the dashboard portfolio chart forward-fills the stale value forever.
-- Don't sum raw v1 + v2 position history for the same asset — `preparePortfolioVaultHistories` in `src/lib/portfolio-utils.ts` truncates v1 at the first v2 deposit to avoid double-counting.
-- Morpho GraphQL invalid fields fail the whole request (HTTP 400) — validate queries against `https://api.morpho.org/graphql` when `complete` routes break. See the schema-changes table in `CLAUDE.md`.
-- Turbopack chunk errors after mixing `build` and `dev`: `rm -rf .next .turbo && npm run dev`.
+| Mode | Storage (`preference`) | Effect |
+|------|------------------------|--------|
+| **Standard** | `v2` | Explorer Strategy defaults to **Prime**; normal product surface. |
+| **Developer** | `all` (UI: Dev) | Explorer filters default to **All** (network, strategy, asset); transact over-balance bypass. No v1/v2 toggles (v1 removed). |
+
+## Dashboard & positions
+
+- **Morpho Vaults total** and **Your Vaults** include **all** user v2 positions from Morpho (`/api/user/morpho-positions`), not only Muscadine registry vaults.
+- **External vaults** (not in `vaults.ts`): shown on dashboard, **not clickable** (no detail/transact pages).
+- **Portfolio chart:** all Morpho **v1 + v2** positions via `/api/user/morpho-positions` + per-vault `position-history` (v1 read-only API restored for chart).
+- **Earned interest:** use `earnedInterestRaw` / `pnlRaw` with `getAssetDecimalsForSymbol` (USDC 6, cbBTC 8, WETH 18).
+
+## Known gotchas
+
+- Don't sum raw histories across duplicate asset vaults without cutover logic — v1 cutover removed with v1; still aggregate per **vault address**.
+- Morpho GraphQL invalid fields fail the whole request (HTTP 400).
+- Turbopack chunk errors: `rm -rf .next .turbo && npm run dev`.
 
 ## Commands
 
 ```bash
-npm run dev    # Turbopack dev server
-npm run build  # Production build (run before pushes)
-npm run lint   # ESLint (run before pushes)
+npm run dev      # Turbopack dev server
+npm run build    # Production build (run before pushes)
+npm run lint     # ESLint (run before pushes)
 ```

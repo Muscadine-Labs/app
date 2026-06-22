@@ -15,6 +15,7 @@ import {
 } from '@floating-ui/react';
 import { useVaultVersion } from '@/contexts/VaultVersionContext';
 import { useIsClient } from '@/hooks/useClientOnly';
+import type { VaultStrategy } from '@/lib/vaults';
 
 interface FilterDropdownProps {
   label: string;
@@ -138,10 +139,12 @@ function Toggle({ label, checked, onChange }: ToggleProps) {
 
 export type VaultAssetFilter = 'all' | 'USDC' | 'cbBTC' | 'WETH';
 export type VaultNetworkFilter = 'all' | 'base';
+export type VaultStrategyFilter = 'all' | VaultStrategy;
 
 export interface VaultExplorerFilterState {
   network: VaultNetworkFilter;
   asset: VaultAssetFilter;
+  strategy: VaultStrategyFilter;
   inWalletOnly: boolean;
 }
 
@@ -150,17 +153,19 @@ interface VaultExplorerFiltersProps {
   onFiltersChange: (filters: VaultExplorerFilterState) => void;
 }
 
+export function getDefaultExplorerFilters(isDevMode: boolean): VaultExplorerFilterState {
+  if (isDevMode) {
+    return { network: 'all', asset: 'all', strategy: 'all', inWalletOnly: false };
+  }
+  return { network: 'all', asset: 'all', strategy: 'prime', inWalletOnly: false };
+}
+
 export default function VaultExplorerFilters({
   filters,
   onFiltersChange,
 }: VaultExplorerFiltersProps) {
-  const {
-    explorerVersion,
-    setExplorerVersion,
-    showExplorerVersionFilter,
-  } = useVaultVersion();
+  const { isDevMode } = useVaultVersion();
   const isMounted = useIsClient();
-  const effectiveExplorerVersion = isMounted ? explorerVersion : 'v2';
 
   const update = (partial: Partial<VaultExplorerFilterState>) => {
     onFiltersChange({ ...filters, ...partial });
@@ -179,20 +184,16 @@ export default function VaultExplorerFilters({
             ]}
             onChange={(value) => update({ network: value as VaultNetworkFilter })}
           />
-          {showExplorerVersionFilter && (
-            <FilterDropdown
-              label="Version"
-              value={effectiveExplorerVersion}
-              options={[
-                { label: 'V2', value: 'v2' },
-                { label: 'V1', value: 'v1' },
-                { label: 'All', value: 'all' },
-              ]}
-              onChange={(value) =>
-                setExplorerVersion(value as 'v1' | 'v2' | 'all')
-              }
-            />
-          )}
+          <FilterDropdown
+            label="Strategy"
+            value={filters.strategy}
+            options={[
+              { label: 'All', value: 'all' },
+              { label: 'Prime', value: 'prime' },
+              { label: 'Frontier', value: 'frontier' },
+            ]}
+            onChange={(value) => update({ strategy: value as VaultStrategyFilter })}
+          />
           <FilterDropdown
             label="Asset"
             value={filters.asset}
@@ -214,6 +215,11 @@ export default function VaultExplorerFilters({
           onChange={(inWalletOnly) => update({ inWalletOnly })}
         />
       </div>
+      {isMounted && isDevMode && (
+        <div className="px-4 sm:px-6 pb-2 text-[10px] text-[var(--foreground-muted)]">
+          Dev mode: filters default to All
+        </div>
+      )}
     </div>
   );
 }

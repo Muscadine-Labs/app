@@ -1,15 +1,22 @@
-import { VAULTS, VaultVersion } from './vaults';
+import { VAULTS, VaultStrategy } from './vaults';
 import { Vault } from '../types/vault';
+import { getAssetDecimalsForSymbol } from './asset-decimals';
 
 /** Morpho holding row from WalletContext (minimal shape for display helpers). */
 export interface WalletMorphoPosition {
   shares: string;
   assets?: string;
   assetsUsd?: number;
+  pnl?: number;
+  pnlUsd?: number;
+  pnlRaw?: string;
   vault: {
     address: string;
     name?: string;
     symbol?: string;
+    vaultSymbol?: string;
+    strategy?: VaultStrategy;
+    isCurated?: boolean;
     state?: {
       sharePriceUsd?: number;
       totalAssetsUsd?: number;
@@ -44,7 +51,7 @@ export function resolvePositionAssetsUsd(
 
   const symbol = (options?.symbol ?? position.vault.symbol ?? '').toUpperCase();
   const decimals =
-    options?.assetDecimals ?? (symbol === 'USDC' ? 6 : symbol === 'CBBTC' || symbol === 'BTC' ? 8 : 18);
+    options?.assetDecimals ?? getAssetDecimalsForSymbol(symbol);
 
   if (position.assets) {
     try {
@@ -68,39 +75,6 @@ export function resolvePositionAssetsUsd(
   return 0;
 }
 
-/**
- * Keep version filter for browsing, but always include vaults where the user has shares
- * (e.g. v1 deposits while the UI default filter is v2).
- */
-export function mergeRegistryVaultsWithDeposits(
-  registryVaults: Vault[],
-  positions: WalletMorphoPosition[],
-  versionFilter: VaultVersion | 'all'
-): Vault[] {
-  if (versionFilter === 'all') {
-    return registryVaults;
-  }
-
-  const seen = new Set(registryVaults.map((v) => v.address.toLowerCase()));
-  const extras: Vault[] = [];
-
-  for (const position of positions) {
-    if (!hasOnChainVaultShares(position)) continue;
-    const vault = findVaultByAddress(position.vault.address);
-    if (!vault) continue;
-    const key = vault.address.toLowerCase();
-    if (seen.has(key)) continue;
-    extras.push(vault);
-    seen.add(key);
-  }
-
-  return extras.length > 0 ? [...extras, ...registryVaults] : registryVaults;
-}
-
-function vaultVersionSortRank(version: VaultVersion): number {
-  return version === 'v2' ? 2 : 1;
-}
-
 function findWalletPosition(
   positions: WalletMorphoPosition[],
   vaultAddress: string
@@ -110,7 +84,7 @@ function findWalletPosition(
 }
 
 /**
- * Sort vault lists: user position USD (high → low), then v2 before v1, then TVL (high → low).
+ * Sort vault lists: user position USD (high → low), then TVL (high → low).
  */
 export function compareVaultsForDisplay(
   a: Vault,
@@ -128,10 +102,6 @@ export function compareVaultsForDisplay(
     ? resolvePositionAssetsUsd(positionB, { symbol: b.symbol })
     : 0;
   if (usdA !== usdB) return usdB - usdA;
-
-  const versionDiff =
-    vaultVersionSortRank(b.version ?? 'v1') - vaultVersionSortRank(a.version ?? 'v1');
-  if (versionDiff !== 0) return versionDiff;
 
   const tvlA = getTvlUsd(a.address);
   const tvlB = getTvlUsd(b.address);
@@ -152,94 +122,68 @@ export function sortVaultsForDisplay(
 
 /**
  * Find a vault by its address (case-insensitive)
- * @param address - The vault address to search for
- * @returns The vault if found, null otherwise (includes version)
  */
 export function findVaultByAddress(address: string): Vault | null {
   if (!address) return null;
-  
+
   const normalizedAddress = address.toLowerCase().trim();
   const vault = Object.values(VAULTS).find(
     (v) => v.address.toLowerCase() === normalizedAddress
   );
-  
+
   if (!vault) return null;
-  
+
   return {
     address: vault.address,
     name: vault.name,
     symbol: vault.symbol,
+    vaultSymbol: vault.vaultSymbol,
     chainId: vault.chainId,
     version: vault.version,
+    strategy: vault.strategy,
+    isCurated: true,
   };
 }
 
-/**
- * Get the vault version for an address
- * @param address - The vault address
- * @returns The vault version ('v1' or 'v2'), defaults to 'v1' if not found
- */
-export function getVaultVersion(address: string): VaultVersion {
-  const vault = findVaultByAddress(address);
-  return vault?.version || 'v1';
+export function isCuratedVaultAddress(address: string): boolean {
+  return findVaultByAddress(address) !== null;
 }
 
-/**
- * Validate if an address is a valid vault address
- * @param address - The address to validate
- * @returns True if the address is a valid vault address
- */
+/** Vault write/read product surface is v2 only (v1 position-history kept for portfolio charts). */
+export function getVaultVersion(
+  _address?: string,
+  _hint?: 'v1' | 'v2'
+): 'v2' {
+  void _address;
+  void _hint;
+  return 'v2';
+}
+
 export function validateVaultAddress(address: string): boolean {
   return findVaultByAddress(address) !== null;
 }
 
-/**
- * Get the route path for a vault
- * @param address - The vault address
- * @param version - Optional vault version ('v1' or 'v2'). If not provided, automatically determines from vault definition
- * @returns The route path (e.g., "/vault/v1/0x...")
- */
-export function getVaultRoute(address: string, version?: VaultVersion): string {
-  const vaultVersion = version || getVaultVersion(address);
-  return `/vault/${vaultVersion}/${address}`;
+export function getVaultRoute(address: string): string {
+  return `/vault/v2/${address}`;
 }
 
-/**
- * Get the API path for a vault endpoint
- * @param address - The vault address
- * @param endpoint - The API endpoint (e.g., 'complete', 'history', 'activity', 'position-history')
- * @param version - Optional vault version ('v1' or 'v2'). If not provided, automatically determines from vault definition
- * @returns The API path (e.g., "/api/vault/v1/0x.../complete")
- */
-export function getVaultApiPath(address: string, endpoint: string, version?: VaultVersion): string {
-  const vaultVersion = version || getVaultVersion(address);
-  return `/api/vault/${vaultVersion}/${address}/${endpoint}`;
+export function getVaultApiPath(address: string, endpoint: string): string {
+  return `/api/vault/v2/${address}/${endpoint}`;
 }
 
-/**
- * Check if an address is a valid Ethereum address format
- * @param address - The address to check
- * @returns True if the address matches the Ethereum address format
- */
 export function isValidEthereumAddress(address: string): boolean {
   return /^0x[a-fA-F0-9]{40}$/.test(address);
 }
 
-/**
- * Calculate Y-axis domain for charts with padding
- * @param values - Array of numeric values to calculate domain from
- * @param options - Configuration options
- * @returns [min, max] domain array or undefined if no valid values
- */
 export function calculateYAxisDomain(
   values: number[],
   options: {
-    bottomPaddingPercent?: number; // Default: 0.25 (25%)
-    topPaddingPercent?: number; // Default: 0.2 (20%)
-    thresholdPercent?: number; // Default: 0.02 (2%) - percentage of max to consider "close to 0"
-    defaultMin?: number; // Default: 0
-    filterPositiveOnly?: boolean; // Default: false
-    tokenThreshold?: number; // If provided and maxValue >= this, use different threshold for tokens
+    bottomPaddingPercent?: number;
+    topPaddingPercent?: number;
+    thresholdPercent?: number;
+    defaultMin?: number;
+    filterPositiveOnly?: boolean;
+    tokenThreshold?: number;
   } = {}
 ): [number, number] | undefined {
   const {
@@ -251,11 +195,10 @@ export function calculateYAxisDomain(
     tokenThreshold,
   } = options;
 
-  // Filter values
   let filteredValues = values.filter(
     (v) => v !== null && v !== undefined && !isNaN(v)
   );
-  
+
   if (filterPositiveOnly) {
     filteredValues = filteredValues.filter((v) => v > 0);
   }
@@ -267,41 +210,28 @@ export function calculateYAxisDomain(
   const minValue = Math.min(...filteredValues);
   const maxValue = Math.max(...filteredValues);
 
-  // Determine threshold and adjustment logic
   let adjustedMinValue = minValue;
-  
+
   if (tokenThreshold !== undefined) {
-    // Token-specific logic: only adjust to 0 if max >= tokenThreshold
     if (maxValue >= tokenThreshold) {
-      const threshold = maxValue * 0.01; // 1% for tokens when max >= tokenThreshold
+      const threshold = maxValue * 0.01;
       adjustedMinValue = minValue < threshold ? 0 : minValue;
     }
-    // If max < tokenThreshold, keep the actual minValue (don't adjust to 0)
   } else {
-    // Standard logic: use thresholdPercent
     const threshold = maxValue * thresholdPercent;
     adjustedMinValue = minValue < threshold ? 0 : minValue;
   }
 
-  // Calculate padding
   const range = maxValue - adjustedMinValue;
   const bottomPadding = range * bottomPaddingPercent;
   const topPadding = range * topPaddingPercent;
 
-  // Calculate domain
   const domainMin = Math.max(defaultMin, adjustedMinValue - bottomPadding);
   const domainMax = maxValue + topPadding;
 
   return [domainMin, domainMax];
 }
 
-/**
- * Derive the user's current asset balance in raw units.
- * Priority:
- * 1) position.assets (already raw)
- * 2) shares * sharePriceInAsset (tokens per share)
- * 3) shares * (totalAssets / totalSupply)
- */
 export function calculateCurrentAssetsRaw(options: {
   positionAssets?: string | number | bigint | null;
   positionShares?: string | number | null;
@@ -319,7 +249,6 @@ export function calculateCurrentAssetsRaw(options: {
     assetDecimals = 18,
   } = options;
 
-  // Use reported assets first
   if (positionAssets !== undefined && positionAssets !== null) {
     try {
       const assets = BigInt(positionAssets);
@@ -345,13 +274,11 @@ export function calculateCurrentAssetsRaw(options: {
     return BigInt(Math.floor(value * Math.pow(10, decimals)));
   };
 
-  // Use provided share price in asset terms
   if (sharesDecimal > 0 && sharePriceInAsset && sharePriceInAsset > 0 && isFinite(sharePriceInAsset)) {
     const raw = toRaw(sharesDecimal * sharePriceInAsset);
     if (raw > BigInt(0)) return raw;
   }
 
-  // Fallback: derive share price from total assets / total supply
   if (sharesDecimal > 0) {
     let totalAssetsRaw = BigInt(0);
     let totalSupplyRaw = BigInt(0);
@@ -361,7 +288,7 @@ export function calculateCurrentAssetsRaw(options: {
         totalAssetsRaw = BigInt(totalAssets);
       }
     } catch {
-      // ignore parse errors
+      // ignore
     }
 
     try {
@@ -369,7 +296,7 @@ export function calculateCurrentAssetsRaw(options: {
         totalSupplyRaw = BigInt(totalSupply);
       }
     } catch {
-      // ignore parse errors
+      // ignore
     }
 
     if (totalAssetsRaw > BigInt(0) && totalSupplyRaw > BigInt(0)) {
@@ -387,12 +314,6 @@ export function calculateCurrentAssetsRaw(options: {
   return BigInt(0);
 }
 
-/**
- * Resolve an asset price in USD with sensible fallbacks.
- * - Use quoted price if present
- * - Else derive from TVL/totalAssets when available
- * - Else approximate from sharePriceUsd/sharePrice if both exist
- */
 export function resolveAssetPriceUsd(options: {
   quotedPriceUsd?: number | null;
   vaultData?: {
@@ -412,7 +333,6 @@ export function resolveAssetPriceUsd(options: {
 
   const decimals = assetDecimals ?? vaultData?.assetDecimals ?? 18;
 
-  // Derive from totalValueLocked and totalAssets
   if (
     vaultData?.totalValueLocked &&
     typeof vaultData.totalAssets !== 'undefined' &&
@@ -427,11 +347,10 @@ export function resolveAssetPriceUsd(options: {
         }
       }
     } catch {
-      // ignore parse errors
+      // ignore
     }
   }
 
-  // Approximate using share price in USD vs share price in asset terms if provided
   if (
     fallbackSharePriceUsd &&
     vaultData?.sharePrice &&
@@ -443,4 +362,3 @@ export function resolveAssetPriceUsd(options: {
 
   return 0;
 }
-

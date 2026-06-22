@@ -4,40 +4,34 @@ import { useMemo, useState } from 'react';
 import { VAULTS } from '@/lib/vaults';
 import { BASE_CHAIN_ID } from '@/lib/constants';
 import { Vault } from '@/types/vault';
-import { mergeRegistryVaultsWithDeposits, sortVaultsForDisplay } from '@/lib/vault-utils';
+import { sortVaultsForDisplay } from '@/lib/vault-utils';
 import { useWallet } from '@/contexts/WalletContext';
 import { useVaultData } from '@/contexts/VaultDataContext';
-import { useVaultVersion, DEFAULT_VAULT_FILTER_VERSION } from '@/contexts/VaultVersionContext';
+import { useVaultVersion } from '@/contexts/VaultVersionContext';
 import { useIsClient } from '@/hooks/useClientOnly';
 import VaultExplorerFilters, {
   VaultExplorerFilterState,
+  getDefaultExplorerFilters,
 } from '@/components/features/vault/VaultExplorerFilters';
 import VaultExplorerTable from '@/components/features/vault/VaultExplorerTable';
-
-const DEFAULT_FILTERS: VaultExplorerFilterState = {
-  network: 'all',
-  asset: 'all',
-  inWalletOnly: false,
-};
 
 interface VaultExplorerProps {
   initialFilters?: Partial<VaultExplorerFilterState>;
   showFilters?: boolean;
 }
 
-export default function VaultExplorer({
+function VaultExplorerContent({
   initialFilters,
   showFilters = true,
-}: VaultExplorerProps) {
-  const [filters, setFilters] = useState<VaultExplorerFilterState>({
-    ...DEFAULT_FILTERS,
+  isDevMode,
+}: VaultExplorerProps & { isDevMode: boolean }) {
+  const [filters, setFilters] = useState<VaultExplorerFilterState>(() => ({
+    ...getDefaultExplorerFilters(isDevMode),
     ...initialFilters,
-  });
+  }));
   const { morphoHoldings } = useWallet();
   const { getVaultData } = useVaultData();
-  const { version } = useVaultVersion();
   const isMounted = useIsClient();
-  const effectiveVersion = isMounted ? version : DEFAULT_VAULT_FILTER_VERSION;
 
   const depositedAddresses = useMemo(
     () =>
@@ -48,25 +42,21 @@ export default function VaultExplorer({
   );
 
   const filteredVaults = useMemo(() => {
-    const versionFiltered: Vault[] = Object.values(VAULTS)
-      .filter((vault) => effectiveVersion === 'all' || vault.version === effectiveVersion)
-      .map((vault) => ({
-        address: vault.address,
-        name: vault.name,
-        symbol: vault.symbol,
-        chainId: vault.chainId,
-        version: vault.version,
-      }));
+    const registryVaults: Vault[] = Object.values(VAULTS).map((vault) => ({
+      address: vault.address,
+      name: vault.name,
+      symbol: vault.symbol,
+      vaultSymbol: vault.vaultSymbol,
+      chainId: vault.chainId,
+      version: vault.version,
+      strategy: vault.strategy,
+      isCurated: true,
+    }));
 
-    const baseVaults = mergeRegistryVaultsWithDeposits(
-      versionFiltered,
-      morphoHoldings.positions,
-      effectiveVersion
-    );
-
-    const filtered = baseVaults.filter((vault) => {
+    const filtered = registryVaults.filter((vault) => {
       if (filters.network === 'base' && vault.chainId !== BASE_CHAIN_ID) return false;
       if (filters.asset !== 'all' && vault.symbol !== filters.asset) return false;
+      if (filters.strategy !== 'all' && vault.strategy !== filters.strategy) return false;
       if (filters.inWalletOnly && !depositedAddresses.has(vault.address.toLowerCase())) {
         return false;
       }
@@ -82,7 +72,7 @@ export default function VaultExplorer({
       morphoHoldings.positions,
       (address) => getVaultData(address)?.totalDeposits ?? 0
     );
-  }, [filters, depositedAddresses, isMounted, getVaultData, effectiveVersion, morphoHoldings.positions]);
+  }, [filters, depositedAddresses, isMounted, getVaultData, morphoHoldings.positions]);
 
   return (
     <div className="flex flex-col h-full w-full min-h-0">
@@ -96,4 +86,9 @@ export default function VaultExplorer({
   );
 }
 
-export { DEFAULT_FILTERS };
+export default function VaultExplorer(props: VaultExplorerProps) {
+  const { isDevMode } = useVaultVersion();
+  return <VaultExplorerContent key={isDevMode ? 'dev' : 'standard'} {...props} isDevMode={isDevMode} />;
+}
+
+export { getDefaultExplorerFilters as DEFAULT_FILTERS };

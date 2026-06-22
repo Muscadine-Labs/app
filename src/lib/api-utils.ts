@@ -33,16 +33,27 @@ export const INTERVAL_MAP: Record<string, string> = {
 
 /** Morpho timeseries often includes a trailing bucket for the in-progress period with zeros. */
 export function stripIncompleteVaultHistoryBuckets<
-  T extends { totalAssetsUsd: number; totalAssets: number; sharePrice?: number },
+  T extends {
+    totalAssetsUsd: number;
+    totalAssets: number;
+    sharePrice?: number;
+    apy?: number;
+    netApy?: number;
+  },
 >(history: T[]): T[] {
   let end = history.length;
   while (end > 0) {
     const point = history[end - 1];
-    const isIncomplete =
+    const zeroTvl =
       (point.totalAssetsUsd ?? 0) === 0 &&
       (point.totalAssets ?? 0) === 0 &&
       (point.sharePrice ?? 0) === 0;
-    if (!isIncomplete) break;
+    // In-progress buckets often have TVL but APY not yet computed.
+    const zeroApyWithTvl =
+      (point.totalAssetsUsd ?? 0) > 0 &&
+      (point.apy ?? 0) === 0 &&
+      (point.netApy ?? 0) === 0;
+    if (!zeroTvl && !zeroApyWithTvl) break;
     end--;
   }
   return end === history.length ? history : history.slice(0, end);
@@ -54,10 +65,9 @@ export function stripIncompletePositionHistoryBuckets<
   let end = history.length;
   while (end > 0) {
     const point = history[end - 1];
+    // Trailing buckets may still report shares while assets/assetsUsd are zero.
     const isIncomplete =
-      (point.assets ?? 0) === 0 &&
-      (point.assetsUsd ?? 0) === 0 &&
-      (point.shares ?? 0) === 0;
+      (point.assets ?? 0) === 0 && (point.assetsUsd ?? 0) === 0;
     if (!isIncomplete) break;
     end--;
   }

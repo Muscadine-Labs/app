@@ -17,34 +17,22 @@ import { Icon } from '@/components/ui/Icon';
 import { formatUnits } from 'viem';
 import { ERC4626_ABI } from '@/lib/abis';
 import {
-  getVaultVersion,
   hasOnChainVaultShares,
-  mergeRegistryVaultsWithDeposits,
   type WalletMorphoPosition,
 } from '@/lib/vault-utils';
+import { getAssetDecimalsForSymbol } from '@/lib/asset-decimals';
 import { TOKEN_ADDRESSES_LOWER, type TokenBalance } from '@/contexts/WalletContext';
-
-// Helper function to get asset decimals from vault symbol (no API needed)
-const getAssetDecimals = (symbol: string): number => {
-  if (symbol === 'USDC') {
-    return 6;
-  }
-  if (symbol === 'cbBTC' || symbol === 'BTC' || symbol === 'CBBTC') {
-    return 8;
-  }
-  if (symbol === 'WETH' || symbol === 'ETH') {
-    return 18;
-  }
-  return 18; // Default to 18 for other tokens
-};
 
 function buildRegistryVaultList(): Vault[] {
   return Object.values(VAULTS).map((vault) => ({
     address: vault.address,
     name: vault.name,
     symbol: vault.symbol,
+    vaultSymbol: vault.vaultSymbol,
     chainId: vault.chainId,
     version: vault.version,
+    strategy: vault.strategy,
+    isCurated: true,
   }));
 }
 
@@ -63,7 +51,7 @@ function vaultToVaultAccount(
     symbol: vault.symbol,
     balance: position && hasOnChainVaultShares(position) ? BigInt(position.shares) : BigInt(0),
     assetAddress: '',
-    assetDecimals: getAssetDecimals(vault.symbol),
+    assetDecimals: getAssetDecimalsForSymbol(vault.symbol),
   };
 }
 
@@ -124,7 +112,7 @@ export default function TransactionsPage() {
   const { tokenBalances, ethBalance, morphoHoldings, refreshBalances } = useWallet();
   const { fetchVaultData } = useVaultData();
   const { btc: btcPrice, eth: ethPrice } = usePrices();
-  const { version, preference } = useVaultVersion();
+  const { isDevMode } = useVaultVersion();
   const {
     fromAccount,
     toAccount,
@@ -236,7 +224,7 @@ export default function TransactionsPage() {
       return;
     }
 
-    const urlSignature = `${vaultAddress.toLowerCase()}:${action}:${version}`;
+    const urlSignature = `${vaultAddress.toLowerCase()}:${action}`;
     if (appliedVaultUrlRef.current === urlSignature) {
       return;
     }
@@ -244,7 +232,7 @@ export default function TransactionsPage() {
 
     queueMicrotask(() => {
       const vault = Object.values(VAULTS).find((v) => 
-        v.address.toLowerCase() === vaultAddress.toLowerCase() && (version === 'all' || v.version === version)
+        v.address.toLowerCase() === vaultAddress.toLowerCase()
       );
       if (vault) {
         const position = morphoHoldings.positions.find(
@@ -258,7 +246,7 @@ export default function TransactionsPage() {
           symbol: vault.symbol,
           balance: position ? BigInt(position.shares) : BigInt(0),
           assetAddress: '', // Will be fetched during transaction
-          assetDecimals: getAssetDecimals(vault.symbol),
+          assetDecimals: getAssetDecimalsForSymbol(vault.symbol),
         };
 
         if (action === 'deposit') {
@@ -272,8 +260,7 @@ export default function TransactionsPage() {
           setFromAccount(walletAccount);
           setToAccount(vaultAccount);
           // Set default preferredAsset to 'ALL' for WETH vault deposits
-          if (vault.address.toLowerCase() === VAULTS.WETH_VAULT.address.toLowerCase() ||
-              vault.address.toLowerCase() === VAULTS.WETH_VAULT_V2.address.toLowerCase()) {
+          if (vault.address.toLowerCase() === VAULTS.WETH_VAULT_V2.address.toLowerCase()) {
             setPreferredAsset('ALL');
           }
         } else if (action === 'withdraw') {
@@ -287,8 +274,7 @@ export default function TransactionsPage() {
           setFromAccount(vaultAccount);
           setToAccount(walletAccount);
           // Set default preferredAsset to 'WETH' for WETH vault withdrawals
-          if (vault.address.toLowerCase() === VAULTS.WETH_VAULT.address.toLowerCase() ||
-              vault.address.toLowerCase() === VAULTS.WETH_VAULT_V2.address.toLowerCase()) {
+          if (vault.address.toLowerCase() === VAULTS.WETH_VAULT_V2.address.toLowerCase()) {
             setPreferredAsset('WETH');
           }
         }
@@ -296,7 +282,7 @@ export default function TransactionsPage() {
         // Keep status as 'idle' so user stays on select page and can modify before proceeding
       }
     });
-  }, [searchParams, version, morphoHoldings.positions, setFromAccount, setToAccount, setPreferredAsset]);
+  }, [searchParams, morphoHoldings.positions, setFromAccount, setToAccount, setPreferredAsset]);
 
   // Initialize accounts based on active tab when page first loads (if no accounts set and no URL params)
   useEffect(() => {
@@ -391,7 +377,7 @@ export default function TransactionsPage() {
     
     if (toAccount?.type === 'vault') {
       const toVault = toAccount as VaultAccount;
-      const isWethVault = toVault.address.toLowerCase() === VAULTS.WETH_VAULT.address.toLowerCase();
+      const isWethVault = toVault.address.toLowerCase() === VAULTS.WETH_VAULT_V2.address.toLowerCase();
       
       if (isWethVault && (derivedAsset.symbol === 'WETH' || derivedAsset.symbol === 'ETH')) {
         const combinedBal = getCombinedEthWethBalance;
@@ -432,7 +418,7 @@ export default function TransactionsPage() {
     if (!fromAccount || fromAccount.type !== 'vault' || !derivedAsset) return '';
     
     const vaultAccount = fromAccount as VaultAccount;
-    const assetDecimals = getAssetDecimals(vaultAccount.symbol);
+    const assetDecimals = getAssetDecimalsForSymbol(vaultAccount.symbol);
 
     if (!vaultShareBalance) {
       if (morphoHoldings.isLoading) {
@@ -468,7 +454,7 @@ export default function TransactionsPage() {
       const symbol = derivedAsset.symbol;
       if (toAccount?.type === 'vault') {
         const toVault = toAccount as VaultAccount;
-        const isWethVault = toVault.address.toLowerCase() === VAULTS.WETH_VAULT.address.toLowerCase() ||
+        const isWethVault = toVault.address.toLowerCase() === VAULTS.WETH_VAULT_V2.address.toLowerCase() ||
                            toVault.address.toLowerCase() === VAULTS.WETH_VAULT_V2.address.toLowerCase();
         if (isWethVault && (symbol === 'WETH' || symbol === 'ETH')) {
           // For WETH vault deposits: respect preferredAsset selection
@@ -516,7 +502,7 @@ export default function TransactionsPage() {
     } else {
       // For vault withdrawals: use convertToAssets to get exact asset amount from full share balance
       const vaultAccount = fromAccount as VaultAccount;
-      const assetDecimals = getAssetDecimals(vaultAccount.symbol);
+      const assetDecimals = getAssetDecimalsForSymbol(vaultAccount.symbol);
 
       if (!vaultShareBalance) {
         return 0;
@@ -552,12 +538,12 @@ export default function TransactionsPage() {
       // Check if this is a WETH vault deposit - respect preferredAsset selection
       if (toAccount?.type === 'vault') {
         const toVault = toAccount as VaultAccount;
-        const isWethVault = toVault.address.toLowerCase() === VAULTS.WETH_VAULT.address.toLowerCase() || 
+        const isWethVault = toVault.address.toLowerCase() === VAULTS.WETH_VAULT_V2.address.toLowerCase() || 
                            toVault.address.toLowerCase() === VAULTS.WETH_VAULT_V2.address.toLowerCase();
         if (isWethVault && (symbol === 'WETH' || symbol === 'ETH')) {
           // For WETH vault deposits: use calculated max based on preferredAsset
           const assetPreference = preferredAsset || 'ALL';
-          const decimals = getAssetDecimals(symbol);
+          const decimals = getAssetDecimalsForSymbol(symbol);
           
           if (assetPreference === 'ETH') {
             // Use ETH balance directly
@@ -601,7 +587,7 @@ export default function TransactionsPage() {
     } else {
       // For vault withdrawals: use exact asset amount from convertToAssets
       const vaultAccount = fromAccount as VaultAccount;
-      const decimals = getAssetDecimals(vaultAccount.symbol);
+      const decimals = getAssetDecimalsForSymbol(vaultAccount.symbol);
       setAmount(formatAssetAmountForMax(maxAmount, derivedAsset?.symbol || '', decimals));
     }
   }, [getMaxAmount, fromAccount, toAccount, derivedAsset, tokenBalances, preferredAsset, setAmount]);
@@ -634,30 +620,14 @@ export default function TransactionsPage() {
     return enteredAmount > maxAmount;
   }, [amount, fromAccount, derivedAsset, getMaxAmount]);
 
-  const requiresV1DepositRiskAck = useMemo(() => {
-    if (preference !== 'all') return false;
-    if (!fromAccount || !toAccount) return false;
-    if (fromAccount.type !== 'wallet' || toAccount.type !== 'vault') return false;
-    return getVaultVersion((toAccount as VaultAccount).address) === 'v1';
-  }, [preference, fromAccount, toAccount]);
-
-  const [v1DepositRiskAcknowledged, setV1DepositRiskAcknowledged] = useState(false);
+  const allowOverBalanceOnDevMode = isDevMode;
   const [balanceBypassAcknowledged, setBalanceBypassAcknowledged] = useState(false);
-
-  const allowOverBalanceOnAllPreference = preference === 'all';
   const blockContinueForBalance =
-    exceedsBalance && !(allowOverBalanceOnAllPreference && balanceBypassAcknowledged);
+    exceedsBalance && !(allowOverBalanceOnDevMode && balanceBypassAcknowledged);
 
   const mergedRegistryVaults = useMemo(
-    () =>
-      mergeRegistryVaultsWithDeposits(
-        buildRegistryVaultList().filter(
-          (vault) => version === 'all' || vault.version === version
-        ),
-        morphoHoldings.positions,
-        version
-      ),
-    [morphoHoldings.positions, version]
+    () => buildRegistryVaultList(),
+    []
   );
 
   const handleStartTransaction = () => {
@@ -869,7 +839,7 @@ export default function TransactionsPage() {
               // Set default preferredAsset for WETH vault withdrawals
               if (account?.type === 'vault' && toAccount?.type === 'wallet' && effectiveActiveTab === 'withdraw') {
                 const vault = account as VaultAccount;
-                if (vault.address.toLowerCase() === VAULTS.WETH_VAULT.address.toLowerCase() ||
+                if (vault.address.toLowerCase() === VAULTS.WETH_VAULT_V2.address.toLowerCase() ||
                     vault.address.toLowerCase() === VAULTS.WETH_VAULT_V2.address.toLowerCase()) {
                   setPreferredAsset('WETH');
                 } else {
@@ -921,7 +891,7 @@ export default function TransactionsPage() {
               // Set default preferredAsset to 'ALL' when WETH vault is selected for deposit
               if (account?.type === 'vault' && fromAccount?.type === 'wallet' && effectiveActiveTab === 'deposit') {
                 const vault = account as VaultAccount;
-                if (vault.address.toLowerCase() === VAULTS.WETH_VAULT.address.toLowerCase() ||
+                if (vault.address.toLowerCase() === VAULTS.WETH_VAULT_V2.address.toLowerCase() ||
                     vault.address.toLowerCase() === VAULTS.WETH_VAULT_V2.address.toLowerCase()) {
                   setPreferredAsset('ALL');
                 } else {
@@ -953,13 +923,13 @@ export default function TransactionsPage() {
                     const isWethVaultDeposit = effectiveActiveTab === 'deposit' && 
                       toAccount?.type === 'vault' && 
                       fromAccount?.type === 'wallet' &&
-                      ((toAccount as VaultAccount).address.toLowerCase() === VAULTS.WETH_VAULT.address.toLowerCase() || 
+                      ((toAccount as VaultAccount).address.toLowerCase() === VAULTS.WETH_VAULT_V2.address.toLowerCase() || 
                        (toAccount as VaultAccount).address.toLowerCase() === VAULTS.WETH_VAULT_V2.address.toLowerCase());
                     
                     const isWethVaultWithdraw = effectiveActiveTab === 'withdraw' && 
                       fromAccount?.type === 'vault' && 
                       toAccount?.type === 'wallet' &&
-                      ((fromAccount as VaultAccount).address.toLowerCase() === VAULTS.WETH_VAULT.address.toLowerCase() || 
+                      ((fromAccount as VaultAccount).address.toLowerCase() === VAULTS.WETH_VAULT_V2.address.toLowerCase() || 
                        (fromAccount as VaultAccount).address.toLowerCase() === VAULTS.WETH_VAULT_V2.address.toLowerCase());
                     
                     if (isWethVaultDeposit) {
@@ -1030,7 +1000,7 @@ export default function TransactionsPage() {
                   if (!vaultAddress) return null;
                   
                   const btcVaultAddress = VAULTS.cbBTC_VAULT.address.toLowerCase();
-                  const wethVaultAddress = VAULTS.WETH_VAULT.address.toLowerCase();
+                  const wethVaultAddress = VAULTS.WETH_VAULT_V2.address.toLowerCase();
                   const isBtcVault = vaultAddress === btcVaultAddress;
                   const isWethVault = vaultAddress === wethVaultAddress;
                   
@@ -1065,7 +1035,7 @@ export default function TransactionsPage() {
                   <p className="text-xs text-[var(--foreground)]">
                     <span className="font-medium">Warning:</span> Amount exceeds available balance. This transaction will fail if you proceed.
                   </p>
-                  {allowOverBalanceOnAllPreference && (
+                  {allowOverBalanceOnDevMode && (
                     <label className="flex items-start gap-2 cursor-pointer text-xs text-[var(--foreground)]">
                       <input
                         type="checkbox"
@@ -1093,30 +1063,6 @@ export default function TransactionsPage() {
             </div>
           ) : null}
 
-          {requiresV1DepositRiskAck && (
-            <div className="p-3 bg-[var(--warning-subtle)] rounded-lg border border-[var(--warning)]">
-              <label className="flex items-start gap-2 cursor-pointer text-xs text-[var(--foreground)]">
-                <input
-                  type="checkbox"
-                  checked={v1DepositRiskAcknowledged}
-                  onChange={(e) => setV1DepositRiskAcknowledged(e.target.checked)}
-                  className="mt-0.5 rounded border-[var(--border-subtle)]"
-                />
-                <span>
-                  I am okay with the risk associated.{' '}
-                  <a
-                    href="https://muscadine.io/risk"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-[var(--primary)] hover:underline"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    Risk Framework
-                  </a>
-                </span>
-              </label>
-            </div>
-          )}
 
           {/* Start Transaction Button */}
           <Button
@@ -1128,7 +1074,6 @@ export default function TransactionsPage() {
               !amount || 
               parseFloat(amount) <= 0 ||
               blockContinueForBalance ||
-              (requiresV1DepositRiskAck && !v1DepositRiskAcknowledged) ||
               (fromAccount.type === 'wallet' && toAccount.type === 'wallet') || // Prevent wallet-to-wallet
               (fromAccount.type === 'vault' && toAccount.type === 'vault') // Prevent vault-to-vault
             }

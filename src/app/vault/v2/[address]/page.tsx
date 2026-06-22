@@ -33,16 +33,8 @@ export default function VaultV2Page() {
   const tabsRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Find vault by address
+  // Find vault by address (registry only)
   const vault = findVaultByAddress(address);
-
-  // Verify this is actually a v2 vault, redirect if not
-  useEffect(() => {
-    if (vault && vault.version !== 'v2') {
-      // Redirect to v1 if it's actually a v1 vault
-      router.replace(`/vault/v1/${address}`);
-    }
-  }, [vault, address, router]);
 
   // Fetch vault data (v2 will use different API endpoints - see VaultDataContext)
   const { vaultData, isLoading, hasError, refetch } = useVaultDataFetch(vault);

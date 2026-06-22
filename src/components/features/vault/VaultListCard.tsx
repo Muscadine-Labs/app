@@ -11,6 +11,7 @@ import { useMemo } from 'react';
 import { useIsClient } from '@/hooks/useClientOnly';
 import { usePrices } from '../../../contexts/PriceContext';
 import { ERC20_BALANCE_ABI, ERC4626_ABI } from '../../../lib/abis';
+import { resolveAssetDecimals } from '../../../lib/asset-decimals';
 
 interface VaultListCardProps {
     vault: Vault;
@@ -79,7 +80,7 @@ export default function VaultListCard({ vault, onClick, isSelected }: VaultListC
         
         // Fallback: Calculate from RPC data if available
         if (assetsRaw && vaultData) {
-            const assetDecimals = vaultData.assetDecimals || (symbolUpper === 'USDC' ? 6 : symbolUpper === 'CBBTC' ? 8 : 18);
+            const assetDecimals = resolveAssetDecimals(vault.symbol, vaultData.assetDecimals);
             const assetsDecimal = Number(assetsRaw) / Math.pow(10, assetDecimals);
             
             // Get asset price (same as liquid assets)
@@ -111,8 +112,7 @@ export default function VaultListCard({ vault, onClick, isSelected }: VaultListC
 
     // Get user's vault balance from RPC data
     const userVaultBalance = useMemo(() => {
-        const assetDecimals =
-            vaultData?.assetDecimals ?? (symbolUpper === 'USDC' ? 6 : symbolUpper === 'CBBTC' ? 8 : 18);
+        const assetDecimals = resolveAssetDecimals(vault.symbol, vaultData?.assetDecimals);
 
         if (!assetsRaw) {
             // Fallback: Use position from WalletContext if available
@@ -169,7 +169,7 @@ export default function VaultListCard({ vault, onClick, isSelected }: VaultListC
             minimumFractionDigits: decimalPlaces,
             maximumFractionDigits: decimalPlaces
         });
-    }, [assetsRaw, vaultData, userPosition, symbolUpper]);
+    }, [assetsRaw, vaultData, userPosition, vault.symbol]);
 
     return (
         <div 

@@ -2,9 +2,9 @@
 
 Comprehensive context for AI assistants and developers. This is the canonical “extra README” for the repo: architecture, Morpho integration, file map, conventions, and operational notes.
 
-**Product:** Web app for Muscadine vaults on **Base (chain id 8453)** today — deposit, withdraw, portfolio view, vault analytics. Supports **v1 MetaMorpho** (legacy; soft-deprecated in UI) and **v2 Prime (VaultV2)** vaults for USDC, cbBTC, and WETH. **Roadmap:** add vaults on **Ethereum** and **Hyperliquid**; eventually **remove / fully deprecate v1** vaults and v1-only code paths (see [Future](#future--optional-upgrades)).
+**Product:** Web app for Muscadine vaults on **Base (chain id 8453)** — deposit, withdraw, portfolio view, vault analytics. **v2 Prime and Frontier** vaults for USDC, cbBTC, and WETH. **v1 MetaMorpho removed** from registry and codebase (v2-only writes).
 
-**Version:** `package.json` → `1.0.7`
+**Version:** `package.json` → `1.0.9`
 
 ---
 
@@ -118,45 +118,26 @@ Single source of truth: `src/lib/vaults.ts` → `VAULTS` record.
 
 Always resolve version with `getVaultVersion(address)` / `findVaultByAddress()` from `src/lib/vault-utils.ts`. Do not infer v1/v2 from asset symbol alone.
 
-| Asset | V1 MetaMorpho | V2 Prime |
-|-------|---------------|----------|
-| USDC | `0xf7e26Fa48A568b8b0038e104DfD8ABdf0f99074F` | `0x89712980Cb434eF5aE4AB29349419eb976B0b496` |
-| cbBTC | `0xAeCc8113a7bD0CFAF7000EA7A31afFD4691ff3E9` | `0x99dcd0D75822BA398F13B2A8852B07c7e137EC70` |
-| WETH | `0x21e0d366272798da3A977FEBA699FCB91959d120` | `0xD6DCAd2f7Da91FBb27BdA471540d9770c97a5a43` |
+| Asset | V2 Prime | V2 Frontier |
+|-------|----------|-------------|
+| USDC | `0x89712980Cb434eF5aE4AB29349419eb976B0b496` (mpUSDC) | `0x314fD07319ef645bA7D548915CCd91F4788A1839` (mfUSDC) |
+| cbBTC | `0x99dcd0D75822BA398F13B2A8852B07c7e137EC70` (mpcbBTC) | — |
+| WETH | `0xD6DCAd2f7Da91FBb27BdA471540d9770c97a5a43` (mpWETH) | — |
 
-**Routes:** `/vault/v1/{address}`, `/vault/v2/{address}`  
-**API:** `/api/vault/{v1|v2}/{address}/{complete|history|activity|position-history}`
+**Routes:** `/vault/v2/{address}` only  
+**API:** `/api/vault/v2/{address}/{complete|history|activity|position-history|earned-interest}`
 
-**Vault version UX (`VaultVersionContext`):** Not used on the dashboard.
+**Vault registry fields:** `symbol` (underlying asset), `vaultSymbol` (share token label), `strategy` (`prime` | `frontier`).
 
-| Setting | Storage key | Values | Effect |
-|---------|-------------|--------|--------|
-| **Preference** (NavBar Settings) | `muscadine-vault-version-default-v2` | `v2` (default) \| `all` (UI: **Dev**) | `v2` → effective filter is always **v2**. `all` → Dev mode: explorer Version dropdown, v1/v2 badges, transact test bypasses. |
-| **Explorer filter** (only when Dev) | `muscadine-vault-explorer-version-filter-v2-default` | `v2` (default) \| `v1` \| `all` | Table filter on `/vaults` when `preference === 'all'`. |
+**Dev mode (`VaultVersionContext`, `preference === 'all'`):** Explorer filters default to All (network, strategy, asset); transact over-balance bypass. **No v1/v2 version filter** (v1 removed).
 
-**Resolved `version`** for lists/transact: `preference === 'v2' ? 'v2' : explorerVersion`. **`mergeRegistryVaultsWithDeposits`** always includes vaults where the user has on-chain shares (e.g. withdraw from v1 while preference is v2).
-
-**Planned registry changes:** `vaults.ts` is Base-only for now. Future work: register Morpho vaults on **Ethereum** and **Hyperliquid** (per-chain `chainId`, wagmi config, API routes, explorer Network filter). In parallel, plan to **drop v1 MetaMorpho** from the registry and UI once positions are migrated — keep withdraw paths until sunset, then delete v1 bundler routes, `/vault/v1/*` pages, and Dev-mode v1 deposit acks.
+**Dashboard:** Shows all Morpho v1+v2 positions via `/api/user/morpho-positions`; non-curated vaults are read-only on dashboard. Portfolio chart aggregates position-history for **every** deposited Morpho vault (v1 + v2).
 
 ---
 
-## V1 vs V2 — the most important split
+## V2 transactions (only write path)
 
-**Today:** v2 is the default product surface; v1 remains for legacy positions and withdrawals. **Direction:** retire v1 from the registry and codebase after migration (do not add new v1-first features).
-
-| | **V1 (MetaMorpho)** | **V2 (Prime / VaultV2)** |
-|--|----------------------|---------------------------|
-| On-chain type | ERC-4626 MetaMorpho | Morpho VaultV2 (ERC-4626-like interface) |
-| **Write path** | `useVaultTransactions.ts` + `setupBundle` | `transactionUtilsV2.ts` + viem `writeContract` |
-| Bundler | Yes (`@morpho-org/bundler-sdk-viem`) | **No** — bundler does not expose v2 MetaMorpho ops |
-| Simulation | `useVaultSimulationState` + simulation-sdk-wagmi | Same hook can load v2 vaults in simulation state; **tx execution does not use bundler** |
-| Deposit slippage | Bundler / blue-sdk defaults | Direct `deposit` on vault (no Bundler3 path in app) |
-| Vault-to-vault transfer | Supported (single bundle) | **Not supported** — explicit error in `TransactionFlow` |
-| GraphQL entity | `vaultByAddress` | `vaultV2ByAddress` |
-
-**Do not** call v1 `MetaMorpho_Deposit` / bundler operations against v2 addresses.
-
-**Optional future path:** Morpho’s `@morpho-org/morpho-sdk` v2 supports VaultV2 deposits via Bundler3 with slippage guards and `forceWithdraw`/`forceRedeem` for low idle liquidity. This app **intentionally** uses direct ABIs for v2 unless that decision is reversed.
+All vault writes use **`src/lib/transactionUtilsV2.ts`** (direct ERC-4626 + viem). v1 bundler code removed.
 
 ### ERC-4626 vaults — reads, shares, and UI sources
 

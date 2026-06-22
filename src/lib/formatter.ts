@@ -135,15 +135,27 @@ export function formatAssetAmount(
   return `${formattedAmount} ${symbol}`;
 }
 
-/** Fraction digits for "Your Position" token display (no K/M/B abbreviations). */
+/** Fraction digits for dashboard / vault explorer tables (USDC: 2, WETH/cbBTC: 4). */
 export function getPositionDisplayFractionDigits(symbol: string): number {
   const normalized = symbol.toUpperCase();
   if (normalized === 'USDC') return 2;
-  if (normalized === 'WETH' || normalized === 'CBBTC' || normalized === 'BTC') return 4;
+  if (normalized === 'WETH' || normalized === 'CBBTC' || normalized === 'CBTC' || normalized === 'BTC') {
+    return 4;
+  }
   return 2;
 }
 
-/** Full-precision position token amount for tables (USDC: 2, WETH/cbBTC: 4 decimals). */
+/** Fraction digits for vault detail My Position hero (USDC: 6, WETH/cbBTC: 8). */
+export function getVaultDetailFractionDigits(symbol: string): number {
+  const normalized = symbol.toUpperCase();
+  if (normalized === 'USDC') return 6;
+  if (normalized === 'WETH' || normalized === 'CBBTC' || normalized === 'CBTC' || normalized === 'BTC') {
+    return 8;
+  }
+  return 2;
+}
+
+/** Full-precision position / earned-interest token amount for tables (USDC: 2, WETH/cbBTC: 4). */
 export function formatPositionTokenAmount(
   rawValue: string | undefined,
   decimals: number,
@@ -152,6 +164,25 @@ export function formatPositionTokenAmount(
   if (!rawValue) return `0 ${symbol}`;
 
   const fractionDigits = getPositionDisplayFractionDigits(symbol);
+  try {
+    return formatAssetAmount(BigInt(rawValue), decimals, symbol, {
+      minimumFractionDigits: fractionDigits,
+      maximumFractionDigits: fractionDigits,
+    });
+  } catch {
+    return `0 ${symbol}`;
+  }
+}
+
+/** Vault detail page: deposits + earned interest (USDC: 6, WETH/cbBTC: 8). */
+export function formatVaultDetailTokenAmount(
+  rawValue: string | undefined,
+  decimals: number,
+  symbol: string
+): string {
+  if (!rawValue) return `0 ${symbol}`;
+
+  const fractionDigits = getVaultDetailFractionDigits(symbol);
   try {
     return formatAssetAmount(BigInt(rawValue), decimals, symbol, {
       minimumFractionDigits: fractionDigits,
