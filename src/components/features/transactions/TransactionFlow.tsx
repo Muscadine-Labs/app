@@ -188,16 +188,9 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
       
       refreshData();
       
-      // Also use polling to refresh balances (waits for blockchain state to update)
-      // This ensures we get the updated balances even if there's a slight delay
-      logger.info('Refreshing wallet balances after transaction with polling', {
-        txHash: hashToUse,
-        timestamp: new Date().toISOString(),
-      });
-      
+      // One follow-up refresh ~8s later when Morpho indexer has caught up (no polling loop)
       refreshBalancesWithPolling({
-        maxAttempts: 10, // Try up to 10 times (30 seconds total with 3s intervals)
-        intervalMs: 3000, // 3 seconds between attempts
+        followUpDelayMs: 8000,
         onComplete: async () => {
           logger.info('Wallet balances refreshed successfully after transaction', {
             txHash: hashToUse,

@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { BASE_CHAIN_ID } from '@/lib/constants';
+
+/** User positions must be fresh — never use the 5 min Morpho GraphQL cache. */
+export const dynamic = 'force-dynamic';
 import { fetchMorphoGraphQL } from '@/lib/api-utils';
 import {
   getAssetDecimalsForSymbol,
@@ -144,7 +147,7 @@ export async function GET(request: NextRequest) {
         query,
         variables: { address: userAddress, chainId },
       },
-      { timeoutMs: 20_000 }
+      { timeoutMs: 20_000, revalidate: 0 }
     );
 
     if (!response.ok) {

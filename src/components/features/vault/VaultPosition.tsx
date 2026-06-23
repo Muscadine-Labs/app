@@ -51,14 +51,6 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
   const { morphoHoldings } = useWallet();
   const { btc: btcPrice, eth: ethPrice } = usePrices();
   const { error: showErrorToast } = useToast();
-  const earnedInterest = useVaultEarnedInterest(
-    isConnected ? vaultData.address : undefined,
-    vaultData.symbol
-  );
-  const interestDecimals = resolveAssetDecimals(
-    vaultData.symbol,
-    earnedInterest.assetDecimals || vaultData.assetDecimals
-  );
 
   const now = useUnixTimestamp();
   const [loading, setLoading] = useState(true);
@@ -102,46 +94,45 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
     query: { enabled: !!sharesRaw && sharesRaw > BigInt(0) },
   });
 
-  // Find the current vault position from WalletContext (RPC-based)
+  const earnedInterest = useVaultEarnedInterest(
+    isConnected ? vaultData.address : undefined,
+    vaultData.symbol,
+    assetsRaw?.toString()
+  );
+  const interestDecimals = resolveAssetDecimals(
+    vaultData.symbol,
+    earnedInterest.assetDecimals || vaultData.assetDecimals
+  );
+
+  // Find the current vault position from WalletContext (for holdings detection).
   const currentVaultPosition = morphoHoldings.positions.find(
     pos => pos.vault.address.toLowerCase() === vaultData.address.toLowerCase()
   );
-
-  // Calculate USD value using asset price (like liquid assets)
-  const userVaultValueUsd = useMemo(() => {
-    // Use position from WalletContext (already calculated with RPC + price)
-    if (currentVaultPosition && currentVaultPosition.assetsUsd !== undefined && currentVaultPosition.assetsUsd > 0) {
-      return currentVaultPosition.assetsUsd;
-    }
-    
-    // Fallback: Calculate from RPC data if available
-    if (assetsRaw && vaultData) {
-      const assetDecimals = vaultData.assetDecimals || 18;
-      const assetsDecimal = Number(assetsRaw) / Math.pow(10, assetDecimals);
-      
-      // Get asset price (same as liquid assets)
-      let assetPrice = 0;
-      const symbolUpper = vaultData.symbol.toUpperCase();
-      if (symbolUpper === 'USDC') {
-        assetPrice = 1;
-      } else if (symbolUpper === 'WETH') {
-        assetPrice = ethPrice || 0;
-      } else if (symbolUpper === 'CBBTC' || symbolUpper === 'CBTC') {
-        assetPrice = btcPrice || 0;
-      }
-      
-      return assetsDecimal * assetPrice;
-    }
-    
-    return 0;
-  }, [currentVaultPosition, assetsRaw, vaultData, ethPrice, btcPrice]);
 
   const depositAssetDecimals = resolveAssetDecimals(
     vaultData.symbol,
     vaultData.assetDecimals
   );
-  const depositRawValue =
-    assetsRaw?.toString() ?? currentVaultPosition?.assets ?? '0';
+
+  const positionRawValue = useMemo(() => {
+    if (!assetsRaw) return null;
+    return assetsRaw.toString();
+  }, [assetsRaw]);
+
+  const userVaultTotalUsd = useMemo(() => {
+    if (!assetsRaw) return 0;
+    const assetsDecimal = Number(assetsRaw) / 10 ** depositAssetDecimals;
+    const symbolUpper = vaultData.symbol.toUpperCase();
+    let assetPrice = 0;
+    if (symbolUpper === 'USDC') {
+      assetPrice = 1;
+    } else if (symbolUpper === 'WETH') {
+      assetPrice = ethPrice || 0;
+    } else if (symbolUpper === 'CBBTC' || symbolUpper === 'CBTC') {
+      assetPrice = btcPrice || 0;
+    }
+    return assetsDecimal * assetPrice;
+  }, [assetsRaw, depositAssetDecimals, vaultData.symbol, ethPrice, btcPrice]);
 
   useEffect(() => {
     const fetchPositionHistory = async () => {
@@ -512,24 +503,26 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
       <div>
         <div className="flex flex-col md:flex-row items-start justify-between gap-6 mb-4">
           <div className="flex flex-col md:flex-row flex-1 w-full gap-6 md:gap-10">
-            {/* Your Deposits */}
+            {/* Your Position — on-chain convertToAssets (matches withdraw / MAX) */}
             <div className="flex-1 w-full md:w-auto">
-              <p className="text-xs text-[var(--foreground-secondary)] mb-1">Your Deposits</p>
+              <p className="text-xs text-[var(--foreground-secondary)] mb-1">Your Position</p>
               {!isConnected ? (
                 <p className="text-sm text-[var(--foreground-muted)]">Connect wallet</p>
               ) : !currentVaultPosition && !assetsRaw ? (
                 <p className="text-sm text-[var(--foreground-muted)]">No holdings</p>
+              ) : !positionRawValue ? (
+                <Skeleton width="8rem" height="2rem" />
               ) : (
                 <>
                   <p className="text-2xl font-bold text-[var(--foreground)]">
                     {formatVaultDetailTokenAmount(
-                      depositRawValue,
+                      positionRawValue,
                       depositAssetDecimals,
                       vaultData.symbol
                     )}
                   </p>
                   <p className="text-xs text-[var(--foreground-secondary)] mt-1">
-                    {formatCurrency(userVaultValueUsd)}
+                    {formatCurrency(userVaultTotalUsd)}
                   </p>
                 </>
               )}

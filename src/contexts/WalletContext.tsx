@@ -60,7 +60,7 @@ interface WalletContextType {
   error: string | null;
   refreshBalances: () => Promise<void>;
   refreshBalancesWithRetry: (options?: { maxRetries?: number; retryDelay?: number }) => Promise<void>;
-  refreshBalancesWithPolling: (options?: { maxAttempts?: number; intervalMs?: number; onComplete?: () => void }) => Promise<void>;
+  refreshBalancesWithPolling: (options?: { followUpDelayMs?: number; onComplete?: () => void }) => Promise<void>;
 }
 
 const WalletContext = createContext<WalletContextType | undefined>(undefined);
@@ -450,7 +450,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
 
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
         try {
-          morphoResponse = await fetch(url);
+          morphoResponse = await fetch(url, { cache: 'no-store' });
           break;
         } catch (err) {
           lastFetchError = err;
@@ -803,41 +803,27 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     throw lastError || new Error('Balance refresh failed');
   }, [performRefresh]);
 
-  // Refresh with polling (useful for transaction completion)
-  const refreshBalancesWithPolling = useCallback(async (options?: { maxAttempts?: number; intervalMs?: number; onComplete?: () => void }) => {
-    const maxAttempts = options?.maxAttempts ?? 10;
-    const intervalMs = options?.intervalMs ?? 3000; // 3 seconds default
+  // One delayed refresh after tx — Morpho indexer often lags ~6–8s; no polling loop.
+  const refreshBalancesWithPolling = useCallback(async (options?: { followUpDelayMs?: number; onComplete?: () => void }) => {
+    const followUpDelayMs = options?.followUpDelayMs ?? 8000;
 
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      try {
-        await performRefresh();
-        logger.info('Balance refresh completed via polling', {
-          attempt: attempt + 1,
-          maxAttempts,
-          timestamp: new Date().toISOString(),
-        });
-        options?.onComplete?.();
-        return; // Success
-      } catch (error) {
-        const err = error instanceof Error ? error : new Error(String(error));
-        if (attempt < maxAttempts - 1) {
-          logger.debug('Balance refresh polling attempt failed, will retry', {
-            attempt: attempt + 1,
-            maxAttempts,
-            intervalMs,
-            error: err.message,
-            timestamp: new Date().toISOString(),
-          });
-          await sleep(intervalMs);
-        } else {
-          logger.error('Balance refresh polling failed after all attempts', err, {
-            maxAttempts,
-            timestamp: new Date().toISOString(),
-          });
-          throw err;
-        }
-      }
+    await sleep(followUpDelayMs);
+
+    try {
+      await performRefresh();
+      logger.info('Post-transaction follow-up balance refresh completed', {
+        followUpDelayMs,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      logger.error('Post-transaction follow-up balance refresh failed', err, {
+        followUpDelayMs,
+        timestamp: new Date().toISOString(),
+      });
     }
+
+    options?.onComplete?.();
   }, [performRefresh]);
 
   // Calculate balances and USD values
