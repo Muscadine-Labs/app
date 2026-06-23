@@ -9,6 +9,7 @@ import {
 import { isValidEthereumAddress, findVaultByAddress } from '@/lib/vault-utils';
 import { isValidChainId, fetchMorphoGraphQL } from '@/lib/api-utils';
 import { computeEarnedInterestFromActivity } from '@/lib/interest-utils';
+import { fetchVaultV2ActivityData } from '@/lib/vault-v2-activity';
 import { logger } from '@/lib/logger';
 
 interface VaultV2PositionData {
@@ -140,11 +141,6 @@ export async function GET(
       }
     })();
 
-    const activityUrl = new URL(request.url);
-    activityUrl.pathname = `/api/vault/v2/${vaultAddress}/activity`;
-    activityUrl.searchParams.set('userAddress', userAddress);
-    activityUrl.searchParams.set('chainId', String(chainId));
-
     let activity: {
       deposits?: Transaction[];
       withdrawals?: Transaction[];
@@ -155,13 +151,10 @@ export async function GET(
     const loadActivity = async () => {
       if (activity) return activity;
 
-      const activityResponse = await fetch(activityUrl.toString(), {
-        signal: AbortSignal.timeout(10_000),
-      });
-      if (!activityResponse.ok) {
+      const data = await fetchVaultV2ActivityData(vaultAddress, chainId, userAddress);
+      if (data.error) {
         throw new Error('Failed to fetch vault activity for earned interest');
       }
-      const data = await activityResponse.json();
       activity = data;
       return data;
     };
