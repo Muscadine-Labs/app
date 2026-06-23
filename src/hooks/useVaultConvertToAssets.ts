@@ -3,9 +3,11 @@
 import { useMemo } from 'react';
 import { useReadContracts } from 'wagmi';
 import { ERC4626_ABI } from '@/lib/abis';
+import { BASE_CHAIN_ID } from '@/lib/constants';
 
 export interface VaultSharesPosition {
   vaultAddress: string;
+  chainId: number;
   shares: string;
 }
 
@@ -22,6 +24,7 @@ export function useVaultConvertToAssetsMap(positions: VaultSharesPosition[]) {
           {
             key: position.vaultAddress.toLowerCase(),
             vaultAddress: position.vaultAddress,
+            chainId: position.chainId,
             shares,
           },
         ];
@@ -35,6 +38,7 @@ export function useVaultConvertToAssetsMap(positions: VaultSharesPosition[]) {
     () =>
       entries.map((entry) => ({
         address: entry.vaultAddress as `0x${string}`,
+        chainId: entry.chainId as typeof BASE_CHAIN_ID,
         abi: ERC4626_ABI,
         functionName: 'convertToAssets' as const,
         args: [entry.shares] as const,

@@ -54,7 +54,7 @@ export function useVaultEarnedInterest(
         if (assetSymbol) {
           params.set('symbol', assetSymbol);
         }
-        if (currentAssetsRaw && /^\d+$/.test(currentAssetsRaw) && currentAssetsRaw !== '0') {
+        if (currentAssetsRaw && /^\d+$/.test(currentAssetsRaw)) {
           params.set('currentAssetsRaw', currentAssetsRaw);
         }
 

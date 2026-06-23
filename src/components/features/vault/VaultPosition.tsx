@@ -9,6 +9,8 @@ import {
   formatAssetAmount,
   formatCurrency,
   formatNumber,
+  formatPositionTokenAmount,
+  formatPositionUsd,
   formatVaultDetailTokenAmount,
 } from '@/lib/formatter';
 import { calculateYAxisDomain } from '@/lib/vault-utils';
@@ -22,6 +24,7 @@ import { ERC20_BALANCE_ABI, ERC4626_ABI } from '@/lib/abis';
 import { useUnixTimestamp } from '@/hooks/useClientOnly';
 import { useVaultEarnedInterest } from '@/hooks/useVaultEarnedInterest';
 import { resolveAssetDecimals } from '@/lib/asset-decimals';
+import { BASE_CHAIN_ID } from '@/lib/constants';
 
 interface VaultPositionProps {
   vaultData: MorphoVaultData;
@@ -79,6 +82,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
   // Get shares using balanceOf
   const { data: sharesRaw } = useReadContract({
     address: address ? vaultData.address as `0x${string}` : undefined,
+    chainId: vaultData.chainId as typeof BASE_CHAIN_ID,
     abi: ERC20_BALANCE_ABI,
     functionName: 'balanceOf',
     args: address ? [address as `0x${string}`] : undefined,
@@ -87,17 +91,24 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
 
   // Convert shares to assets using convertToAssets
   const { data: assetsRaw } = useReadContract({
-    address: sharesRaw && sharesRaw > BigInt(0) ? vaultData.address as `0x${string}` : undefined,
+    address: sharesRaw !== undefined ? vaultData.address as `0x${string}` : undefined,
+    chainId: vaultData.chainId as typeof BASE_CHAIN_ID,
     abi: ERC4626_ABI,
     functionName: 'convertToAssets',
-    args: sharesRaw && sharesRaw > BigInt(0) ? [sharesRaw] : undefined,
-    query: { enabled: !!sharesRaw && sharesRaw > BigInt(0) },
+    args: sharesRaw !== undefined ? [sharesRaw] : undefined,
+    query: { enabled: sharesRaw !== undefined },
   });
+
+  const currentAssetsRaw = useMemo(() => {
+    if (assetsRaw !== undefined) return assetsRaw.toString();
+    if (sharesRaw === BigInt(0)) return '0';
+    return undefined;
+  }, [assetsRaw, sharesRaw]);
 
   const earnedInterest = useVaultEarnedInterest(
     isConnected ? vaultData.address : undefined,
     vaultData.symbol,
-    assetsRaw?.toString()
+    currentAssetsRaw
   );
   const interestDecimals = resolveAssetDecimals(
     vaultData.symbol,
@@ -115,13 +126,12 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
   );
 
   const positionRawValue = useMemo(() => {
-    if (!assetsRaw) return null;
-    return assetsRaw.toString();
-  }, [assetsRaw]);
+    return currentAssetsRaw ?? null;
+  }, [currentAssetsRaw]);
 
   const userVaultTotalUsd = useMemo(() => {
-    if (!assetsRaw) return 0;
-    const assetsDecimal = Number(assetsRaw) / 10 ** depositAssetDecimals;
+    if (currentAssetsRaw === undefined) return 0;
+    const assetsDecimal = Number(currentAssetsRaw) / 10 ** depositAssetDecimals;
     const symbolUpper = vaultData.symbol.toUpperCase();
     let assetPrice = 0;
     if (symbolUpper === 'USDC') {
@@ -132,7 +142,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
       assetPrice = btcPrice || 0;
     }
     return assetsDecimal * assetPrice;
-  }, [assetsRaw, depositAssetDecimals, vaultData.symbol, ethPrice, btcPrice]);
+  }, [currentAssetsRaw, depositAssetDecimals, vaultData.symbol, ethPrice, btcPrice]);
 
   useEffect(() => {
     const fetchPositionHistory = async () => {
@@ -237,7 +247,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
           { 
             vaultAddress: vaultData.address, 
             userAddress: address, 
-            chainId: vaultData.chainId,
+            chainId: vaultData.chainId as typeof BASE_CHAIN_ID,
             error: error instanceof Error ? error.message : String(error)
           }
         );
@@ -291,7 +301,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
           { 
             vaultAddress: vaultData.address, 
             userAddress: address, 
-            chainId: vaultData.chainId,
+            chainId: vaultData.chainId as typeof BASE_CHAIN_ID,
             error: error instanceof Error ? error.message : String(error)
           }
         );
@@ -508,21 +518,21 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
               <p className="text-xs text-[var(--foreground-secondary)] mb-1">Your Position</p>
               {!isConnected ? (
                 <p className="text-sm text-[var(--foreground-muted)]">Connect wallet</p>
-              ) : !currentVaultPosition && !assetsRaw ? (
+              ) : !currentVaultPosition && currentAssetsRaw === undefined ? (
                 <p className="text-sm text-[var(--foreground-muted)]">No holdings</p>
-              ) : !positionRawValue ? (
+              ) : positionRawValue === null ? (
                 <Skeleton width="8rem" height="2rem" />
               ) : (
                 <>
                   <p className="text-2xl font-bold text-[var(--foreground)]">
-                    {formatVaultDetailTokenAmount(
+                    {formatPositionTokenAmount(
                       positionRawValue,
                       depositAssetDecimals,
                       vaultData.symbol
                     )}
                   </p>
                   <p className="text-xs text-[var(--foreground-secondary)] mt-1">
-                    {formatCurrency(userVaultTotalUsd)}
+                    {formatPositionUsd(userVaultTotalUsd)}
                   </p>
                 </>
               )}

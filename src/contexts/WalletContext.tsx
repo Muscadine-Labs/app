@@ -60,7 +60,7 @@ interface WalletContextType {
   error: string | null;
   refreshBalances: () => Promise<void>;
   refreshBalancesWithRetry: (options?: { maxRetries?: number; retryDelay?: number }) => Promise<void>;
-  refreshBalancesWithPolling: (options?: { followUpDelayMs?: number; onComplete?: () => void }) => Promise<void>;
+  refreshBalancesWithPolling: (options?: { followUpDelayMs?: number; onComplete?: () => void | Promise<void> }) => Promise<void>;
 }
 
 const WalletContext = createContext<WalletContextType | undefined>(undefined);
@@ -804,7 +804,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   }, [performRefresh]);
 
   // One delayed refresh after tx — Morpho indexer often lags ~6–8s; no polling loop.
-  const refreshBalancesWithPolling = useCallback(async (options?: { followUpDelayMs?: number; onComplete?: () => void }) => {
+  const refreshBalancesWithPolling = useCallback(async (options?: { followUpDelayMs?: number; onComplete?: () => void | Promise<void> }) => {
     const followUpDelayMs = options?.followUpDelayMs ?? 8000;
 
     await sleep(followUpDelayMs);
@@ -821,9 +821,10 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
         followUpDelayMs,
         timestamp: new Date().toISOString(),
       });
+      throw err;
     }
 
-    options?.onComplete?.();
+    await options?.onComplete?.();
   }, [performRefresh]);
 
   // Calculate balances and USD values

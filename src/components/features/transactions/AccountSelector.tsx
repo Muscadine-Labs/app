@@ -21,6 +21,7 @@ import {
 } from '@/lib/vault-utils';
 import { resolveAssetDecimals } from '@/lib/asset-decimals';
 import { useVaultConvertToAssetsMap } from '@/hooks/useVaultConvertToAssets';
+import { BASE_CHAIN_ID } from '@/lib/constants';
 
 // Helper function to find token by symbol using address-based matching for reliability
 // Note: wstETH and cbETH are intentionally excluded - only shown in wallet overview
@@ -151,6 +152,7 @@ export function AccountSelector({
     () =>
       morphoHoldings.positions.map((position) => ({
         vaultAddress: position.vault.address,
+        chainId: findVaultByAddress(position.vault.address)?.chainId ?? BASE_CHAIN_ID,
         shares: position.shares,
       })),
     [morphoHoldings.positions]
@@ -282,7 +284,7 @@ export function AccountSelector({
   }, [walletAccounts, vaultAccounts, excludeAccount, getAccountUsdValue, morphoHoldings.positions, getVaultData]);
 
   // Calculate balance value (returns string or number with symbol and decimals)
-  const getBalanceValue = useCallback((account: Account, assetSymbol?: string): { value: string | number; symbol: string; decimals?: number } | null => {
+  const getBalanceValue = useCallback((account: Account, assetSymbol?: string): { value: string | number; symbol: string; decimals?: number; unavailable?: boolean } | null => {
     if (account.type === 'wallet') {
         if (assetSymbol) {
         if (assetSymbol === 'WETH' || assetSymbol === 'ETH') {
@@ -326,7 +328,10 @@ export function AccountSelector({
 
       const assetsRaw = assetsByVault.get(vaultAccount.address.toLowerCase());
       if (assetsRaw === undefined) {
-        return null;
+        if (isConvertToAssetsLoading) {
+          return null;
+        }
+        return { value: '—', symbol: vaultAccount.symbol, decimals: assetDecimals, unavailable: true };
       }
 
       return {
@@ -339,6 +344,7 @@ export function AccountSelector({
     assetsByVault,
     ethBalance,
     getVaultData,
+    isConvertToAssetsLoading,
     morphoHoldings.positions,
     tokenBalances,
   ]);
@@ -356,6 +362,10 @@ export function AccountSelector({
       );
       // Only show skeleton if user has a position and data is loading
       if (position) {
+        const assetsRaw = assetsByVault.get(vaultAccount.address.toLowerCase());
+        if (hasOnChainVaultShares(position) && assetsRaw === undefined) {
+          return isVaultDataLoading(vaultAccount.address) || morphoHoldings.isLoading || isConvertToAssetsLoading;
+        }
         return isVaultDataLoading(vaultAccount.address) || morphoHoldings.isLoading || isConvertToAssetsLoading;
       }
       // If no position, don't show skeleton (will show 0.00)
@@ -371,6 +381,10 @@ export function AccountSelector({
         ? (assetSymbol || 'ETH')
         : (account as VaultAccount).symbol;
       return formatAssetBalance(0, symbol);
+    }
+
+    if ('unavailable' in balanceData && balanceData.unavailable) {
+      return '—';
     }
     
     // For wallet accounts with WETH/ETH, show separate amounts: "1 ETH, 1 WETH"

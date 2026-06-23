@@ -199,10 +199,13 @@ export async function GET(
       });
       const earnedDecimal = Number(earnedRaw) / 10 ** resolvedDecimals;
       const currentAssetsDecimal = Number(currentAssetsRaw) / 10 ** resolvedDecimals;
+      const positionAssetsDecimal = position
+        ? morphoAmountToDecimal(position.assets, resolvedDecimals)
+        : 0;
       const assetPriceUsd =
         activityData.assetPriceUsd ??
-        (position && currentAssetsDecimal > 0
-          ? position.assetsUsd / morphoAmountToDecimal(position.assets, resolvedDecimals)
+        (position && positionAssetsDecimal > 0
+          ? position.assetsUsd / positionAssetsDecimal
           : 0);
 
       return NextResponse.json({

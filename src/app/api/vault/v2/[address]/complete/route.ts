@@ -225,7 +225,8 @@ export async function GET(
       })();
       const totalLiquidityRaw = instantLiquidityRaw + deallocatableLiquidityRaw;
       const totalLiquidityUsd =
-        (vault.liquidityUsd ?? 0) + (vault.forceDeallocatableLiquidityUsd ?? 0);
+        Number(vault.liquidityUsd ?? 0) +
+        Number(vault.forceDeallocatableLiquidityUsd ?? 0);
 
       data.data.vaultByAddress = {
         ...vault,
