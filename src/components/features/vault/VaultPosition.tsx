@@ -9,7 +9,6 @@ import {
   formatAssetAmount,
   formatCurrency,
   formatNumber,
-  formatPositionTokenAmount,
   formatPositionUsd,
   formatVaultDetailTokenAmount,
 } from '@/lib/formatter';
@@ -525,7 +524,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
               ) : (
                 <>
                   <p className="text-2xl font-bold text-[var(--foreground)]">
-                    {formatPositionTokenAmount(
+                    {formatVaultDetailTokenAmount(
                       positionRawValue,
                       depositAssetDecimals,
                       vaultData.symbol
