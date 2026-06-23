@@ -9,6 +9,8 @@ import {
   formatAssetAmount,
   formatCurrency,
   formatNumber,
+  formatPositionTokenAmount,
+  formatPositionUsd,
   formatVaultDetailTokenAmount,
 } from '@/lib/formatter';
 import { calculateYAxisDomain } from '@/lib/vault-utils';
@@ -22,6 +24,7 @@ import { ERC20_BALANCE_ABI, ERC4626_ABI } from '@/lib/abis';
 import { useUnixTimestamp } from '@/hooks/useClientOnly';
 import { useVaultEarnedInterest } from '@/hooks/useVaultEarnedInterest';
 import { resolveAssetDecimals } from '@/lib/asset-decimals';
+import { BASE_CHAIN_ID } from '@/lib/constants';
 
 interface VaultPositionProps {
   vaultData: MorphoVaultData;
@@ -51,14 +54,6 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
   const { morphoHoldings } = useWallet();
   const { btc: btcPrice, eth: ethPrice } = usePrices();
   const { error: showErrorToast } = useToast();
-  const earnedInterest = useVaultEarnedInterest(
-    isConnected ? vaultData.address : undefined,
-    vaultData.symbol
-  );
-  const interestDecimals = resolveAssetDecimals(
-    vaultData.symbol,
-    earnedInterest.assetDecimals || vaultData.assetDecimals
-  );
 
   const now = useUnixTimestamp();
   const [loading, setLoading] = useState(true);
@@ -87,6 +82,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
   // Get shares using balanceOf
   const { data: sharesRaw } = useReadContract({
     address: address ? vaultData.address as `0x${string}` : undefined,
+    chainId: vaultData.chainId as typeof BASE_CHAIN_ID,
     abi: ERC20_BALANCE_ABI,
     functionName: 'balanceOf',
     args: address ? [address as `0x${string}`] : undefined,
@@ -95,53 +91,58 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
 
   // Convert shares to assets using convertToAssets
   const { data: assetsRaw } = useReadContract({
-    address: sharesRaw && sharesRaw > BigInt(0) ? vaultData.address as `0x${string}` : undefined,
+    address: sharesRaw !== undefined ? vaultData.address as `0x${string}` : undefined,
+    chainId: vaultData.chainId as typeof BASE_CHAIN_ID,
     abi: ERC4626_ABI,
     functionName: 'convertToAssets',
-    args: sharesRaw && sharesRaw > BigInt(0) ? [sharesRaw] : undefined,
-    query: { enabled: !!sharesRaw && sharesRaw > BigInt(0) },
+    args: sharesRaw !== undefined ? [sharesRaw] : undefined,
+    query: { enabled: sharesRaw !== undefined },
   });
 
-  // Find the current vault position from WalletContext (RPC-based)
+  const currentAssetsRaw = useMemo(() => {
+    if (assetsRaw !== undefined) return assetsRaw.toString();
+    if (sharesRaw === BigInt(0)) return '0';
+    return undefined;
+  }, [assetsRaw, sharesRaw]);
+
+  const earnedInterest = useVaultEarnedInterest(
+    isConnected ? vaultData.address : undefined,
+    vaultData.symbol,
+    currentAssetsRaw
+  );
+  const interestDecimals = resolveAssetDecimals(
+    vaultData.symbol,
+    earnedInterest.assetDecimals || vaultData.assetDecimals
+  );
+
+  // Find the current vault position from WalletContext (for holdings detection).
   const currentVaultPosition = morphoHoldings.positions.find(
     pos => pos.vault.address.toLowerCase() === vaultData.address.toLowerCase()
   );
-
-  // Calculate USD value using asset price (like liquid assets)
-  const userVaultValueUsd = useMemo(() => {
-    // Use position from WalletContext (already calculated with RPC + price)
-    if (currentVaultPosition && currentVaultPosition.assetsUsd !== undefined && currentVaultPosition.assetsUsd > 0) {
-      return currentVaultPosition.assetsUsd;
-    }
-    
-    // Fallback: Calculate from RPC data if available
-    if (assetsRaw && vaultData) {
-      const assetDecimals = vaultData.assetDecimals || 18;
-      const assetsDecimal = Number(assetsRaw) / Math.pow(10, assetDecimals);
-      
-      // Get asset price (same as liquid assets)
-      let assetPrice = 0;
-      const symbolUpper = vaultData.symbol.toUpperCase();
-      if (symbolUpper === 'USDC') {
-        assetPrice = 1;
-      } else if (symbolUpper === 'WETH') {
-        assetPrice = ethPrice || 0;
-      } else if (symbolUpper === 'CBBTC' || symbolUpper === 'CBTC') {
-        assetPrice = btcPrice || 0;
-      }
-      
-      return assetsDecimal * assetPrice;
-    }
-    
-    return 0;
-  }, [currentVaultPosition, assetsRaw, vaultData, ethPrice, btcPrice]);
 
   const depositAssetDecimals = resolveAssetDecimals(
     vaultData.symbol,
     vaultData.assetDecimals
   );
-  const depositRawValue =
-    assetsRaw?.toString() ?? currentVaultPosition?.assets ?? '0';
+
+  const positionRawValue = useMemo(() => {
+    return currentAssetsRaw ?? null;
+  }, [currentAssetsRaw]);
+
+  const userVaultTotalUsd = useMemo(() => {
+    if (currentAssetsRaw === undefined) return 0;
+    const assetsDecimal = Number(currentAssetsRaw) / 10 ** depositAssetDecimals;
+    const symbolUpper = vaultData.symbol.toUpperCase();
+    let assetPrice = 0;
+    if (symbolUpper === 'USDC') {
+      assetPrice = 1;
+    } else if (symbolUpper === 'WETH') {
+      assetPrice = ethPrice || 0;
+    } else if (symbolUpper === 'CBBTC' || symbolUpper === 'CBTC') {
+      assetPrice = btcPrice || 0;
+    }
+    return assetsDecimal * assetPrice;
+  }, [currentAssetsRaw, depositAssetDecimals, vaultData.symbol, ethPrice, btcPrice]);
 
   useEffect(() => {
     const fetchPositionHistory = async () => {
@@ -246,7 +247,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
           { 
             vaultAddress: vaultData.address, 
             userAddress: address, 
-            chainId: vaultData.chainId,
+            chainId: vaultData.chainId as typeof BASE_CHAIN_ID,
             error: error instanceof Error ? error.message : String(error)
           }
         );
@@ -300,7 +301,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
           { 
             vaultAddress: vaultData.address, 
             userAddress: address, 
-            chainId: vaultData.chainId,
+            chainId: vaultData.chainId as typeof BASE_CHAIN_ID,
             error: error instanceof Error ? error.message : String(error)
           }
         );
@@ -512,24 +513,26 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
       <div>
         <div className="flex flex-col md:flex-row items-start justify-between gap-6 mb-4">
           <div className="flex flex-col md:flex-row flex-1 w-full gap-6 md:gap-10">
-            {/* Your Deposits */}
+            {/* Your Position — on-chain convertToAssets (matches withdraw / MAX) */}
             <div className="flex-1 w-full md:w-auto">
-              <p className="text-xs text-[var(--foreground-secondary)] mb-1">Your Deposits</p>
+              <p className="text-xs text-[var(--foreground-secondary)] mb-1">Your Position</p>
               {!isConnected ? (
                 <p className="text-sm text-[var(--foreground-muted)]">Connect wallet</p>
-              ) : !currentVaultPosition && !assetsRaw ? (
+              ) : !currentVaultPosition && currentAssetsRaw === undefined ? (
                 <p className="text-sm text-[var(--foreground-muted)]">No holdings</p>
+              ) : positionRawValue === null ? (
+                <Skeleton width="8rem" height="2rem" />
               ) : (
                 <>
                   <p className="text-2xl font-bold text-[var(--foreground)]">
-                    {formatVaultDetailTokenAmount(
-                      depositRawValue,
+                    {formatPositionTokenAmount(
+                      positionRawValue,
                       depositAssetDecimals,
                       vaultData.symbol
                     )}
                   </p>
                   <p className="text-xs text-[var(--foreground-secondary)] mt-1">
-                    {formatCurrency(userVaultValueUsd)}
+                    {formatPositionUsd(userVaultTotalUsd)}
                   </p>
                 </>
               )}

@@ -2,7 +2,8 @@ import type { Transaction } from '@/types/api';
 import { morphoAmountToRaw } from '@/lib/asset-decimals';
 
 /**
- * Earned interest = current assets − net deposits (deposits − withdrawals).
+ * Earned interest = current position − net deposits.
+ * Equivalent to: total withdrawn + current position − total deposited.
  * Uses raw asset amounts in the vault's underlying token decimals.
  */
 export function computeEarnedInterestFromActivity(options: {

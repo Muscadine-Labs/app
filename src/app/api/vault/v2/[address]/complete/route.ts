@@ -66,6 +66,8 @@ export async function GET(
           totalSupply
           liquidity
           liquidityUsd
+          forceDeallocatableLiquidity
+          forceDeallocatableLiquidityUsd
           idleAssetsUsd
           
           # APY (Native + Rewards) — avgApy deprecated; use avgNetApyExcludingRewards
@@ -207,8 +209,29 @@ export async function GET(
         vault.avgNetApyExcludingRewards ?? vault.avgNetApy ?? vault.maxApy ?? 0;
       const netApy = vault.avgNetApy ?? headlineApy;
 
+      const instantLiquidityRaw = (() => {
+        try {
+          return BigInt(vault.liquidity ?? 0);
+        } catch {
+          return BigInt(0);
+        }
+      })();
+      const deallocatableLiquidityRaw = (() => {
+        try {
+          return BigInt(vault.forceDeallocatableLiquidity ?? 0);
+        } catch {
+          return BigInt(0);
+        }
+      })();
+      const totalLiquidityRaw = instantLiquidityRaw + deallocatableLiquidityRaw;
+      const totalLiquidityUsd =
+        Number(vault.liquidityUsd ?? 0) +
+        Number(vault.forceDeallocatableLiquidityUsd ?? 0);
+
       data.data.vaultByAddress = {
         ...vault,
+        liquidity: totalLiquidityRaw.toString(),
+        liquidityUsd: totalLiquidityUsd,
         whitelisted: vault.listed ?? false,
         allocators: normalizedAllocators,
         state: {

@@ -20,6 +20,8 @@ import {
   hasOnChainVaultShares,
 } from '@/lib/vault-utils';
 import { resolveAssetDecimals } from '@/lib/asset-decimals';
+import { useVaultConvertToAssetsMap } from '@/hooks/useVaultConvertToAssets';
+import { BASE_CHAIN_ID } from '@/lib/constants';
 
 // Helper function to find token by symbol using address-based matching for reliability
 // Note: wstETH and cbETH are intentionally excluded - only shown in wallet overview
@@ -146,6 +148,19 @@ export function AccountSelector({
       });
   }, [filterByAssetSymbol, getVaultData, morphoHoldings.positions]);
 
+  const vaultSharesPositions = useMemo(
+    () =>
+      morphoHoldings.positions.map((position) => ({
+        vaultAddress: position.vault.address,
+        chainId: findVaultByAddress(position.vault.address)?.chainId ?? BASE_CHAIN_ID,
+        shares: position.shares,
+      })),
+    [morphoHoldings.positions]
+  );
+
+  const { assetsByVault, isLoading: isConvertToAssetsLoading } =
+    useVaultConvertToAssetsMap(vaultSharesPositions);
+
   // Calculate USD value for sorting accounts
   const getAccountUsdValue = useCallback((account: Account): number => {
     if (account.type === 'wallet') {
@@ -269,7 +284,7 @@ export function AccountSelector({
   }, [walletAccounts, vaultAccounts, excludeAccount, getAccountUsdValue, morphoHoldings.positions, getVaultData]);
 
   // Calculate balance value (returns string or number with symbol and decimals)
-  const getBalanceValue = (account: Account, assetSymbol?: string): { value: string | number; symbol: string; decimals?: number } | null => {
+  const getBalanceValue = useCallback((account: Account, assetSymbol?: string): { value: string | number; symbol: string; decimals?: number; unavailable?: boolean } | null => {
     if (account.type === 'wallet') {
         if (assetSymbol) {
         if (assetSymbol === 'WETH' || assetSymbol === 'ETH') {
@@ -302,7 +317,7 @@ export function AccountSelector({
         (pos) => pos.vault.address.toLowerCase() === vaultAccount.address.toLowerCase()
       );
 
-      if (!position) {
+      if (!position || !hasOnChainVaultShares(position)) {
         return null;
       }
 
@@ -311,35 +326,28 @@ export function AccountSelector({
         vaultData?.assetDecimals
       );
 
-      // First priority: Use position.assets if available (from RPC via WalletContext)
-      if (position.assets) {
-        const value = parseFloat(position.assets) / Math.pow(10, assetDecimals);
-        return { value, symbol: vaultAccount.symbol, decimals: assetDecimals };
-      }
-      
-      // Second priority: Calculate from shares using share price
-      const sharesDecimal = parseFloat(position.shares) / 1e18;
-      
-      if (vaultData?.sharePrice && sharesDecimal > 0) {
-        const value = sharesDecimal * vaultData.sharePrice;
-        return { value, symbol: vaultAccount.symbol, decimals: assetDecimals };
-      }
-      
-      // Third priority: Calculate share price from totalAssets / totalSupply
-      if (position.vault?.state?.totalSupply && vaultData?.totalAssets) {
-        const totalSupplyDecimal = parseFloat(position.vault.state.totalSupply) / 1e18;
-        const totalAssetsDecimal = parseFloat(vaultData.totalAssets) / Math.pow(10, assetDecimals);
-        
-        if (totalSupplyDecimal > 0) {
-          const sharePriceInAsset = totalAssetsDecimal / totalSupplyDecimal;
-          const value = sharesDecimal * sharePriceInAsset;
-          return { value, symbol: vaultAccount.symbol, decimals: vaultData.assetDecimals };
+      const assetsRaw = assetsByVault.get(vaultAccount.address.toLowerCase());
+      if (assetsRaw === undefined) {
+        if (isConvertToAssetsLoading) {
+          return null;
         }
+        return { value: '—', symbol: vaultAccount.symbol, decimals: assetDecimals, unavailable: true };
       }
-      
-      return null;
+
+      return {
+        value: formatUnits(assetsRaw, assetDecimals),
+        symbol: vaultAccount.symbol,
+        decimals: assetDecimals,
+      };
     }
-  };
+  }, [
+    assetsByVault,
+    ethBalance,
+    getVaultData,
+    isConvertToAssetsLoading,
+    morphoHoldings.positions,
+    tokenBalances,
+  ]);
 
   // Check if balance is loading
   const isBalanceLoading = (account: Account): boolean => {
@@ -354,7 +362,11 @@ export function AccountSelector({
       );
       // Only show skeleton if user has a position and data is loading
       if (position) {
-        return isVaultDataLoading(vaultAccount.address) || morphoHoldings.isLoading;
+        const assetsRaw = assetsByVault.get(vaultAccount.address.toLowerCase());
+        if (hasOnChainVaultShares(position) && assetsRaw === undefined) {
+          return isVaultDataLoading(vaultAccount.address) || morphoHoldings.isLoading || isConvertToAssetsLoading;
+        }
+        return isVaultDataLoading(vaultAccount.address) || morphoHoldings.isLoading || isConvertToAssetsLoading;
       }
       // If no position, don't show skeleton (will show 0.00)
       return false;
@@ -369,6 +381,10 @@ export function AccountSelector({
         ? (assetSymbol || 'ETH')
         : (account as VaultAccount).symbol;
       return formatAssetBalance(0, symbol);
+    }
+
+    if ('unavailable' in balanceData && balanceData.unavailable) {
+      return '—';
     }
     
     // For wallet accounts with WETH/ETH, show separate amounts: "1 ETH, 1 WETH"

@@ -26,11 +26,12 @@ const EMPTY_STATE: VaultEarnedInterest = {
 
 export function useVaultEarnedInterest(
   vaultAddress: string | undefined,
-  assetSymbol?: string
+  assetSymbol?: string,
+  currentAssetsRaw?: string
 ): VaultEarnedInterest {
   const { address } = useAccount();
   const enabled = Boolean(address && vaultAddress);
-  const queryKey = `${address ?? ''}:${vaultAddress ?? ''}:${assetSymbol ?? ''}`;
+  const queryKey = `${address ?? ''}:${vaultAddress ?? ''}:${assetSymbol ?? ''}:${currentAssetsRaw ?? ''}`;
 
   const [cached, setCached] = useState<{
     key: string;
@@ -52,6 +53,9 @@ export function useVaultEarnedInterest(
         });
         if (assetSymbol) {
           params.set('symbol', assetSymbol);
+        }
+        if (currentAssetsRaw && /^\d+$/.test(currentAssetsRaw)) {
+          params.set('currentAssetsRaw', currentAssetsRaw);
         }
 
         const response = await fetch(
@@ -100,7 +104,7 @@ export function useVaultEarnedInterest(
     return () => {
       cancelled = true;
     };
-  }, [address, vaultAddress, assetSymbol, enabled, queryKey]);
+  }, [address, vaultAddress, assetSymbol, currentAssetsRaw, enabled, queryKey]);
 
   return useMemo((): VaultEarnedInterest => {
     if (!enabled) {

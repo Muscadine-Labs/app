@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import type { GraphQLResponse } from '@/types/api';
+import type { GraphQLResponse, Transaction } from '@/types/api';
 import {
   getAssetDecimalsForSymbol,
   morphoAmountToDecimal,
@@ -146,8 +146,8 @@ export async function GET(
     activityUrl.searchParams.set('chainId', String(chainId));
 
     let activity: {
-      deposits?: Array<{ assets?: string }>;
-      withdrawals?: Array<{ assets?: string }>;
+      deposits?: Transaction[];
+      withdrawals?: Transaction[];
       assetDecimals?: number;
       assetPriceUsd?: number;
     } | null = null;
@@ -166,12 +166,80 @@ export async function GET(
       return data;
     };
 
+    const resolveCurrentAssetsRaw = (): bigint => {
+      const fromQuery = searchParams.get('currentAssetsRaw');
+      if (fromQuery && /^\d+$/.test(fromQuery)) {
+        try {
+          return BigInt(fromQuery);
+        } catch {
+          // fall through
+        }
+      }
+      if (position) {
+        try {
+          return BigInt(morphoAmountToRaw(position.assets));
+        } catch {
+          return BigInt(0);
+        }
+      }
+      return BigInt(0);
+    };
+
+    const buildActivityEarnedResponse = (
+      currentAssetsRaw: bigint,
+      activityData: NonNullable<typeof activity>,
+      resolvedDecimals: number
+    ) => {
+      const deposits = activityData.deposits ?? [];
+      const withdrawals = activityData.withdrawals ?? [];
+      const earnedRaw = computeEarnedInterestFromActivity({
+        currentAssetsRaw,
+        deposits,
+        withdrawals,
+      });
+      const earnedDecimal = Number(earnedRaw) / 10 ** resolvedDecimals;
+      const currentAssetsDecimal = Number(currentAssetsRaw) / 10 ** resolvedDecimals;
+      const positionAssetsDecimal = position
+        ? morphoAmountToDecimal(position.assets, resolvedDecimals)
+        : 0;
+      const assetPriceUsd =
+        activityData.assetPriceUsd ??
+        (position && positionAssetsDecimal > 0
+          ? position.assetsUsd / positionAssetsDecimal
+          : 0);
+
+      return NextResponse.json({
+        earnedInterest: earnedDecimal,
+        earnedInterestUsd: earnedDecimal * assetPriceUsd,
+        earnedInterestRaw: earnedRaw.toString(),
+        assetDecimals: resolvedDecimals,
+        source: 'activity',
+        hasDeposited: true,
+        currentAssets: currentAssetsDecimal,
+        currentAssetsUsd:
+          position?.assetsUsd ??
+          (assetPriceUsd > 0 ? currentAssetsDecimal * assetPriceUsd : 0),
+      });
+    };
+
     // Never deposited → earned interest is zero (ignore stray Morpho pnl).
     if (!hasShares) {
       const activityData = await loadActivity();
       if ((activityData.deposits ?? []).length === 0) {
         return zeroEarnedInterestResponse(assetDecimals, 'none');
       }
+    }
+
+    const activityData = await loadActivity();
+    const resolvedDecimals = activityData.assetDecimals ?? assetDecimals;
+    const deposits = activityData.deposits ?? [];
+
+    if (deposits.length > 0) {
+      return buildActivityEarnedResponse(
+        resolveCurrentAssetsRaw(),
+        activityData,
+        resolvedDecimals
+      );
     }
 
     if (position?.pnl !== undefined && position.pnl !== null) {
@@ -186,45 +254,7 @@ export async function GET(
       });
     }
 
-    const activityData = await loadActivity();
-    const resolvedDecimals = activityData.assetDecimals ?? assetDecimals;
-    const deposits = activityData.deposits ?? [];
-    const withdrawals = activityData.withdrawals ?? [];
-
-    if (deposits.length === 0) {
-      return zeroEarnedInterestResponse(resolvedDecimals, 'none');
-    }
-
-    const currentAssetsRaw = position
-      ? BigInt(morphoAmountToRaw(position.assets))
-      : BigInt(0);
-
-    const earnedRaw = computeEarnedInterestFromActivity({
-      currentAssetsRaw,
-      deposits,
-      withdrawals,
-    });
-
-    const earnedDecimal = Number(earnedRaw) / 10 ** resolvedDecimals;
-    const positionAssetsDecimal = position
-      ? morphoAmountToDecimal(position.assets, resolvedDecimals)
-      : 0;
-    const assetPriceUsd =
-      activityData.assetPriceUsd ??
-      (position && positionAssetsDecimal > 0
-        ? position.assetsUsd / positionAssetsDecimal
-        : 0);
-
-    return NextResponse.json({
-      earnedInterest: earnedDecimal,
-      earnedInterestUsd: earnedDecimal * assetPriceUsd,
-      earnedInterestRaw: earnedRaw.toString(),
-      assetDecimals: resolvedDecimals,
-      source: 'activity',
-      hasDeposited: true,
-      currentAssets: positionAssetsDecimal,
-      currentAssetsUsd: position?.assetsUsd ?? 0,
-    });
+    return zeroEarnedInterestResponse(resolvedDecimals, 'none');
   } catch (err) {
     logger.error('Failed to compute earned interest', err);
     return NextResponse.json({ error: 'Failed to compute earned interest' }, { status: 500 });
