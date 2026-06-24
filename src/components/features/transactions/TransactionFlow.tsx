@@ -1,18 +1,19 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useWaitForTransactionReceipt, useReadContract, useWalletClient, usePublicClient } from 'wagmi';
 import { formatUnits, type Address, type PublicClient, type WalletClient } from 'viem';
 import { VaultAccount } from '@/types/vault';
 import { useTransactionState } from '@/contexts/TransactionContext';
 import type { TransactionProgressStep } from '@/types/transactions';
 import { isCancellationError, formatTransactionError } from '@/lib/transactionUtils';
-import { depositToVaultV2, withdrawFromVaultV2, redeemFromVaultV2 } from '@/lib/transactionUtilsV2';
+import { depositToVaultV2, withdrawFromVaultV2, redeemFromVaultV2, resumeUnwrapWalletWethV2 } from '@/lib/transactionUtilsV2';
 import { TransactionConfirmation } from './TransactionConfirmation';
 import { TransactionStatus as TransactionStatusComponent } from './TransactionStatus';
 import { useToast } from '@/contexts/ToastContext';
 import { useWallet } from '@/contexts/WalletContext';
 import { useVaultData } from '@/contexts/VaultDataContext';
+import { useVaultVersion } from '@/contexts/VaultVersionContext';
 import { logger } from '@/lib/logger';
 import { useRouter } from 'next/navigation';
 import { ERC4626_ABI } from '@/lib/abis';
@@ -27,6 +28,18 @@ function stepTypeForLabel(label: string): 'signing' | 'approving' | 'confirming'
   return 'confirming';
 }
 
+function shouldResumeUnwrapOnly(
+  transactionType: string | null,
+  failedStepIndex: number,
+  stepsInfo: Array<{ stepIndex: number; label: string }>
+): boolean {
+  if (transactionType !== 'withdraw') return false;
+  const failedStep = stepsInfo.find((s) => s.stepIndex === failedStepIndex);
+  const label = failedStep?.label?.toLowerCase() ?? '';
+  if (label.includes('unwrap')) return true;
+  return failedStepIndex >= 1;
+}
+
 export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
   const {
     fromAccount,
@@ -38,9 +51,9 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
     transactionType,
     derivedAsset,
     preferredAsset,
-    ethGasReserveOnMax,
     setStatus,
   } = useTransactionState();
+  const { isDevMode } = useVaultVersion();
   const { success, error: showErrorToast } = useToast();
   const { refreshBalancesWithPolling, morphoHoldings, refreshBalances } = useWallet();
   const { fetchVaultData } = useVaultData();
@@ -53,8 +66,10 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
   const [totalSteps, setTotalSteps] = useState<number>(0);
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [isExecuting, setIsExecuting] = useState(false);
+  const [partialFailure, setPartialFailure] = useState(false);
+  const currentStepRef = useRef(0);
 
-  const shouldClearFlowState = status === 'idle' || status === 'preview';
+  const shouldClearFlowState = (status === 'idle' || status === 'preview') && !partialFailure;
   const effectiveCurrentTxHash = shouldClearFlowState ? null : currentTxHash;
   const effectiveStepsInfo = shouldClearFlowState ? [] : stepsInfo;
   const effectiveTotalSteps = shouldClearFlowState ? 0 : totalSteps;
@@ -222,13 +237,25 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
         txHash: hashToUse,
         isCancellation: isCancellationError(receiptError),
       });
-      
+
+      const failedPastFirstStep = currentStepRef.current > 0;
+
       if (isCancellationError(receiptError)) {
-        setStatus('preview');
+        if (failedPastFirstStep) {
+          setPartialFailure(true);
+          setStatus('error', 'Transaction cancelled');
+        } else {
+          setStatus('preview');
+        }
       } else {
         const errorMessage = formatTransactionError(receiptError);
-        showErrorToast(errorMessage, 5000);
-        setStatus('error', errorMessage);
+        if (failedPastFirstStep) {
+          setPartialFailure(true);
+          setStatus('error', errorMessage);
+        } else {
+          showErrorToast(errorMessage, 5000);
+          setStatus('error', errorMessage);
+        }
       }
     }
   }, [receipt, receiptError, status, txHash, effectiveCurrentTxHash, isExecuting, completeSuccessfulTransaction, setStatus, showErrorToast]);
@@ -258,13 +285,21 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
 
     try {
       setIsExecuting(true);
-      setCurrentStepIndex(0);
-      setStepsInfo([]);
-      setTotalSteps(0);
-      setCurrentTxHash(null);
+      const isResuming = partialFailure;
+
+      if (!isResuming) {
+        setCurrentStepIndex(0);
+        currentStepRef.current = 0;
+        setStepsInfo([]);
+        setTotalSteps(0);
+        setCurrentTxHash(null);
+        setPartialFailure(false);
+      }
 
       logger.info('Transaction execution started', {
         transactionType,
+        isResuming,
+        resumeStep: isResuming ? currentStepRef.current : 0,
         fromAccount: fromAccount?.type === 'wallet' ? 'wallet' : (fromAccount as VaultAccount)?.address,
         toAccount: toAccount?.type === 'wallet' ? 'wallet' : (toAccount as VaultAccount)?.address,
         amount,
@@ -295,6 +330,7 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
         }
         setTotalSteps(step.totalSteps);
         setCurrentStepIndex(step.stepIndex);
+        currentStepRef.current = step.stepIndex;
         
         setStepsInfo(prev => {
           const newSteps = [...prev];
@@ -334,9 +370,30 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
       };
 
       let txHash: string;
-      const depositOptions = { skipEthGasReserve: !ethGasReserveOnMax };
 
-      if (transactionType === 'deposit') {
+      const resumeStepIndex = currentStepRef.current;
+      const resumeTotalSteps = totalSteps > 0 ? totalSteps : Math.max(stepsInfo.length, 2);
+
+      if (
+        isResuming &&
+        shouldResumeUnwrapOnly(transactionType, resumeStepIndex, stepsInfo)
+      ) {
+        const priorWithdrawHash = stepsInfo.find((s) => s.stepIndex === 0 && s.txHash)?.txHash;
+        if (!priorWithdrawHash) {
+          throw new Error(
+            'Previous withdrawal transaction not found.\n\n' +
+              'Use Start over if you need to withdraw again.'
+          );
+        }
+        txHash = await resumeUnwrapWalletWethV2(
+          publicClient as PublicClient,
+          walletClient as WalletClient,
+          priorWithdrawHash as `0x${string}`,
+          onProgress,
+          resumeStepIndex,
+          resumeTotalSteps
+        );
+      } else if (transactionType === 'deposit') {
         const vaultAddr = (toAccount as VaultAccount).address as Address;
         txHash = await depositToVaultV2(
           publicClient as PublicClient,
@@ -346,7 +403,7 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
           assetToUse.decimals,
           preferredAsset,
           onProgress,
-          depositOptions
+          { skipEthGasReserve: isDevMode }
         );
       } else if (transactionType === 'withdraw') {
         const vaultAddr = (fromAccount as VaultAccount).address as Address;
@@ -380,21 +437,34 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
 
       setIsExecuting(false);
       setCurrentTxHash(txHash);
+      setPartialFailure(false);
       completeSuccessfulTransaction(txHash);
 
     } catch (err) {
       setIsExecuting(false);
       if (isCancellationError(err)) {
-        setStatus('preview');
-        setCurrentTxHash(null);
-        setStepsInfo([]);
-        setTotalSteps(0);
+        if (partialFailure || currentStepRef.current > 0) {
+          setPartialFailure(true);
+          setStatus('error', 'Transaction cancelled');
+        } else {
+          setStatus('preview');
+          setCurrentTxHash(null);
+          setStepsInfo([]);
+          setTotalSteps(0);
+          setPartialFailure(false);
+        }
         return;
       }
       
       const errorMessage = formatTransactionError(err);
+      const failedPastFirstStep = currentStepRef.current > 0;
+      if (failedPastFirstStep) {
+        setPartialFailure(true);
+      }
       setStatus('error', errorMessage);
-      showErrorToast(errorMessage, 5000);
+      if (!failedPastFirstStep) {
+        showErrorToast(errorMessage, 5000);
+      }
     }
   };
 
@@ -416,7 +486,7 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
   // Calculate steps for wallet progress bar (shown in confirmation modal)
   // Since executeVaultAction waits for prerequisite receipts internally, we determine
   // step completion based on status progression rather than individual receipt tracking
-  const walletSteps = (isSigning || isApproving || isConfirming || isSuccess) ? (() => {
+  const walletSteps = (isSigning || isApproving || isConfirming || isSuccess || (isError && partialFailure)) ? (() => {
     const resolvedStepCount = effectiveTotalSteps > 0 ? effectiveTotalSteps : (effectiveStepsInfo.length > 0 ? Math.max(...effectiveStepsInfo.map(s => s.stepIndex)) + 1 : 0);
     
     if (resolvedStepCount > 0) {
@@ -430,9 +500,11 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
         const isCompleted = i < currentStepIndex || isSuccess;
         
         const isActive =
-          i === currentStepIndex &&
-          !isSuccess &&
-          (isSigning || isApproving || isConfirming);
+          isError && partialFailure
+            ? i === currentStepIndex
+            : i === currentStepIndex &&
+              !isSuccess &&
+              (isSigning || isApproving || isConfirming);
         
         const label = stepInfo?.label || 'Confirm';
         
@@ -465,7 +537,7 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
       {/* Progress bar is now shown at the page level */}
 
       {/* Transaction Confirmation - Show during preview, transaction flow, and success */}
-      {(isPreview || isSigning || isApproving || isConfirming || isSuccess) && fromAccount && toAccount && (
+      {(isPreview || isSigning || isApproving || isConfirming || isSuccess || (isError && partialFailure)) && fromAccount && toAccount && (
         <TransactionConfirmation
           fromAccount={fromAccount}
           toAccount={toAccount}
@@ -475,23 +547,33 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
           transactionType={transactionType}
           isLoading={isSigning || isApproving || isConfirming}
           progressSteps={walletSteps}
-          showProgress={isSigning || isApproving || isConfirming}
+          showProgress={isSigning || isApproving || isConfirming || (isError && partialFailure)}
           isSuccess={isSuccess}
+          isPartialFailure={isError && partialFailure}
+          errorMessage={isError && partialFailure ? error ?? undefined : undefined}
           txHash={effectiveCurrentTxHash ?? txHash}
           onCancel={() => {
             if (isSigning || isApproving || isConfirming) {
-              // If transaction is in progress, reset to preview
               setStatus('preview');
               setCurrentTxHash(null);
               setStepsInfo([]);
               setTotalSteps(0);
               setCurrentStepIndex(0);
+              currentStepRef.current = 0;
               setIsExecuting(false);
+              setPartialFailure(false);
             } else if (isSuccess) {
-              // If success, call onSuccess callback to reset
               if (onSuccess) {
                 onSuccess();
               }
+            } else if (isError && partialFailure) {
+              setStatus('preview');
+              setPartialFailure(false);
+              setCurrentTxHash(null);
+              setStepsInfo([]);
+              setTotalSteps(0);
+              setCurrentStepIndex(0);
+              currentStepRef.current = 0;
             } else {
               setStatus('idle');
             }
@@ -500,8 +582,8 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
         />
       )}
 
-      {/* Error State */}
-      {isError && (
+      {/* Error State — full restart only when the first step failed */}
+      {isError && !partialFailure && (
         <TransactionStatusComponent
           type="error"
           message={error || 'Transaction failed'}

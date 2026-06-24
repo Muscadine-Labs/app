@@ -1,4 +1,4 @@
-import { formatUnits, type Address } from 'viem';
+import { formatUnits, parseUnits, type Address } from 'viem';
 
 /**
  * A flexible, locale-aware number formatter.
@@ -172,6 +172,61 @@ export function formatPositionTokenAmount(
   } catch {
     return `0 ${symbol}`;
   }
+}
+
+/** Fixed fraction digits for vault detail chart token toggles (position, TVL, share price). */
+export function getVaultChartTokenFractionDigits(symbol: string): number {
+  const normalized = symbol.toUpperCase();
+  if (normalized === 'USDC') return 2;
+  if (normalized === 'CBBTC' || normalized === 'CBTC' || normalized === 'BTC') return 6;
+  if (normalized === 'WETH') return 4;
+  return 2;
+}
+
+/** viem parseUnits rejects scientific notation; chart values are already decimal numbers. */
+function chartValueToRawUnits(value: number, assetDecimals: number): bigint {
+  if (!Number.isFinite(value)) return BigInt(0);
+  const decimalString = value.toFixed(assetDecimals).replace(/\.?0+$/, '') || '0';
+  return parseUnits(decimalString, assetDecimals);
+}
+
+/** Token amount for vault charts with fixed trailing zeros (USDC: 2, cbBTC: 6, WETH: 4). */
+export function formatVaultChartTokenAmount(
+  value: number,
+  assetDecimals: number,
+  symbol: string,
+  options: { includeSymbol?: boolean } = {}
+): string {
+  const { includeSymbol = true } = options;
+  const fractionDigits = getVaultChartTokenFractionDigits(symbol);
+  const resolvedDecimals = assetDecimals > 0 ? assetDecimals : 18;
+  const formatted = formatAssetAmount(
+    chartValueToRawUnits(value, resolvedDecimals),
+    resolvedDecimals,
+    symbol,
+    { minimumFractionDigits: fractionDigits, maximumFractionDigits: fractionDigits }
+  );
+  if (!includeSymbol) {
+    return formatted.replace(` ${symbol}`, '').trim();
+  }
+  return formatted;
+}
+
+/** Y-axis tick for vault chart token mode; compacts values ≥ 1,000 as "X.XXk". */
+export function formatVaultChartTokenAxisTick(
+  value: number,
+  assetDecimals: number,
+  symbol: string
+): string {
+  const fractionDigits = getVaultChartTokenFractionDigits(symbol);
+  if (value >= 1000) {
+    const scaled = value / 1000;
+    return `${formatNumber(scaled, {
+      minimumFractionDigits: fractionDigits,
+      maximumFractionDigits: fractionDigits,
+    })}k`;
+  }
+  return formatVaultChartTokenAmount(value, assetDecimals, symbol, { includeSymbol: false });
 }
 
 /** Vault detail page: deposits + earned interest (USDC: 6, WETH/cbBTC: 8). */

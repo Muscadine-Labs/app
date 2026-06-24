@@ -6,10 +6,11 @@ import { useAccount, useReadContract } from 'wagmi';
 import { MorphoVaultData } from '@/types/vault';
 import { useWallet } from '@/contexts/WalletContext';
 import {
-  formatAssetAmount,
   formatCurrency,
   formatNumber,
   formatPositionUsd,
+  formatVaultChartTokenAmount,
+  formatVaultChartTokenAxisTick,
   formatVaultDetailTokenAmount,
 } from '@/lib/formatter';
 import { calculateYAxisDomain } from '@/lib/vault-utils';
@@ -784,27 +785,11 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
                           }
                           return '$' + formatNumber(value / 1000, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + 'k';
                         } else {
-                          // Format token amount consistently with "Your Deposits" - at least 2 decimals
-                          const decimals = vaultData.assetDecimals || 18;
-                          if (value >= 1000) {
-                            const formatted = formatAssetAmount(
-                              BigInt(Math.floor((value / 1000) * Math.pow(10, decimals))),
-                              decimals,
-                              vaultData.symbol,
-                              { minimumFractionDigits: 2 }
-                            );
-                            // Extract number part (formatAssetAmount returns "number symbol")
-                            const numberPart = formatted.replace(` ${vaultData.symbol}`, '').trim();
-                            return `${numberPart}k`;
-                          }
-                          const formatted = formatAssetAmount(
-                            BigInt(Math.floor(value * Math.pow(10, decimals))),
-                            decimals,
-                            vaultData.symbol,
-                            { minimumFractionDigits: 2 }
+                          return formatVaultChartTokenAxisTick(
+                            value,
+                            depositAssetDecimals,
+                            vaultData.symbol
                           );
-                          // Extract number part
-                          return formatted.replace(` ${vaultData.symbol}`, '').trim();
                         }
                       }}
                       stroke="var(--foreground-secondary)"
@@ -821,15 +806,13 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
                         if (valueType === 'usd') {
                           return [formatCurrency(value), 'Your Position'];
                         } else {
-                          // Format token amount consistently with "Your Deposits" - at least 2 decimals
                           return [
-                            formatAssetAmount(
-                              BigInt(Math.floor(value * Math.pow(10, vaultData.assetDecimals || 18))),
-                              vaultData.assetDecimals || 18,
-                              vaultData.symbol,
-                              { minimumFractionDigits: 2 }
+                            formatVaultChartTokenAmount(
+                              value,
+                              depositAssetDecimals,
+                              vaultData.symbol
                             ),
-                            'Your Position'
+                            'Your Position',
                           ];
                         }
                       }}

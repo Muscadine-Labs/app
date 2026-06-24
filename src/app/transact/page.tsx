@@ -14,7 +14,6 @@ import { ETH_GAS_RESERVE } from '@/lib/constants';
 import { Account, Vault, VaultAccount, WalletAccount } from '@/types/vault';
 import { formatBigIntForInput, formatAvailableBalance, formatAssetAmountForMax, formatCurrency, formatAssetBalance } from '@/lib/formatter';
 import { Button } from '@/components/ui';
-import { Modal } from '@/components/ui/Modal';
 import { Icon } from '@/components/ui/Icon';
 import { formatUnits } from 'viem';
 import { ERC4626_ABI } from '@/lib/abis';
@@ -122,18 +121,15 @@ export default function TransactionsPage() {
     status,
     derivedAsset,
     preferredAsset,
-    ethGasReserveOnMax,
     setFromAccount,
     setToAccount,
     setAmount,
     setStatus,
     setPreferredAsset,
-    setEthGasReserveOnMax,
     reset,
   } = useTransactionState();
 
   const [balanceBypassAcknowledged, setBalanceBypassAcknowledged] = useState(false);
-  const [isGasReserveModalOpen, setIsGasReserveModalOpen] = useState(false);
   
   // Tab state - determine from URL params or default to deposit
   const [activeTab, setActiveTab] = useState<TransactionTab>(() => {
@@ -368,14 +364,11 @@ export default function TransactionsPage() {
     },
   });
 
-  const getWrappableEthBalance = useCallback(
-    (reserveGas: boolean) => {
-      const ethBal = parseFloat(ethBalance || '0');
-      if (!reserveGas) return ethBal;
-      return Math.max(0, ethBal - ETH_GAS_RESERVE);
-    },
-    [ethBalance]
-  );
+  const getWrappableEthBalance = useCallback(() => {
+    const ethBal = parseFloat(ethBalance || '0');
+    if (isDevMode) return ethBal;
+    return Math.max(0, ethBal - ETH_GAS_RESERVE);
+  }, [ethBalance, isDevMode]);
 
   const isWethVaultEthDeposit = useMemo(() => {
     if (effectiveActiveTab !== 'deposit' || fromAccount?.type !== 'wallet' || toAccount?.type !== 'vault') {
@@ -392,8 +385,8 @@ export default function TransactionsPage() {
   const getCombinedEthWethBalance = useMemo(() => {
     const wethToken = tokenBalances.find((t) => t.symbol.toUpperCase() === 'WETH');
     const wethBal = wethToken ? parseFloat(formatUnits(wethToken.balance, wethToken.decimals)) : 0;
-    return wethBal + getWrappableEthBalance(ethGasReserveOnMax);
-  }, [tokenBalances, getWrappableEthBalance, ethGasReserveOnMax]);
+    return wethBal + getWrappableEthBalance();
+  }, [tokenBalances, getWrappableEthBalance]);
 
   // Helper function to get wallet balance display text
   const getWalletBalanceText = useMemo(() => {
@@ -410,12 +403,12 @@ export default function TransactionsPage() {
         const wethBal = wethToken ? parseFloat(formatUnits(wethToken.balance, wethToken.decimals)) : 0;
         
         if (wethBal > 0 && ethBal > 0) {
-          const wrappableEth = getWrappableEthBalance(ethGasReserveOnMax);
+          const wrappableEth = getWrappableEthBalance();
           return `${formatAvailableBalance(combinedBal, 'WETH')} (${formatAssetBalance(wethBal, 'WETH')} + ${formatAssetBalance(wrappableEth, 'ETH')} wrappable)`;
         } else if (wethBal > 0) {
           return formatAvailableBalance(wethBal, 'WETH');
         } else if (ethBal > 0) {
-          const wrappableEth = getWrappableEthBalance(ethGasReserveOnMax);
+          const wrappableEth = getWrappableEthBalance();
           return `${formatAvailableBalance(wrappableEth, 'ETH')} (wrappable to WETH)`;
         }
         return formatAvailableBalance('0', 'WETH');
@@ -436,7 +429,7 @@ export default function TransactionsPage() {
       return formatAvailableBalance(balanceString, derivedAsset.symbol, token.decimals);
     }
     return formatAvailableBalance('0', derivedAsset.symbol);
-  }, [derivedAsset, toAccount, ethBalance, tokenBalances, getCombinedEthWethBalance, getWrappableEthBalance, ethGasReserveOnMax]);
+  }, [derivedAsset, toAccount, ethBalance, tokenBalances, getCombinedEthWethBalance, getWrappableEthBalance]);
 
   // Helper function to get vault balance display text
   // For withdrawals, we display shares converted to assets using convertToAssets for accuracy
@@ -486,7 +479,7 @@ export default function TransactionsPage() {
           const assetPreference = preferredAsset || 'ALL';
           
           if (assetPreference === 'ETH') {
-            return getWrappableEthBalance(ethGasReserveOnMax);
+            return getWrappableEthBalance();
           } else if (assetPreference === 'WETH') {
             // Only use WETH balance
             const wethToken = tokenBalances.find((t) => t.address.toLowerCase() === TOKEN_ADDRESSES_LOWER.WETH);
@@ -501,7 +494,7 @@ export default function TransactionsPage() {
       }
       
       if (symbol === 'ETH') {
-        return getWrappableEthBalance(ethGasReserveOnMax);
+        return getWrappableEthBalance();
       }
       
       if (symbol === 'WETH') {
@@ -542,108 +535,70 @@ export default function TransactionsPage() {
       return 0;
     }
     return 0;
-  }, [fromAccount, derivedAsset, toAccount, tokenBalances, vaultShareBalance, exactAssetAmount, getCombinedEthWethBalance, getWrappableEthBalance, preferredAsset, ethGasReserveOnMax]);
+  }, [fromAccount, derivedAsset, toAccount, tokenBalances, vaultShareBalance, exactAssetAmount, getCombinedEthWethBalance, getWrappableEthBalance, preferredAsset]);
 
-  // Calculate max amount for the selected "from" account (via handleMaxClick / applyMaxAmount)
-  const applyMaxAmount = useCallback(
-    (reserveGas: boolean) => {
-      setEthGasReserveOnMax(reserveGas);
-
-      if (fromAccount?.type === 'wallet') {
-        const symbol = derivedAsset?.symbol || '';
-        if (toAccount?.type === 'vault') {
-          const toVault = toAccount as VaultAccount;
-          const isWethVault =
-            toVault.address.toLowerCase() === VAULTS.WETH_VAULT_V2.address.toLowerCase();
-          if (isWethVault && (symbol === 'WETH' || symbol === 'ETH')) {
-            const assetPreference = preferredAsset || 'ALL';
-            const decimals = getAssetDecimalsForSymbol(symbol);
-
-            if (assetPreference === 'ETH') {
-              const ethMax = getWrappableEthBalance(reserveGas);
-              setAmount(ethMax > 0 ? formatAssetAmountForMax(ethMax, 'ETH', decimals) : '0');
-            } else if (assetPreference === 'WETH') {
-              const wethToken = tokenBalances.find(
-                (t) => t.address.toLowerCase() === TOKEN_ADDRESSES_LOWER.WETH
-              );
-              if (wethToken) {
-                setAmount(formatBigIntForInput(wethToken.balance, wethToken.decimals));
-              } else {
-                setAmount('0');
-              }
-            } else {
-              const wethToken = tokenBalances.find(
-                (t) => t.address.toLowerCase() === TOKEN_ADDRESSES_LOWER.WETH
-              );
-              const wethBal = wethToken
-                ? parseFloat(formatUnits(wethToken.balance, wethToken.decimals))
-                : 0;
-              const combined = wethBal + getWrappableEthBalance(reserveGas);
-              setAmount(combined > 0 ? formatAssetAmountForMax(combined, symbol, decimals) : '0');
-            }
-            return;
-          }
-        }
-
-        if (symbol === 'ETH') {
-          const ethMax = getWrappableEthBalance(reserveGas);
-          setAmount(ethMax > 0 ? formatAssetAmountForMax(ethMax, symbol) : '0');
-        } else if (symbol === 'WETH') {
-          const wethToken = tokenBalances.find(
-            (t) => t.address.toLowerCase() === TOKEN_ADDRESSES_LOWER.WETH
-          );
-          if (wethToken) {
-            setAmount(formatBigIntForInput(wethToken.balance, wethToken.decimals));
-          } else {
-            setAmount('0');
-          }
-        } else {
-          const token = findTokenBySymbol(symbol, tokenBalances);
-          if (token) {
-            setAmount(formatBigIntForInput(token.balance, token.decimals));
-          } else {
-            setAmount('0');
-          }
-        }
-      } else {
-        const maxAmount = getMaxAmount;
-        if (maxAmount === null || maxAmount === 0) {
-          setAmount('0');
-          return;
-        }
-        const vaultAccount = fromAccount as VaultAccount;
-        const decimals = getAssetDecimalsForSymbol(vaultAccount.symbol);
-        setAmount(formatAssetAmountForMax(maxAmount, derivedAsset?.symbol || '', decimals));
-      }
-    },
-    [
-      getMaxAmount,
-      fromAccount,
-      toAccount,
-      derivedAsset,
-      tokenBalances,
-      preferredAsset,
-      setAmount,
-      setEthGasReserveOnMax,
-      getWrappableEthBalance,
-    ]
-  );
-
-  const handleMaxClick = useCallback(() => {
-    if (isWethVaultEthDeposit) {
-      setIsGasReserveModalOpen(true);
+  const calculateMaxAmount = useCallback(() => {
+    const maxAmount = getMaxAmount;
+    if (maxAmount === null || maxAmount === 0) {
+      setAmount('0');
       return;
     }
-    applyMaxAmount(true);
-  }, [isWethVaultEthDeposit, applyMaxAmount]);
 
-  const handleGasReserveChoice = useCallback(
-    (reserveGas: boolean) => {
-      setIsGasReserveModalOpen(false);
-      applyMaxAmount(reserveGas);
-    },
-    [applyMaxAmount]
-  );
+    if (fromAccount?.type === 'wallet') {
+      const symbol = derivedAsset?.symbol || '';
+      if (toAccount?.type === 'vault') {
+        const toVault = toAccount as VaultAccount;
+        const isWethVault =
+          toVault.address.toLowerCase() === VAULTS.WETH_VAULT_V2.address.toLowerCase();
+        if (isWethVault && (symbol === 'WETH' || symbol === 'ETH')) {
+          const assetPreference = preferredAsset || 'ALL';
+          const decimals = getAssetDecimalsForSymbol(symbol);
+
+          if (assetPreference === 'ETH') {
+            setAmount(
+              maxAmount > 0 ? formatAssetAmountForMax(maxAmount, 'ETH', decimals) : '0'
+            );
+          } else if (assetPreference === 'WETH') {
+            const wethToken = tokenBalances.find(
+              (t) => t.address.toLowerCase() === TOKEN_ADDRESSES_LOWER.WETH
+            );
+            if (wethToken) {
+              setAmount(formatBigIntForInput(wethToken.balance, wethToken.decimals));
+            } else {
+              setAmount('0');
+            }
+          } else {
+            setAmount(maxAmount > 0 ? formatAssetAmountForMax(maxAmount, symbol, decimals) : '0');
+          }
+          return;
+        }
+      }
+
+      if (symbol === 'ETH') {
+        setAmount(maxAmount > 0 ? formatAssetAmountForMax(maxAmount, symbol) : '0');
+      } else if (symbol === 'WETH') {
+        const wethToken = tokenBalances.find(
+          (t) => t.address.toLowerCase() === TOKEN_ADDRESSES_LOWER.WETH
+        );
+        if (wethToken) {
+          setAmount(formatBigIntForInput(wethToken.balance, wethToken.decimals));
+        } else {
+          setAmount('0');
+        }
+      } else {
+        const token = findTokenBySymbol(symbol, tokenBalances);
+        if (token) {
+          setAmount(formatBigIntForInput(token.balance, token.decimals));
+        } else {
+          setAmount('0');
+        }
+      }
+    } else {
+      const vaultAccount = fromAccount as VaultAccount;
+      const decimals = getAssetDecimalsForSymbol(vaultAccount.symbol);
+      setAmount(formatAssetAmountForMax(maxAmount, derivedAsset?.symbol || '', decimals));
+    }
+  }, [getMaxAmount, fromAccount, toAccount, derivedAsset, tokenBalances, preferredAsset, setAmount]);
 
   const handleAmountChange = (value: string) => {
     if (value === '') {
@@ -1015,7 +970,7 @@ export default function TransactionsPage() {
                   })()}
                   <button
                     type="button"
-                    onClick={handleMaxClick}
+                    onClick={calculateMaxAmount}
                     disabled={getMaxAmount === null}
                     className="text-xs text-[var(--primary)] hover:text-[var(--primary-hover)] disabled:text-[var(--foreground-muted)] disabled:cursor-not-allowed disabled:hover:text-[var(--foreground-muted)] cursor-pointer"
                   >
@@ -1076,6 +1031,11 @@ export default function TransactionsPage() {
               {fromAccount && derivedAsset && (
                 <p className="text-xs text-[var(--foreground-muted)]">
                   {fromAccount.type === 'wallet' ? getWalletBalanceText : getVaultBalanceText}
+                </p>
+              )}
+              {isWethVaultEthDeposit && !isDevMode && (
+                <p className="text-xs text-[var(--foreground-muted)]">
+                  {ETH_GAS_RESERVE} ETH is intentionally left in your wallet for network gas fees.
                 </p>
               )}
               {exceedsBalance && (
@@ -1145,37 +1105,6 @@ export default function TransactionsPage() {
           }}
         />
       )}
-
-      <Modal
-        isOpen={isGasReserveModalOpen}
-        onClose={() => setIsGasReserveModalOpen(false)}
-        title="Reserve ETH for gas?"
-        showCloseButton
-        closeOnOverlayClick
-      >
-        <p className="text-sm text-[var(--foreground-secondary)] mb-6">
-          Do you want to reserve {ETH_GAS_RESERVE} ETH for gas? If not, this transaction or future
-          transactions may not have enough gas to complete.
-        </p>
-        <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
-          <Button
-            variant="primary"
-            size="lg"
-            fullWidth
-            onClick={() => handleGasReserveChoice(true)}
-          >
-            Yes, reserve {ETH_GAS_RESERVE} ETH
-          </Button>
-          <Button
-            variant="secondary"
-            size="lg"
-            fullWidth
-            onClick={() => handleGasReserveChoice(false)}
-          >
-            No, use full balance
-          </Button>
-        </div>
-      </Modal>
     </div>
   );
 }

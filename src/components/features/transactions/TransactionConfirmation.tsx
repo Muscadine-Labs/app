@@ -13,6 +13,7 @@ import { TransactionProgressBar } from './TransactionProgressBar';
 import { useToast } from '@/contexts/ToastContext';
 import { useVaultData } from '@/contexts/VaultDataContext';
 import { useWallet } from '@/contexts/WalletContext';
+import { useVaultVersion } from '@/contexts/VaultVersionContext';
 import { logger } from '@/lib/logger';
 
 interface TransactionConfirmationProps {
@@ -26,6 +27,8 @@ interface TransactionConfirmationProps {
   progressSteps?: Array<{ label: string; completed: boolean; active: boolean }>;
   showProgress?: boolean;
   isSuccess?: boolean;
+  isPartialFailure?: boolean;
+  errorMessage?: string;
   txHash?: string | null;
   onCancel: () => void;
   onConfirm: () => void;
@@ -42,16 +45,19 @@ export function TransactionConfirmation({
   progressSteps = [],
   showProgress = false,
   isSuccess = false,
+  isPartialFailure = false,
+  errorMessage,
   txHash,
   onCancel,
   onConfirm,
 }: TransactionConfirmationProps) {
   const { address } = useAccount();
   const router = useRouter();
-  const { reset, ethGasReserveOnMax, preferredAsset } = useTransactionState();
+  const { reset, preferredAsset } = useTransactionState();
   const { error: showErrorToast, showToast } = useToast();
   const { fetchVaultData } = useVaultData();
   const { refreshBalances } = useWallet();
+  const { isDevMode } = useVaultVersion();
 
   const handleDone = async () => {
     if (isSuccess) {
@@ -110,15 +116,15 @@ export function TransactionConfirmation({
 
   const formattedAmount = formatAmount();
 
-  const showNoGasReserveWarning =
+  const showEthGasReserveNote =
     transactionType === 'deposit' &&
     assetSymbol === 'WETH' &&
     fromAccount.type === 'wallet' &&
     toAccount.type === 'vault' &&
     (toAccount as VaultAccount).address.toLowerCase() ===
       VAULTS.WETH_VAULT_V2.address.toLowerCase() &&
-    !ethGasReserveOnMax &&
-    (preferredAsset === 'ETH' || preferredAsset === 'ALL' || preferredAsset === undefined);
+    (preferredAsset === 'ETH' || preferredAsset === 'ALL' || preferredAsset === undefined) &&
+    !isDevMode;
 
   // Get current date for transaction details
   const getCurrentDate = () => {
@@ -407,8 +413,11 @@ export function TransactionConfirmation({
         </div>
       </div>
 
-      {/* Note for WETH deposits */}
-      {transactionType === 'deposit' && assetSymbol === 'WETH' && fromAccount.type === 'wallet' && (
+      {/* Note for WETH deposits with ETH wrapping */}
+      {transactionType === 'deposit' &&
+        assetSymbol === 'WETH' &&
+        fromAccount.type === 'wallet' &&
+        showEthGasReserveNote && (
         <div className="flex items-start gap-2 md:gap-3 p-3 md:p-4 bg-[var(--info-subtle)] rounded-lg border border-[var(--info)]">
           <div className="w-4 h-4 md:w-5 md:h-5 rounded-full bg-[var(--info)] flex items-center justify-center shrink-0 mt-0.5">
             <svg className="w-2.5 h-2.5 md:w-3 md:h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -416,22 +425,9 @@ export function TransactionConfirmation({
             </svg>
           </div>
           <p className="text-xs md:text-sm text-[var(--foreground)]">
-            <span className="font-medium">Note:</span> Depositing ETH will wrap it to WETH before depositing to the vault.
-          </p>
-        </div>
-      )}
-
-      {showNoGasReserveWarning && (
-        <div className="flex items-start gap-2 md:gap-3 p-3 md:p-4 bg-[var(--warning-subtle)] rounded-lg border border-[var(--warning)]">
-          <div className="w-4 h-4 md:w-5 md:h-5 rounded-full bg-[var(--warning)] flex items-center justify-center shrink-0 mt-0.5">
-            <svg className="w-2.5 h-2.5 md:w-3 md:h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-            </svg>
-          </div>
-          <p className="text-xs md:text-sm text-[var(--foreground)]">
-            <span className="font-medium">Gas warning:</span> You did not reserve {ETH_GAS_RESERVE}{' '}
-            ETH for gas. This transaction or future transactions may fail if your wallet runs out of
-            ETH for network fees.
+            <span className="font-medium">Note:</span> Depositing ETH will wrap it to WETH before
+            depositing to the vault. {ETH_GAS_RESERVE} ETH is intentionally left in your wallet for
+            network gas fees.
           </p>
         </div>
       )}
@@ -462,7 +458,18 @@ export function TransactionConfirmation({
         </p>
       </div>
 
-      {/* Progress Bar - Show at bottom when transaction is in progress */}
+      {isPartialFailure && errorMessage && (
+        <div className="flex items-start gap-2 md:gap-3 p-3 md:p-4 bg-[var(--danger-subtle)] rounded-lg border border-[var(--danger)]">
+          <div className="w-4 h-4 md:w-5 md:h-5 rounded-full bg-[var(--danger)] flex items-center justify-center shrink-0 mt-0.5">
+            <svg className="w-2.5 h-2.5 md:w-3 md:h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </div>
+          <p className="text-xs md:text-sm text-[var(--foreground)] whitespace-pre-line">{errorMessage}</p>
+        </div>
+      )}
+
+      {/* Progress Bar - Show at bottom when transaction is in progress or retrying a failed step */}
       {showProgress && progressSteps.length > 0 && (
         <div className="pt-3 md:pt-4 border-t border-[var(--border-subtle)]">
           <TransactionProgressBar steps={progressSteps} isSuccess={isSuccess} />
@@ -489,16 +496,16 @@ export function TransactionConfirmation({
               size="lg"
               fullWidth
             >
-              Cancel
+              {isPartialFailure ? 'Start over' : 'Cancel'}
             </Button>
             <Button
               onClick={onConfirm}
-              disabled={isLoading || !amount || parseFloat(amount) <= 0}
+              disabled={isLoading || (!isPartialFailure && (!amount || parseFloat(amount) <= 0))}
               variant="primary"
               size="lg"
               fullWidth
             >
-              {isLoading ? 'Processing...' : 'Confirm'}
+              {isLoading ? 'Processing...' : isPartialFailure ? 'Try again' : 'Confirm'}
             </Button>
           </>
         )}
