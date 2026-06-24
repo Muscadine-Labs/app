@@ -39,8 +39,8 @@ export interface Vault {
     rewardSymbol?: string; // Symbol of reward token
     apyChange?: number; // APY change (positive/negative)
     totalDeposits?: number; // Total deposits in USD
-    currentLiquidity?: number; // Instant liquidity in USD (idle + liquidity adapter)
-    liquidityAssets?: string; // Instant liquidity in native units
+    currentLiquidity?: number; // Instant liquidity USD (idle + liquidity adapter) — transact checks
+    liquidityAssets?: string; // Instant liquidity in native units — transact checks
     liquidityBreakdown?: VaultLiquidityBreakdown;
     sharePrice?: number; // Current vault share price (in tokens, not USD)
     sharePriceUsd?: number; // Current vault share price in USD

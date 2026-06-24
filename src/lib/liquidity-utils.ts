@@ -52,6 +52,27 @@ export function exceedsInstantLiquidity(
   return requestedAssets > instantLiquidityAssets + tolerance;
 }
 
+/** Display liquidity on explorer / vault detail (idle + adapter + force-deallocatable). */
+export function resolveTotalUnderlyingLiquidityAssets(
+  breakdown?: VaultLiquidityBreakdown | null,
+  fallbackInstantAssets?: string | null
+): string {
+  if (breakdown?.totalUnderlyingLiquidityAssets) {
+    return breakdown.totalUnderlyingLiquidityAssets;
+  }
+  return fallbackInstantAssets ?? '0';
+}
+
+export function resolveTotalUnderlyingLiquidityUsd(
+  breakdown?: VaultLiquidityBreakdown | null,
+  fallbackInstantUsd?: number | null
+): number {
+  if (breakdown?.totalUnderlyingLiquidityUsd != null) {
+    return breakdown.totalUnderlyingLiquidityUsd;
+  }
+  return fallbackInstantUsd ?? 0;
+}
+
 export async function fetchInstantLiquidityAssets(
   vaultAddress: string,
   chainId: number = BASE_CHAIN_ID

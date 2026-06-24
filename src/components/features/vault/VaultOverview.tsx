@@ -18,6 +18,10 @@ import { useToast } from '@/contexts/ToastContext';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useUnixTimestamp } from '@/hooks/useClientOnly';
+import {
+  resolveTotalUnderlyingLiquidityAssets,
+  resolveTotalUnderlyingLiquidityUsd,
+} from '@/lib/liquidity-utils';
 
 interface VaultOverviewProps {
   vaultData: MorphoVaultData;
@@ -101,10 +105,18 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
   const { error: showErrorToast } = useToast();
   const now = useUnixTimestamp();
 
-  // Format liquidity (instant: idle + liquidity adapter withdrawable depth)
-  const liquidityUsd = formatSmartCurrency(vaultData.currentLiquidity || 0, { alwaysTwoDecimals: true });
+  // Headline liquidity: total underlying (idle + adapter + force-deallocatable)
+  const totalUnderlyingUsd = resolveTotalUnderlyingLiquidityUsd(
+    vaultData.liquidityBreakdown,
+    vaultData.currentLiquidity
+  );
+  const totalUnderlyingAssets = resolveTotalUnderlyingLiquidityAssets(
+    vaultData.liquidityBreakdown,
+    vaultData.liquidityAssets
+  );
+  const liquidityUsd = formatSmartCurrency(totalUnderlyingUsd, { alwaysTwoDecimals: true });
   const liquidityRaw = formatAssetAmount(
-    BigInt(vaultData.liquidityAssets || '0'),
+    BigInt(totalUnderlyingAssets || '0'),
     vaultData.assetDecimals || 18,
     vaultData.symbol
   );

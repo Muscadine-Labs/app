@@ -25,6 +25,10 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { useIsClient } from '@/hooks/useClientOnly';
 import { useVaultEarnedInterest } from '@/hooks/useVaultEarnedInterest';
 import { resolveAssetDecimals } from '@/lib/asset-decimals';
+import {
+  resolveTotalUnderlyingLiquidityAssets,
+  resolveTotalUnderlyingLiquidityUsd,
+} from '@/lib/liquidity-utils';
 
 function handleRowKeyDown(event: KeyboardEvent, onActivate: () => void) {
   if (event.key === 'Enter' || event.key === ' ') {
@@ -205,8 +209,14 @@ function VaultExplorerMobileCard({ vault, showYourPosition }: VaultExplorerRowPr
         </MobileStatBlock>
         <MobileStatBlock label="Liquidity">
           <ValueCell
-            rawValue={vaultData?.liquidityAssets ?? vaultData?.totalAssets}
-            usdValue={vaultData?.currentLiquidity}
+            rawValue={resolveTotalUnderlyingLiquidityAssets(
+              vaultData?.liquidityBreakdown,
+              vaultData?.liquidityAssets ?? vaultData?.totalAssets
+            )}
+            usdValue={resolveTotalUnderlyingLiquidityUsd(
+              vaultData?.liquidityBreakdown,
+              vaultData?.currentLiquidity
+            )}
             decimals={decimals}
             symbol={vault.symbol}
             loading={loading}
@@ -468,8 +478,14 @@ function VaultExplorerRow({ vault, showYourPosition }: VaultExplorerRowProps) {
 
       <td className="px-4 sm:px-6 py-4 align-middle text-right">
         <ValueCell
-          rawValue={vaultData?.liquidityAssets ?? vaultData?.totalAssets}
-          usdValue={vaultData?.currentLiquidity}
+          rawValue={resolveTotalUnderlyingLiquidityAssets(
+            vaultData?.liquidityBreakdown,
+            vaultData?.liquidityAssets ?? vaultData?.totalAssets
+          )}
+          usdValue={resolveTotalUnderlyingLiquidityUsd(
+            vaultData?.liquidityBreakdown,
+            vaultData?.currentLiquidity
+          )}
           decimals={decimals}
           symbol={vault.symbol}
           loading={loading}
