@@ -66,9 +66,13 @@ export async function GET(
           totalSupply
           liquidity
           liquidityUsd
+          idleAssets
+          idleAssetsUsd
           forceDeallocatableLiquidity
           forceDeallocatableLiquidityUsd
-          idleAssetsUsd
+          liquidityAdapter {
+            address
+          }
           
           # APY (Native + Rewards) — avgApy deprecated; use avgNetApyExcludingRewards
           avgNetApy
@@ -216,6 +220,13 @@ export async function GET(
           return BigInt(0);
         }
       })();
+      const idleLiquidityRaw = (() => {
+        try {
+          return BigInt(vault.idleAssets ?? 0);
+        } catch {
+          return BigInt(0);
+        }
+      })();
       const deallocatableLiquidityRaw = (() => {
         try {
           return BigInt(vault.forceDeallocatableLiquidity ?? 0);
@@ -223,15 +234,33 @@ export async function GET(
           return BigInt(0);
         }
       })();
-      const totalLiquidityRaw = instantLiquidityRaw + deallocatableLiquidityRaw;
-      const totalLiquidityUsd =
-        Number(vault.liquidityUsd ?? 0) +
-        Number(vault.forceDeallocatableLiquidityUsd ?? 0);
+      const liquidityAdapterRaw =
+        instantLiquidityRaw > idleLiquidityRaw
+          ? instantLiquidityRaw - idleLiquidityRaw
+          : BigInt(0);
+      const totalUnderlyingLiquidityRaw = instantLiquidityRaw + deallocatableLiquidityRaw;
+      const instantLiquidityUsd = Number(vault.liquidityUsd ?? 0);
+      const idleLiquidityUsd = Number(vault.idleAssetsUsd ?? 0);
+      const deallocatableLiquidityUsd = Number(vault.forceDeallocatableLiquidityUsd ?? 0);
+      const liquidityAdapterUsd = Math.max(0, instantLiquidityUsd - idleLiquidityUsd);
+      const totalUnderlyingLiquidityUsd = instantLiquidityUsd + deallocatableLiquidityUsd;
 
       data.data.vaultByAddress = {
         ...vault,
-        liquidity: totalLiquidityRaw.toString(),
-        liquidityUsd: totalLiquidityUsd,
+        liquidity: instantLiquidityRaw.toString(),
+        liquidityUsd: instantLiquidityUsd,
+        liquidityBreakdown: {
+          instantLiquidityAssets: instantLiquidityRaw.toString(),
+          instantLiquidityUsd,
+          idleLiquidityAssets: idleLiquidityRaw.toString(),
+          idleLiquidityUsd,
+          liquidityAdapterAssets: liquidityAdapterRaw.toString(),
+          liquidityAdapterUsd,
+          deallocatableLiquidityAssets: deallocatableLiquidityRaw.toString(),
+          deallocatableLiquidityUsd,
+          totalUnderlyingLiquidityAssets: totalUnderlyingLiquidityRaw.toString(),
+          totalUnderlyingLiquidityUsd,
+        },
         whitelisted: vault.listed ?? false,
         allocators: normalizedAllocators,
         state: {

@@ -3,8 +3,8 @@
  * Since the bundler doesn't support v2 vaults yet, we use direct contract interactions
  */
 
-import { type Address, type PublicClient, type WalletClient, parseUnits, formatUnits, getAddress } from 'viem';
-import { BASE_WETH_ADDRESS } from './constants';
+import { type Address, type PublicClient, type WalletClient, type TransactionReceipt, parseUnits, formatUnits, getAddress, parseEventLogs } from 'viem';
+import { BASE_WETH_ADDRESS, ETH_GAS_RESERVE, UNWRAP_SETTLE_DELAY_MS } from './constants';
 import type { TransactionProgressCallback } from '../types/transactions';
 
 // ERC20 ABI for approvals and balance checks
@@ -144,9 +144,120 @@ const WETH_ABI = [
   },
 ] as const;
 
-// Gas reserve to keep ETH for transaction fees (0.0001 ETH = 100,000,000,000,000 wei)
-// This can be tuned based on gas estimation if needed
-const gasReserveWei = parseUnits('0.0001', 18);
+const ERC20_TRANSFER_EVENT = [
+  {
+    type: 'event',
+    name: 'Transfer',
+    inputs: [
+      { indexed: true, name: 'from', type: 'address' },
+      { indexed: true, name: 'to', type: 'address' },
+      { indexed: false, name: 'value', type: 'uint256' },
+    ],
+  },
+] as const;
+
+async function readWethBalance(
+  publicClient: PublicClient,
+  ownerAddress: Address,
+  blockNumber?: bigint
+): Promise<bigint> {
+  return publicClient.readContract({
+    address: BASE_WETH_ADDRESS,
+    abi: ERC20_ABI,
+    functionName: 'balanceOf',
+    args: [ownerAddress],
+    ...(blockNumber !== undefined ? { blockNumber } : {}),
+  }) as Promise<bigint>;
+}
+
+/**
+ * RPC `latest` can lag behind a freshly mined receipt. Prefer balance at the
+ * confirm block, then poll until the wallet shows enough WETH to unwrap.
+ */
+async function resolveWethBalanceForUnwrap(
+  publicClient: PublicClient,
+  ownerAddress: Address,
+  requiredAmount: bigint,
+  confirmBlockNumber?: bigint,
+  maxAttempts = 20,
+  delayMs = 500
+): Promise<bigint> {
+  if (requiredAmount === BigInt(0)) {
+    return BigInt(0);
+  }
+
+  if (confirmBlockNumber !== undefined) {
+    const atConfirmBlock = await readWethBalance(
+      publicClient,
+      ownerAddress,
+      confirmBlockNumber
+    );
+    if (atConfirmBlock >= requiredAmount) {
+      return atConfirmBlock;
+    }
+  }
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const balance = await readWethBalance(publicClient, ownerAddress);
+    if (balance >= requiredAmount) {
+      return balance;
+    }
+    if (attempt < maxAttempts - 1) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+
+  const balance = await readWethBalance(publicClient, ownerAddress);
+
+  throw new Error(
+    'WETH from your withdrawal is not available to unwrap yet.\n\n' +
+      `Expected: ${formatUnits(requiredAmount, 18)} WETH\n` +
+      `Wallet WETH balance: ${formatUnits(balance, 18)} WETH\n\n` +
+      'Your vault withdrawal likely succeeded. Wait a few seconds, refresh your wallet, ' +
+      'then unwrap the WETH balance manually if needed.'
+  );
+}
+
+/** Sum WETH Transfer logs to the user in a vault withdraw/redeem receipt. */
+function getWethReceivedFromReceipt(
+  receipt: TransactionReceipt,
+  recipient: Address
+): bigint {
+  const transfers = parseEventLogs({
+    abi: ERC20_TRANSFER_EVENT,
+    logs: receipt.logs,
+    eventName: 'Transfer',
+  });
+
+  const recipientLower = recipient.toLowerCase();
+  let total = BigInt(0);
+
+  for (const transfer of transfers) {
+    if (transfer.address.toLowerCase() !== BASE_WETH_ADDRESS.toLowerCase()) {
+      continue;
+    }
+    const to = transfer.args.to;
+    if (to && to.toLowerCase() === recipientLower) {
+      total += transfer.args.value ?? BigInt(0);
+    }
+  }
+
+  return total;
+}
+
+const gasReserveWei = parseUnits(ETH_GAS_RESERVE.toString(), 18);
+
+function emitTransactionPlan(
+  onProgress: TransactionProgressCallback | undefined,
+  stepLabels: string[]
+): void {
+  if (!onProgress || stepLabels.length === 0) return;
+  onProgress({
+    type: 'planned',
+    totalSteps: stepLabels.length,
+    stepLabels,
+  });
+}
 
 /**
  * Parse and validate amount string, converting to bigint
@@ -360,24 +471,11 @@ async function unwrapWeth(
   amount: bigint,
   onProgress?: TransactionProgressCallback,
   stepIndex: number = 0,
-  totalSteps: number = 1
+  totalSteps: number = 1,
+  confirmBlockNumber?: bigint
 ): Promise<string> {
   if (!walletClient.account) {
     throw new Error('Wallet account not available');
-  }
-
-  // Check WETH balance
-  const wethBalance = await publicClient.readContract({
-    address: BASE_WETH_ADDRESS,
-    abi: ERC20_ABI,
-    functionName: 'balanceOf',
-    args: [walletClient.account.address],
-  }) as bigint;
-
-  const unwrapAmount = amount > wethBalance ? wethBalance : amount;
-
-  if (unwrapAmount === BigInt(0)) {
-    throw new Error('No WETH to unwrap');
   }
 
   onProgress?.({
@@ -387,6 +485,24 @@ async function unwrapWeth(
     stepLabel: 'Unwrap WETH',
     txHash: '',
   });
+
+  await new Promise((resolve) => setTimeout(resolve, UNWRAP_SETTLE_DELAY_MS));
+
+  const wethBalance = await resolveWethBalanceForUnwrap(
+    publicClient,
+    walletClient.account.address,
+    amount,
+    confirmBlockNumber
+  );
+  const unwrapAmount = amount;
+
+  if (unwrapAmount === BigInt(0)) {
+    throw new Error(
+      'No WETH available to unwrap.\n\n' +
+        `Requested: ${formatUnits(amount, 18)} WETH\n` +
+        `Wallet WETH balance: ${formatUnits(wethBalance, 18)} WETH`
+    );
+  }
 
   const unwrapHash = await walletClient.writeContract({
     address: BASE_WETH_ADDRESS,
@@ -518,8 +634,10 @@ export async function depositToVaultV2(
   amount: string,
   assetDecimals: number,
   preferredAsset?: 'ETH' | 'WETH' | 'ALL',
-  onProgress?: TransactionProgressCallback
+  onProgress?: TransactionProgressCallback,
+  options?: { skipEthGasReserve?: boolean }
 ): Promise<string> {
+  const effectiveGasReserveWei = options?.skipEthGasReserve ? BigInt(0) : gasReserveWei;
   if (!walletClient.account) {
     throw new Error('Wallet not connected');
   }
@@ -555,8 +673,8 @@ export async function depositToVaultV2(
     });
 
     // Reserve ETH for gas fees - clamp to zero if availableEth is less than reserve
-    const availableEthAfterReserve = availableEth > gasReserveWei 
-      ? availableEth - gasReserveWei 
+    const availableEthAfterReserve = availableEth > effectiveGasReserveWei 
+      ? availableEth - effectiveGasReserveWei 
       : BigInt(0);
 
     const assetPreference = preferredAsset || 'ALL';
@@ -567,7 +685,7 @@ export async function depositToVaultV2(
           `Insufficient ETH balance.\n\n` +
           `Requested: ${formatUnits(amountBigInt, 18)} ETH\n` +
           `Available: ${formatUnits(availableEthAfterReserve, 18)} ETH\n` +
-          `(Reserved ${formatUnits(gasReserveWei, 18)} ETH for gas)\n\n` +
+          `(Reserved ${formatUnits(effectiveGasReserveWei, 18)} ETH for gas)\n\n` +
           `Please reduce the amount or add more ETH to your wallet.`
         );
       }
@@ -593,7 +711,7 @@ export async function depositToVaultV2(
           `Breakdown:\n` +
           `  • Existing WETH: ${formatUnits(existingWeth, 18)} WETH\n` +
           `  • Wrappable ETH: ${formatUnits(availableEthAfterReserve, 18)} ETH\n` +
-          `  • Reserved for gas: ${formatUnits(gasReserveWei, 18)} ETH\n\n` +
+          `  • Reserved for gas: ${formatUnits(effectiveGasReserveWei, 18)} ETH\n\n` +
           `Please reduce the amount or add more funds to your wallet.`
         );
       }
@@ -625,6 +743,16 @@ export async function depositToVaultV2(
     (needsWrap ? 1 : 0) + // wrap
     (needsApproval ? 1 : 0) +
     (needsReset ? 1 : 0);
+
+  const planLabels: string[] = [];
+  if (needsWrap) planLabels.push('Wrap ETH');
+  if (needsReset) {
+    planLabels.push('Reset approval', 'Approve token');
+  } else if (needsApproval) {
+    planLabels.push('Approve token');
+  }
+  planLabels.push('Deposit');
+  emitTransactionPlan(onProgress, planLabels);
 
   let currentStep = 0;
 
@@ -751,6 +879,13 @@ export async function withdrawFromVaultV2(
   const totalSteps = isWethVault && preferredAsset === 'ETH' ? 2 : 1; // Withdraw + Unwrap (if needed)
   let currentStep = 0;
 
+  emitTransactionPlan(
+    onProgress,
+    isWethVault && preferredAsset === 'ETH'
+      ? ['Withdraw', 'Unwrap WETH']
+      : ['Withdraw']
+  );
+
   // Withdraw from vault
   onProgress?.({
     type: 'confirming',
@@ -777,20 +912,29 @@ export async function withdrawFromVaultV2(
     txHash: withdrawHash,
   });
 
-  await publicClient.waitForTransactionReceipt({ hash: withdrawHash });
+  const withdrawReceipt = await publicClient.waitForTransactionReceipt({ hash: withdrawHash });
   currentStep++;
 
-  // Unwrap WETH to ETH if requested
-  // unwrapWeth already reads current balance and caps to available, no setTimeout needed
+  // Unwrap WETH to ETH if requested — amount from this withdraw's receipt logs
   if (isWethVault && preferredAsset === 'ETH') {
-    await unwrapWeth(
+    const wethReceived = getWethReceivedFromReceipt(withdrawReceipt, userAddress);
+    if (wethReceived === BigInt(0)) {
+      throw new Error(
+        'No WETH received from vault withdrawal to unwrap.\n\n' +
+          'The withdraw completed but no WETH transfer to your wallet was found in the transaction. ' +
+          'Check your wallet balance or try again.'
+      );
+    }
+    const unwrapHash = await unwrapWeth(
       publicClient,
       walletClient,
-      amountBigInt,
+      wethReceived,
       onProgress,
       currentStep,
-      totalSteps
+      totalSteps,
+      withdrawReceipt.blockNumber
     );
+    return unwrapHash;
   }
 
   return withdrawHash;
@@ -832,31 +976,28 @@ export async function redeemFromVaultV2(
   }) as bigint;
 
   if (userShares === BigInt(0)) {
+    if (isWethVault && preferredAsset === 'ETH') {
+      const wethBal = await readWethBalance(publicClient, userAddress);
+      if (wethBal > BigInt(0)) {
+        throw new Error(
+          'No vault shares to redeem.\n\n' +
+            `You have ${formatUnits(wethBal, 18)} WETH in your wallet — likely from a ` +
+            'previous withdrawal where unwrap did not finish. Unwrap that WETH in your wallet to receive ETH.'
+        );
+      }
+    }
     throw new Error('No shares to redeem');
-  }
-
-  // Get asset amount from shares using previewRedeem for more accurate calculation
-  // Falls back to convertToAssets if previewRedeem is not available
-  let assetAmount: bigint;
-  try {
-    assetAmount = await publicClient.readContract({
-      address: normalizedVault,
-      abi: ERC4626_ABI,
-      functionName: 'previewRedeem',
-      args: [userShares],
-    }) as bigint;
-  } catch {
-    // Fallback to convertToAssets if previewRedeem is not implemented
-    assetAmount = await publicClient.readContract({
-      address: normalizedVault,
-      abi: ERC4626_ABI,
-      functionName: 'convertToAssets',
-      args: [userShares],
-    }) as bigint;
   }
 
   const totalSteps = isWethVault && preferredAsset === 'ETH' ? 2 : 1; // Redeem + Unwrap (if needed)
   let currentStep = 0;
+
+  emitTransactionPlan(
+    onProgress,
+    isWethVault && preferredAsset === 'ETH'
+      ? ['Redeem', 'Unwrap WETH']
+      : ['Redeem']
+  );
 
   // Redeem shares
   onProgress?.({
@@ -884,21 +1025,67 @@ export async function redeemFromVaultV2(
     txHash: redeemHash,
   });
 
-  await publicClient.waitForTransactionReceipt({ hash: redeemHash });
+  const redeemReceipt = await publicClient.waitForTransactionReceipt({ hash: redeemHash });
   currentStep++;
 
-  // Unwrap WETH to ETH if requested
-  // unwrapWeth already reads current balance and caps to available, no setTimeout needed
+  // Unwrap WETH to ETH if requested — amount from this redeem's receipt logs
   if (isWethVault && preferredAsset === 'ETH') {
-    await unwrapWeth(
+    const wethReceived = getWethReceivedFromReceipt(redeemReceipt, userAddress);
+    if (wethReceived === BigInt(0)) {
+      throw new Error(
+        'No WETH received from vault redemption to unwrap.\n\n' +
+          'The redeem completed but no WETH transfer to your wallet was found in the transaction. ' +
+          'Check your wallet balance or try again.'
+      );
+    }
+    const unwrapHash = await unwrapWeth(
       publicClient,
       walletClient,
-      assetAmount,
+      wethReceived,
       onProgress,
       currentStep,
-      totalSteps
+      totalSteps,
+      redeemReceipt.blockNumber
     );
+    return unwrapHash;
   }
 
   return redeemHash;
+}
+
+/**
+ * Resume only the unwrap step after withdraw/redeem succeeded but unwrap failed.
+ * Uses the same receipt-based WETH amount as the initial withdraw/redeem path.
+ */
+export async function resumeUnwrapWalletWethV2(
+  publicClient: PublicClient,
+  walletClient: WalletClient,
+  withdrawOrRedeemTxHash: `0x${string}`,
+  onProgress?: TransactionProgressCallback,
+  stepIndex: number = 1,
+  totalSteps: number = 2
+): Promise<string> {
+  if (!walletClient.account) {
+    throw new Error('Wallet account not available');
+  }
+
+  const receipt = await publicClient.getTransactionReceipt({ hash: withdrawOrRedeemTxHash });
+  const wethReceived = getWethReceivedFromReceipt(receipt, walletClient.account.address);
+  if (wethReceived === BigInt(0)) {
+    throw new Error(
+      'No WETH received from vault withdrawal to unwrap.\n\n' +
+        'The withdraw completed but no WETH transfer to your wallet was found in the transaction. ' +
+        'Check your wallet balance or try again.'
+    );
+  }
+
+  return unwrapWeth(
+    publicClient,
+    walletClient,
+    wethReceived,
+    onProgress,
+    stepIndex,
+    totalSteps,
+    receipt.blockNumber
+  );
 }

@@ -1,11 +1,19 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { formatSmartCurrency, formatAssetAmount, formatPercentage, formatCurrency } from '@/lib/formatter';
-import { parseUnits } from 'viem';
+import {
+  formatSmartCurrency,
+  formatAssetAmount,
+  formatPercentage,
+  formatCurrency,
+  formatVaultChartTokenAmount,
+  formatVaultChartTokenAxisTick,
+} from '@/lib/formatter';
 import { calculateYAxisDomain } from '@/lib/vault-utils';
 import { logger } from '@/lib/logger';
 import { MorphoVaultData } from '@/types/vault';
+import { VaultLiquidityInfo } from './VaultLiquidityInfo';
+import { VaultApyInfo } from './VaultApyInfo';
 import { useToast } from '@/contexts/ToastContext';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -30,12 +38,6 @@ type ChartType = 'apy' | 'tvl' | 'sharePrice';
 
 type Period = 'all' | '7d' | '30d' | '90d' | '1y';
 
-/** viem parseUnits rejects scientific notation (e.g. "1e-7"); use fixed decimal strings. */
-function toDecimalString(value: number, decimals: number): string {
-  if (!Number.isFinite(value)) return '0';
-  return value.toFixed(decimals).replace(/\.?0+$/, '') || '0';
-}
-
 const VAULT_CHART_MARGIN = { top: 8, right: 16, bottom: 4, left: 4 };
 
 function formatTvlYAxisTick(
@@ -46,15 +48,11 @@ function formatTvlYAxisTick(
   if (valueType === 'usd') {
     return formatCurrency(value);
   }
-  const decimals = vaultData.assetDecimals || 18;
-  const formatted = formatAssetAmount(
-    parseUnits(toDecimalString(value, decimals), decimals),
-    decimals,
-    vaultData.symbol,
-    { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+  return formatVaultChartTokenAxisTick(
+    value,
+    vaultData.assetDecimals || 18,
+    vaultData.symbol
   );
-  // Axis: number only (symbol shown in toggle); keeps labels from clipping
-  return formatted.replace(` ${vaultData.symbol}`, '').trim();
 }
 
 function getTvlYAxisWidth(valueType: 'usd' | 'token'): number {
@@ -69,14 +67,12 @@ function formatSharePriceYAxisTick(
   if (valueType === 'usd') {
     return formatCurrency(value);
   }
-  const decimals = vaultData.assetDecimals || 18;
-  const formatted = formatAssetAmount(
-    parseUnits(toDecimalString(value, decimals), decimals),
-    decimals,
+  return formatVaultChartTokenAmount(
+    value,
+    vaultData.assetDecimals || 18,
     vaultData.symbol,
-    { minimumFractionDigits: 2, maximumFractionDigits: 6 }
+    { includeSymbol: false }
   );
-  return formatted.replace(` ${vaultData.symbol}`, '').trim();
 }
 
 function getSharePriceYAxisWidth(valueType: 'usd' | 'token'): number {
@@ -105,7 +101,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
   const { error: showErrorToast } = useToast();
   const now = useUnixTimestamp();
 
-  // Format liquidity
+  // Format liquidity (instant: idle + liquidity adapter withdrawable depth)
   const liquidityUsd = formatSmartCurrency(vaultData.currentLiquidity || 0, { alwaysTwoDecimals: true });
   const liquidityRaw = formatAssetAmount(
     BigInt(vaultData.liquidityAssets || '0'),
@@ -632,9 +628,17 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
       {/* Performance Section */}
       <div className="space-y-8">
         {/* Current Performance */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-          <div>
-            <p className="text-xs text-[var(--foreground-secondary)] mb-1">Current Earnings Rate</p>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 overflow-visible">
+          <div className="overflow-visible">
+            <div className="flex items-center gap-1.5 mb-1">
+              <p className="text-xs text-[var(--foreground-secondary)]">Current Earnings Rate</p>
+              <VaultApyInfo
+                netApy={vaultData.apy}
+                baseApy={vaultData.netApyWithoutRewards}
+                performanceFee={vaultData.performanceFee ?? 0}
+                managementFee={vaultData.managementFee ?? 0}
+              />
+            </div>
             <p className="text-3xl font-bold text-[var(--foreground)]">
               {apyPercent}
             </p>
@@ -660,8 +664,17 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
               {formatSmartCurrency(vaultData.totalValueLocked || 0, { alwaysTwoDecimals: true })}
             </p>
           </div>
-          <div>
-            <p className="text-xs text-[var(--foreground-secondary)] mb-1">Liquidity</p>
+          <div className="overflow-visible">
+            <div className="flex items-center gap-1.5 mb-1">
+              <p className="text-xs text-[var(--foreground-secondary)]">Liquidity</p>
+              {vaultData.liquidityBreakdown && (
+                <VaultLiquidityInfo
+                  breakdown={vaultData.liquidityBreakdown}
+                  assetSymbol={vaultData.symbol}
+                  assetDecimals={vaultData.assetDecimals || 18}
+                />
+              )}
+            </div>
             <p className="text-2xl font-bold text-[var(--foreground)]">
               {liquidityRaw}
             </p>
@@ -930,13 +943,11 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                         if (valueType === 'usd') {
                           return [formatCurrency(value), 'Share Price (USD)'];
                         }
-                        const decimals = vaultData.assetDecimals || 18;
                         return [
-                          formatAssetAmount(
-                            parseUnits(toDecimalString(value, decimals), decimals),
-                            decimals,
-                            vaultData.symbol,
-                            { minimumFractionDigits: 2, maximumFractionDigits: 6 }
+                          formatVaultChartTokenAmount(
+                            value,
+                            vaultData.assetDecimals || 18,
+                            vaultData.symbol
                           ),
                           `Share Price (${vaultData.symbol})`,
                         ];
@@ -986,13 +997,11 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                             if (valueType === 'usd') {
                               return [formatCurrency(value), 'Total Deposits'];
                             }
-                            const decimals = vaultData.assetDecimals || 18;
                             return [
-                              formatAssetAmount(
-                                parseUnits(toDecimalString(value, decimals), decimals),
-                                decimals,
-                                vaultData.symbol,
-                                { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+                              formatVaultChartTokenAmount(
+                                value,
+                                vaultData.assetDecimals || 18,
+                                vaultData.symbol
                               ),
                               'Total Deposits',
                             ];

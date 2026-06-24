@@ -10,6 +10,7 @@ import { useVaultData } from '@/contexts/VaultDataContext';
 import { usePrices } from '@/contexts/PriceContext';
 import { useVaultVersion } from '@/contexts/VaultVersionContext';
 import { VAULTS } from '@/lib/vaults';
+import { ETH_GAS_RESERVE } from '@/lib/constants';
 import { Account, Vault, VaultAccount, WalletAccount } from '@/types/vault';
 import { formatBigIntForInput, formatAvailableBalance, formatAssetAmountForMax, formatCurrency, formatAssetBalance } from '@/lib/formatter';
 import { Button } from '@/components/ui';
@@ -127,6 +128,8 @@ export default function TransactionsPage() {
     setPreferredAsset,
     reset,
   } = useTransactionState();
+
+  const [balanceBypassAcknowledged, setBalanceBypassAcknowledged] = useState(false);
   
   // Tab state - determine from URL params or default to deposit
   const [activeTab, setActiveTab] = useState<TransactionTab>(() => {
@@ -361,15 +364,29 @@ export default function TransactionsPage() {
     },
   });
 
-  // Helper function to get combined ETH + WETH balance for WETH vault deposits
-  // Note: All ETH can be wrapped since USDC can be used for gas on Base
-  const getCombinedEthWethBalance = useMemo(() => {
+  const getWrappableEthBalance = useCallback(() => {
     const ethBal = parseFloat(ethBalance || '0');
+    if (isDevMode) return ethBal;
+    return Math.max(0, ethBal - ETH_GAS_RESERVE);
+  }, [ethBalance, isDevMode]);
+
+  const isWethVaultEthDeposit = useMemo(() => {
+    if (effectiveActiveTab !== 'deposit' || fromAccount?.type !== 'wallet' || toAccount?.type !== 'vault') {
+      return false;
+    }
+    const toVault = toAccount as VaultAccount;
+    const isWethVault =
+      toVault.address.toLowerCase() === VAULTS.WETH_VAULT_V2.address.toLowerCase();
+    const assetPreference = preferredAsset || 'ALL';
+    return isWethVault && (assetPreference === 'ETH' || assetPreference === 'ALL');
+  }, [effectiveActiveTab, fromAccount, toAccount, preferredAsset]);
+
+  // Helper function to get combined ETH + WETH balance for WETH vault deposits
+  const getCombinedEthWethBalance = useMemo(() => {
     const wethToken = tokenBalances.find((t) => t.symbol.toUpperCase() === 'WETH');
     const wethBal = wethToken ? parseFloat(formatUnits(wethToken.balance, wethToken.decimals)) : 0;
-    // All ETH can be wrapped - no gas reserve needed since USDC can be used for gas on Base
-    return wethBal + ethBal;
-  }, [ethBalance, tokenBalances]);
+    return wethBal + getWrappableEthBalance();
+  }, [tokenBalances, getWrappableEthBalance]);
 
   // Helper function to get wallet balance display text
   const getWalletBalanceText = useMemo(() => {
@@ -386,11 +403,13 @@ export default function TransactionsPage() {
         const wethBal = wethToken ? parseFloat(formatUnits(wethToken.balance, wethToken.decimals)) : 0;
         
         if (wethBal > 0 && ethBal > 0) {
-          return `${formatAvailableBalance(combinedBal, 'WETH')} (${formatAssetBalance(wethBal, 'WETH')} + ${formatAssetBalance(ethBal, 'ETH')} wrappable)`;
+          const wrappableEth = getWrappableEthBalance();
+          return `${formatAvailableBalance(combinedBal, 'WETH')} (${formatAssetBalance(wethBal, 'WETH')} + ${formatAssetBalance(wrappableEth, 'ETH')} wrappable)`;
         } else if (wethBal > 0) {
           return formatAvailableBalance(wethBal, 'WETH');
         } else if (ethBal > 0) {
-          return `${formatAvailableBalance(ethBal, 'ETH')} (wrappable to WETH)`;
+          const wrappableEth = getWrappableEthBalance();
+          return `${formatAvailableBalance(wrappableEth, 'ETH')} (wrappable to WETH)`;
         }
         return formatAvailableBalance('0', 'WETH');
       }
@@ -410,7 +429,7 @@ export default function TransactionsPage() {
       return formatAvailableBalance(balanceString, derivedAsset.symbol, token.decimals);
     }
     return formatAvailableBalance('0', derivedAsset.symbol);
-  }, [derivedAsset, toAccount, ethBalance, tokenBalances, getCombinedEthWethBalance]);
+  }, [derivedAsset, toAccount, ethBalance, tokenBalances, getCombinedEthWethBalance, getWrappableEthBalance]);
 
   // Helper function to get vault balance display text
   // For withdrawals, we display shares converted to assets using convertToAssets for accuracy
@@ -460,9 +479,7 @@ export default function TransactionsPage() {
           const assetPreference = preferredAsset || 'ALL';
           
           if (assetPreference === 'ETH') {
-            // Only use ETH (all can be wrapped since USDC can be used for gas)
-            const ethBal = parseFloat(ethBalance || '0');
-            return ethBal;
+            return getWrappableEthBalance();
           } else if (assetPreference === 'WETH') {
             // Only use WETH balance
             const wethToken = tokenBalances.find((t) => t.address.toLowerCase() === TOKEN_ADDRESSES_LOWER.WETH);
@@ -471,17 +488,13 @@ export default function TransactionsPage() {
             }
             return 0;
           } else {
-            // ALL: use both ETH + WETH (USDC can be used for gas on Base)
             return getCombinedEthWethBalance;
           }
         }
       }
       
       if (symbol === 'ETH') {
-        // For ETH: leave small dust amount (0.001 ETH) for gas
-        const ethBal = parseFloat(ethBalance || '0');
-        const gasReserve = 0.001; // 0.001 ETH reserve for gas
-        return Math.max(0, ethBal - gasReserve);
+        return getWrappableEthBalance();
       }
       
       if (symbol === 'WETH') {
@@ -522,9 +535,8 @@ export default function TransactionsPage() {
       return 0;
     }
     return 0;
-  }, [fromAccount, derivedAsset, toAccount, ethBalance, tokenBalances, vaultShareBalance, exactAssetAmount, getCombinedEthWethBalance, preferredAsset]);
+  }, [fromAccount, derivedAsset, toAccount, tokenBalances, vaultShareBalance, exactAssetAmount, getCombinedEthWethBalance, getWrappableEthBalance, preferredAsset]);
 
-  // Calculate max amount for the selected "from" account
   const calculateMaxAmount = useCallback(() => {
     const maxAmount = getMaxAmount;
     if (maxAmount === null || maxAmount === 0) {
@@ -534,47 +546,46 @@ export default function TransactionsPage() {
 
     if (fromAccount?.type === 'wallet') {
       const symbol = derivedAsset?.symbol || '';
-      // Check if this is a WETH vault deposit - respect preferredAsset selection
       if (toAccount?.type === 'vault') {
         const toVault = toAccount as VaultAccount;
-        const isWethVault = toVault.address.toLowerCase() === VAULTS.WETH_VAULT_V2.address.toLowerCase();
+        const isWethVault =
+          toVault.address.toLowerCase() === VAULTS.WETH_VAULT_V2.address.toLowerCase();
         if (isWethVault && (symbol === 'WETH' || symbol === 'ETH')) {
-          // For WETH vault deposits: use calculated max based on preferredAsset
           const assetPreference = preferredAsset || 'ALL';
           const decimals = getAssetDecimalsForSymbol(symbol);
-          
+
           if (assetPreference === 'ETH') {
-            // Use ETH balance directly
-            setAmount(maxAmount > 0 ? formatAssetAmountForMax(maxAmount, 'ETH', decimals) : '0');
+            setAmount(
+              maxAmount > 0 ? formatAssetAmountForMax(maxAmount, 'ETH', decimals) : '0'
+            );
           } else if (assetPreference === 'WETH') {
-            // Use WETH balance directly
-            const wethToken = tokenBalances.find((t) => t.address.toLowerCase() === TOKEN_ADDRESSES_LOWER.WETH);
+            const wethToken = tokenBalances.find(
+              (t) => t.address.toLowerCase() === TOKEN_ADDRESSES_LOWER.WETH
+            );
             if (wethToken) {
               setAmount(formatBigIntForInput(wethToken.balance, wethToken.decimals));
             } else {
               setAmount('0');
             }
           } else {
-            // ALL: use combined ETH+WETH balance
             setAmount(maxAmount > 0 ? formatAssetAmountForMax(maxAmount, symbol, decimals) : '0');
           }
           return;
         }
       }
-      
+
       if (symbol === 'ETH') {
-        // For ETH: use calculated max (which already accounts for gas reserve)
         setAmount(maxAmount > 0 ? formatAssetAmountForMax(maxAmount, symbol) : '0');
       } else if (symbol === 'WETH') {
-        // For WETH: use full balance
-        const wethToken = tokenBalances.find((t) => t.address.toLowerCase() === TOKEN_ADDRESSES_LOWER.WETH);
+        const wethToken = tokenBalances.find(
+          (t) => t.address.toLowerCase() === TOKEN_ADDRESSES_LOWER.WETH
+        );
         if (wethToken) {
           setAmount(formatBigIntForInput(wethToken.balance, wethToken.decimals));
         } else {
           setAmount('0');
         }
       } else {
-        // For all other tokens: use full balance
         const token = findTokenBySymbol(symbol, tokenBalances);
         if (token) {
           setAmount(formatBigIntForInput(token.balance, token.decimals));
@@ -583,7 +594,6 @@ export default function TransactionsPage() {
         }
       }
     } else {
-      // For vault withdrawals: use exact asset amount from convertToAssets
       const vaultAccount = fromAccount as VaultAccount;
       const decimals = getAssetDecimalsForSymbol(vaultAccount.symbol);
       setAmount(formatAssetAmountForMax(maxAmount, derivedAsset?.symbol || '', decimals));
@@ -619,7 +629,6 @@ export default function TransactionsPage() {
   }, [amount, fromAccount, derivedAsset, getMaxAmount]);
 
   const allowOverBalanceOnDevMode = isDevMode;
-  const [balanceBypassAcknowledged, setBalanceBypassAcknowledged] = useState(false);
   const blockContinueForBalance =
     exceedsBalance && !(allowOverBalanceOnDevMode && balanceBypassAcknowledged);
 
@@ -1022,6 +1031,11 @@ export default function TransactionsPage() {
               {fromAccount && derivedAsset && (
                 <p className="text-xs text-[var(--foreground-muted)]">
                   {fromAccount.type === 'wallet' ? getWalletBalanceText : getVaultBalanceText}
+                </p>
+              )}
+              {isWethVaultEthDeposit && !isDevMode && (
+                <p className="text-xs text-[var(--foreground-muted)]">
+                  {ETH_GAS_RESERVE} ETH is intentionally left in your wallet for network gas fees.
                 </p>
               )}
               {exceedsBalance && (

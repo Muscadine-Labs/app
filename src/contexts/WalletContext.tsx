@@ -6,6 +6,7 @@ import { useBalance, useReadContract } from 'wagmi';
 import type { AlchemyTokenBalancesResponse, AlchemyTokenMetadataResponse, AlchemyTokenBalance } from '@/types/api';
 import { formatCurrency } from '@/lib/formatter';
 import { logger } from '@/lib/logger';
+import { POST_TX_BALANCE_REFRESH_DELAY_MS } from '@/lib/constants';
 import { findVaultByAddress } from '@/lib/vault-utils';
 import type { VaultStrategy } from '@/lib/vaults';
 
@@ -803,9 +804,9 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     throw lastError || new Error('Balance refresh failed');
   }, [performRefresh]);
 
-  // One delayed refresh after tx — Morpho indexer often lags ~6–8s; no polling loop.
+  // One delayed refresh after tx — Morpho indexer often lags a few seconds; no polling loop.
   const refreshBalancesWithPolling = useCallback(async (options?: { followUpDelayMs?: number; onComplete?: () => void | Promise<void> }) => {
-    const followUpDelayMs = options?.followUpDelayMs ?? 8000;
+    const followUpDelayMs = options?.followUpDelayMs ?? POST_TX_BALANCE_REFRESH_DELAY_MS;
 
     await sleep(followUpDelayMs);
 
