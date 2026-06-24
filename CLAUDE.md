@@ -11,8 +11,7 @@ Comprehensive context for AI assistants and developers. This is the canonical �
 ## Working agreement (read first)
 
 - **Review `TODO.md` at the start of every session.** It is the canonical task list: items under “TO work on today” are actionable now; “To work on another day” is backlog. Remove or update entries as work completes.
-- **Before every push to GitHub:** run `npm run lint` and `npm run build` and make sure both pass.
-- **Version bump on every push:** bump `package.json` version by `0.0.1`. Digits roll over at 9 → e.g. `0.2.9` → `0.3.0`, `1.9.9` → `2.0.0`.
+- **Before every push to GitHub:** run `npm run lint` and `npm run build` and make sure both pass. NEVER PUSH TO Github without users explicit permission or order.
 - Keep `CLAUDE.md` and `AGENTS.md` in sync when conventions or architecture knowledge change.
 
 ---

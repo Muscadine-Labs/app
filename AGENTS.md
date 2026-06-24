@@ -9,8 +9,7 @@ Instructions for AI agents working in this repo. Full architecture docs live in 
    - “Needs confirmation first” → research or report only; do not implement without user OK.
    - “To work on another day” → backlog; do not start without being asked.
    - Update/remove entries as work completes.
-2. **Before every push to GitHub:** run `npm run lint` and `npm run build`; both must pass.
-3. **Version bump on every push:** bump `package.json` version by `0.0.1`. Digits roll over at 9 — e.g. `0.2.9` → `0.3.0`, `1.9.9` → `2.0.0`.
+2. **Before every push to GitHub:** run `npm run lint` and `npm run build`; both must pass. Never push to github without users specific permission or order.
 4. **Git commits only when the user explicitly asks.**
 5. Keep `CLAUDE.md` and this file updated when conventions or architecture knowledge change.
 
