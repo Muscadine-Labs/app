@@ -30,10 +30,6 @@ interface TransactionConfirmationProps {
   isPartialFailure?: boolean;
   errorMessage?: string;
   txHash?: string | null;
-  liquidityWarningPreview?: {
-    morphoVaultUrl: string;
-    instantLiquidityLabel: string;
-  } | null;
   onCancel: () => void;
   onConfirm: () => void;
 }
@@ -52,7 +48,6 @@ export function TransactionConfirmation({
   isPartialFailure = false,
   errorMessage,
   txHash,
-  liquidityWarningPreview,
   onCancel,
   onConfirm,
 }: TransactionConfirmationProps) {
@@ -433,29 +428,6 @@ export function TransactionConfirmation({
             <span className="font-medium">Note:</span> Depositing ETH will wrap it to WETH before
             depositing to the vault. {ETH_GAS_RESERVE} ETH is intentionally left in your wallet for
             network gas fees.
-          </p>
-        </div>
-      )}
-
-      {liquidityWarningPreview && transactionType === 'withdraw' && (
-        <div className="flex items-start gap-2 md:gap-3 p-3 md:p-4 bg-[var(--warning-subtle)] rounded-lg border border-[var(--warning)]">
-          <div className="w-4 h-4 md:w-5 md:h-5 rounded-full bg-[var(--warning)] flex items-center justify-center shrink-0 mt-0.5">
-            <svg className="w-2.5 h-2.5 md:w-3 md:h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M12 3a9 9 0 100 18 9 9 0 000-18z" />
-            </svg>
-          </div>
-          <p className="text-xs md:text-sm text-[var(--foreground)]">
-            This withdrawal may exceed instant liquidity (
-            {liquidityWarningPreview.instantLiquidityLabel}). Confirming may fail; you can{' '}
-            <a
-              href={liquidityWarningPreview.morphoVaultUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-[var(--primary)] hover:underline font-medium"
-            >
-              withdraw on Morpho
-            </a>{' '}
-            if you need a full exit.
           </p>
         </div>
       )}

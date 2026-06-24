@@ -24,18 +24,18 @@ export function WithdrawLiquidityWarningModal({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="Withdrawal may exceed instant liquidity"
+      title="Forced deallocation may be required"
       closeOnOverlayClick
     >
       <div className="space-y-4">
         <p className="text-sm text-[var(--foreground)] leading-relaxed">
-          You are withdrawing <span className="font-medium">{requestedAmountLabel}</span>, but
-          only about <span className="font-medium">{instantLiquidityLabel}</span> is available
-          for instant exit (idle + liquidity adapter). The rest may require a force exit on
-          Morpho, which can include a curator penalty.
+          You&apos;re withdrawing <span className="font-medium">{requestedAmountLabel}</span>, but
+          only <span className="font-medium">{instantLiquidityLabel}</span>
+          {' is '}available without forced deallocation — liquidity still in markets must be moved
+          back to idle first. Muscadine doesn&apos;t support forced deallocation yet.
         </p>
         <p className="text-sm text-[var(--foreground-secondary)] leading-relaxed">
-          You can try continuing here, or withdraw on Morpho where force exit is supported.
+          Complete this withdrawal on Morpho, or try continuing here.
         </p>
         <div className="flex flex-col gap-2 pt-2">
           <Button

@@ -140,45 +140,6 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
     return Math.abs(enteredAmount - maxAssetAmount) <= tolerance;
   }, [transactionType, fromAccount, amount, exactAssetAmount, getVaultData]);
 
-  const withdrawVaultAddress =
-    transactionType === 'withdraw' && fromAccount?.type === 'vault'
-      ? (fromAccount as VaultAccount).address
-      : null;
-
-  useEffect(() => {
-    if (status === 'preview' && withdrawVaultAddress) {
-      fetchVaultData(withdrawVaultAddress, BASE_CHAIN_ID, true).catch((err) => {
-        logger.error('Failed to refresh vault liquidity for withdraw preview', err, {
-          vaultAddress: withdrawVaultAddress,
-        });
-      });
-    }
-  }, [status, withdrawVaultAddress, fetchVaultData]);
-
-  const liquidityWarningPreview = useMemo(() => {
-    if (status !== 'preview' || !withdrawVaultAddress || !amount?.trim() || !derivedAsset) {
-      return null;
-    }
-
-    const vaultData = getVaultData(withdrawVaultAddress);
-    const instantRaw =
-      vaultData?.liquidityBreakdown?.instantLiquidityAssets ?? vaultData?.liquidityAssets;
-    if (!instantRaw) return null;
-
-    const decimals = derivedAsset.decimals ?? 18;
-    const requested = parseTransactionAmount(amount, decimals);
-    const instant = BigInt(instantRaw);
-
-    if (!exceedsInstantLiquidity(requested, instant, decimals)) {
-      return null;
-    }
-
-    return {
-      morphoVaultUrl: getMorphoVaultUrl(BASE_CHAIN_ID, withdrawVaultAddress),
-      instantLiquidityLabel: formatAssetAmount(instant, decimals, derivedAsset.symbol),
-    };
-  }, [status, withdrawVaultAddress, amount, derivedAsset, getVaultData]);
-
   // Wait for main transaction receipt (fallback only — v2 flow confirms inside depositToVaultV2)
   const txHashToWaitFor = effectiveCurrentTxHash || txHash;
   const { data: receipt, error: receiptError } = useWaitForTransactionReceipt({
@@ -701,7 +662,6 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
           assetDecimals={derivedAsset?.decimals}
           transactionType={transactionType}
           isLoading={isSigning || isApproving || isConfirming || isCheckingLiquidity}
-          liquidityWarningPreview={liquidityWarningPreview}
           progressSteps={walletSteps}
           showProgress={isSigning || isApproving || isConfirming || (isError && partialFailure)}
           isSuccess={isSuccess}
