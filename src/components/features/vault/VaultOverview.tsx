@@ -12,6 +12,8 @@ import {
 import { calculateYAxisDomain } from '@/lib/vault-utils';
 import { logger } from '@/lib/logger';
 import { MorphoVaultData } from '@/types/vault';
+import { VaultLiquidityInfo } from './VaultLiquidityInfo';
+import { VaultApyInfo } from './VaultApyInfo';
 import { useToast } from '@/contexts/ToastContext';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -99,7 +101,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
   const { error: showErrorToast } = useToast();
   const now = useUnixTimestamp();
 
-  // Format liquidity
+  // Format liquidity (instant: idle + liquidity adapter withdrawable depth)
   const liquidityUsd = formatSmartCurrency(vaultData.currentLiquidity || 0, { alwaysTwoDecimals: true });
   const liquidityRaw = formatAssetAmount(
     BigInt(vaultData.liquidityAssets || '0'),
@@ -626,9 +628,17 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
       {/* Performance Section */}
       <div className="space-y-8">
         {/* Current Performance */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-          <div>
-            <p className="text-xs text-[var(--foreground-secondary)] mb-1">Current Earnings Rate</p>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 overflow-visible">
+          <div className="overflow-visible">
+            <div className="flex items-center gap-1.5 mb-1">
+              <p className="text-xs text-[var(--foreground-secondary)]">Current Earnings Rate</p>
+              <VaultApyInfo
+                netApy={vaultData.apy}
+                baseApy={vaultData.netApyWithoutRewards}
+                performanceFee={vaultData.performanceFee ?? 0}
+                managementFee={vaultData.managementFee ?? 0}
+              />
+            </div>
             <p className="text-3xl font-bold text-[var(--foreground)]">
               {apyPercent}
             </p>
@@ -654,8 +664,17 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
               {formatSmartCurrency(vaultData.totalValueLocked || 0, { alwaysTwoDecimals: true })}
             </p>
           </div>
-          <div>
-            <p className="text-xs text-[var(--foreground-secondary)] mb-1">Liquidity</p>
+          <div className="overflow-visible">
+            <div className="flex items-center gap-1.5 mb-1">
+              <p className="text-xs text-[var(--foreground-secondary)]">Liquidity</p>
+              {vaultData.liquidityBreakdown && (
+                <VaultLiquidityInfo
+                  breakdown={vaultData.liquidityBreakdown}
+                  assetSymbol={vaultData.symbol}
+                  assetDecimals={vaultData.assetDecimals || 18}
+                />
+              )}
+            </div>
             <p className="text-2xl font-bold text-[var(--foreground)]">
               {liquidityRaw}
             </p>

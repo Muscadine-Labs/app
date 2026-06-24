@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
 import { formatUnits } from 'viem';
-import { Vault, MorphoVaultData } from '../types/vault';
+import { Vault, MorphoVaultData, VaultLiquidityBreakdown } from '../types/vault';
 import { getVaultVersion } from '../lib/vault-utils';
 
 interface AllocationData {
@@ -153,6 +153,9 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
         // For v2 vaults, also get the original vaultV2ByAddress to access adapters
         // Note: vaultV2ByAddress is only present for v2 vaults after normalization
         const vaultV2Info = data.data.vaultV2ByAddress;
+        const liquidityBreakdown = (
+          vaultInfo as { liquidityBreakdown?: VaultLiquidityBreakdown }
+        ).liquidityBreakdown;
         
         // Extract curator name from metadata
         const curatorAddress = vaultInfo.state?.curator;
@@ -228,6 +231,7 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
             (vaultInfo as { liquidity?: string }).liquidity ??
             vaultInfo.state?.totalAssets ??
             '0',
+          liquidityBreakdown: liquidityBreakdown ?? undefined,
           sharePrice: sharePriceInTokens, // Share price in tokens (not USD) - tokens per share
           sharePriceUsd: sharePriceUsd, // Share price in USD
           apy: vaultInfo.state?.netApy || 0,
@@ -242,8 +246,11 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
           oracleAddress: vaultInfo.state?.allocation?.[0]?.market?.oracleAddress,
           ownerAddress: vaultInfo.state?.owner || '',
           allocators: vaultInfo.allocators?.map((alloc: { address: string }) => alloc.address) || [],
-          performanceFee: (vaultInfo.state?.fee || 0) * 100,
-          managementFee: 0,
+          performanceFee:
+            ((vaultInfo as { performanceFee?: number }).performanceFee ??
+              vaultInfo.state?.fee ??
+              0) * 100,
+          managementFee: ((vaultInfo as { managementFee?: number }).managementFee ?? 0) * 100,
           description: vaultInfo.metadata?.description || 'Morpho vault',
           allocatedMarkets: vaultInfo.state?.allocation?.map((alloc: AllocationData) => 
             `${alloc.market?.loanAsset?.symbol || alloc.market?.loanAsset?.name}/${alloc.market?.collateralAsset?.symbol || alloc.market?.collateralAsset?.name}`

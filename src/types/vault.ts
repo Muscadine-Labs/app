@@ -1,5 +1,19 @@
 import type { VaultStrategy } from '@/lib/vaults';
 
+/** Morpho v2 liquidity breakdown (instant, idle, adapter, deallocatable, total). */
+export interface VaultLiquidityBreakdown {
+  instantLiquidityAssets: string;
+  instantLiquidityUsd: number;
+  idleLiquidityAssets: string;
+  idleLiquidityUsd: number;
+  liquidityAdapterAssets: string;
+  liquidityAdapterUsd: number;
+  deallocatableLiquidityAssets: string;
+  deallocatableLiquidityUsd: number;
+  totalUnderlyingLiquidityAssets: string;
+  totalUnderlyingLiquidityUsd: number;
+}
+
 // Unified Vault type definition
 export interface Vault {
     // Basic Information
@@ -25,8 +39,9 @@ export interface Vault {
     rewardSymbol?: string; // Symbol of reward token
     apyChange?: number; // APY change (positive/negative)
     totalDeposits?: number; // Total deposits in USD
-    currentLiquidity?: number; // Available liquidity in USD
-    liquidityAssets?: string; // Available liquidity in native units
+    currentLiquidity?: number; // Instant liquidity in USD (idle + liquidity adapter)
+    liquidityAssets?: string; // Instant liquidity in native units
+    liquidityBreakdown?: VaultLiquidityBreakdown;
     sharePrice?: number; // Current vault share price (in tokens, not USD)
     sharePriceUsd?: number; // Current vault share price in USD
     
@@ -80,6 +95,7 @@ export interface MorphoVaultData extends Vault {
     apyChange: number;
     totalDeposits: number;
     currentLiquidity: number;
+    liquidityBreakdown?: VaultLiquidityBreakdown;
     sharePrice: number; // Share price in tokens (not USD)
     sharePriceUsd: number; // Share price in USD
     whitelisted: boolean;
