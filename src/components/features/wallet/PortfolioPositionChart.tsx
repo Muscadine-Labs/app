@@ -3,20 +3,16 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useAccount } from 'wagmi';
 import { BASE_CHAIN_ID } from '@/lib/constants';
-import {
-  getLegacyV1VaultForSymbol,
-} from '@/lib/legacy-vaults';
 import { calculateYAxisDomain } from '@/lib/vault-utils';
 import {
   aggregatePortfolioHistory,
   mapPortfolioHistoryToChartData,
-  preparePortfolioVaultHistories,
   PositionHistoryPoint,
-  PortfolioVaultHistoryInput,
 } from '@/lib/portfolio-utils';
 import { formatCurrency, formatNumber } from '@/lib/formatter';
 import { logger } from '@/lib/logger';
 import { useUnixTimestamp } from '@/hooks/useClientOnly';
+import { useLockPageScroll } from '@/hooks/useLockPageScroll';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Button } from '@/components/ui';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -42,7 +38,6 @@ interface PortfolioVault {
   address: string;
   chainId: number;
   symbol: string;
-  version: 'v1' | 'v2';
 }
 
 async function fetchUserPortfolioVaults(
@@ -57,39 +52,18 @@ async function fetchUserPortfolioVaults(
   if (!response.ok) return [];
 
   const data = await response.json().catch(() => ({ positions: [] }));
-  const vaults: PortfolioVault[] = [];
   const seenAddresses = new Set<string>();
 
-  const addVault = (vault: PortfolioVault) => {
-    const key = vault.address.toLowerCase();
-    if (seenAddresses.has(key)) return;
+  return (data.positions ?? []).flatMap((p: { vault: { address: string; symbol: string } }) => {
+    const key = p.vault.address.toLowerCase();
+    if (seenAddresses.has(key)) return [];
     seenAddresses.add(key);
-    vaults.push(vault);
-  };
-
-  for (const p of data.positions ?? []) {
-    addVault({
+    return [{
       address: p.vault.address,
       chainId: BASE_CHAIN_ID,
       symbol: p.vault.symbol,
-      version: p.version ?? 'v2',
-    });
-  }
-
-  // Muscadine v1→v2 migrations: Morpho may omit zero-share v1 positions; backfill history.
-  for (const p of data.positions ?? []) {
-    if (p.version !== 'v2') continue;
-    const legacy = getLegacyV1VaultForSymbol(p.vault.symbol);
-    if (!legacy) continue;
-    addVault({
-      address: legacy.address,
-      chainId: BASE_CHAIN_ID,
-      symbol: legacy.symbol,
-      version: 'v1',
-    });
-  }
-
-  return vaults;
+    }];
+  });
 }
 
 async function fetchVaultHistory(
@@ -99,7 +73,7 @@ async function fetchVaultHistory(
   signal?: AbortSignal
 ): Promise<PositionHistoryPoint[]> {
   const response = await fetch(
-    `/api/vault/${vault.version}/${vault.address}/position-history?chainId=${vault.chainId}&userAddress=${userAddress}&period=${period}`,
+    `/api/vault/v2/${vault.address}/position-history?chainId=${vault.chainId}&userAddress=${userAddress}&period=${period}`,
     { signal }
   );
 
@@ -120,6 +94,7 @@ export default function PortfolioPositionChart() {
   const [loading, setLoading] = useState(true);
   const [selectedTimeFrame, setSelectedTimeFrame] = useState<TimeFrame>('all');
   const [isTimeFrameMenuOpen, setIsTimeFrameMenuOpen] = useState(false);
+  useLockPageScroll(isTimeFrameMenuOpen);
   const [dailyHistory, setDailyHistory] = useState<PositionHistoryPoint[]>([]);
   const [hourly7dHistory, setHourly7dHistory] = useState<PositionHistoryPoint[]>([]);
   const [hourly30dHistory, setHourly30dHistory] = useState<PositionHistoryPoint[]>([]);
@@ -162,10 +137,9 @@ export default function PortfolioPositionChart() {
         }
 
         const vaultHistories = await Promise.all(
-          portfolioVaults.map(async (vault): Promise<PortfolioVaultHistoryInput> => {
+          portfolioVaults.map(async (vault) => {
             try {
-              const history = await fetchVaultHistory(vault, address, period, signal);
-              return { address: vault.address, symbol: vault.symbol, version: vault.version, history };
+              return await fetchVaultHistory(vault, address, period, signal);
             } catch (error) {
               if (error instanceof Error && error.name === 'AbortError') {
                 throw error;
@@ -173,16 +147,14 @@ export default function PortfolioPositionChart() {
 
               logger.warn('Failed to fetch vault position history', {
                 vaultAddress: vault.address,
-                version: vault.version,
                 error: error instanceof Error ? error.message : String(error),
               });
 
-              return { address: vault.address, symbol: vault.symbol, version: vault.version, history: [] };
+              return [];
             }
           })
         );
-        const prepared = preparePortfolioVaultHistories(vaultHistories);
-        setter(aggregatePortfolioHistory(prepared));
+        setter(aggregatePortfolioHistory(vaultHistories));
       } catch (error) {
         if (error instanceof Error && error.name === 'AbortError') return;
         logger.warn('Failed to fetch portfolio position history', {
@@ -437,7 +409,7 @@ export default function PortfolioPositionChart() {
                   {isTimeFrameMenuOpen && (
                     <>
                       <div
-                        className="fixed inset-0 z-10"
+                        className="fixed inset-0 z-10 touch-none overscroll-none bg-black/20"
                         onClick={() => setIsTimeFrameMenuOpen(false)}
                       />
                       <div className="absolute left-0 top-full mt-2 bg-[var(--surface-elevated)] border border-[var(--border)] rounded-lg shadow-lg z-20 min-w-[120px]">

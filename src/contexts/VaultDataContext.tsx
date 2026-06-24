@@ -4,7 +4,7 @@ import React, { createContext, useContext, useState, useCallback, ReactNode } fr
 import { formatUnits } from 'viem';
 import { Vault, MorphoVaultData, VaultLiquidityBreakdown } from '@/types/vault';
 import { getVaultVersion } from '../lib/vault-utils';
-import { MORPHO_PRELOAD_BATCH_SIZE, MORPHO_FETCH_ERROR_COOLDOWN_MS } from '../lib/constants';
+import { MORPHO_PRELOAD_BATCH_SIZE, MORPHO_FETCH_ERROR_COOLDOWN_MS, CLIENT_VAULT_DATA_CACHE_MS } from '../lib/constants';
 import { VAULTS } from '../lib/vaults';
 
 interface AllocationData {
@@ -73,7 +73,6 @@ interface VaultDataProviderProps {
 }
 
 // Constants moved outside component to avoid unnecessary re-renders
-const CACHE_DURATION_VAULT_DATA = 5 * 60 * 1000; // 5 minutes
 const MAX_PENDING_REQUESTS = 50; // Maximum pending requests before cleanup
 
 export function VaultDataProvider({ children }: VaultDataProviderProps) {
@@ -109,7 +108,7 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
   }, []);
 
   const isDataStale = useCallback((timestamp: number) => {
-    return Date.now() - timestamp > CACHE_DURATION_VAULT_DATA;
+    return Date.now() - timestamp > CLIENT_VAULT_DATA_CACHE_MS;
   }, []);
 
   // NEW: Fetch complete vault data in ONE API call
@@ -129,7 +128,7 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
       const currentVaultData = vaultDataRef.current[address];
       if (currentVaultData?.lastFetched) {
         const ageMs = Date.now() - currentVaultData.lastFetched;
-        if (currentVaultData.basic && ageMs < CACHE_DURATION_VAULT_DATA) {
+        if (currentVaultData.basic && ageMs < CLIENT_VAULT_DATA_CACHE_MS) {
           return;
         }
         // Failed fetches (e.g. rate limit) must not retry in a tight loop

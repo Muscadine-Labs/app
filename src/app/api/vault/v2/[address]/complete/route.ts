@@ -48,7 +48,9 @@ export async function GET(
             symbol
             decimals
             name
-            priceUsd
+            price {
+              usd
+            }
             yield {
               apr
             }
@@ -57,7 +59,6 @@ export async function GET(
           # Metadata
           metadata {
             description
-            forumLink
             image
           }
           
@@ -92,7 +93,6 @@ export async function GET(
               }
             }
             supplyApr
-            yearlySupplyTokens
           }
           
           # Allocation & Strategy (V2 uses adapters)

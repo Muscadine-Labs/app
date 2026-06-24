@@ -34,14 +34,14 @@ Instructions for AI agents working in this repo. Full architecture docs live in 
 - **Your Vaults** (dashboard): **v2** positions only (registry + external Morpho v2 vaults).
 - **Morpho Vaults total** includes **all** user v2 positions from Morpho (`/api/user/morpho-positions`), not only Muscadine registry vaults.
 - **External vaults** (not in `vaults.ts`): shown on dashboard totals, **not clickable** (no detail/transact pages).
-- **Portfolio chart:** all Morpho **v1 + v2** positions via `/api/user/morpho-positions` + per-vault `position-history` (v1 `position-history` API kept for Muscadine migration backfill only).
+- **Portfolio chart:** v2 positions via `/api/user/morpho-positions` + `/api/vault/v2/.../position-history` (`aggregatePortfolioHistory` in `portfolio-utils.ts`).
 - **Earned interest:** `/api/vault/v2/.../earned-interest` + `useVaultEarnedInterest`; shows **0** (not `-`) when user never deposited. Use `resolveAssetDecimals` / `getAssetDecimalsForSymbol`.
 
 ## Known gotchas
 
-- Portfolio v1→v2 cutover: `preparePortfolioVaultHistories()` + `legacy-vaults.ts` — only for known Muscadine v1 addresses, not symbol-only pairing.
 - Morpho GraphQL invalid fields fail the whole request (HTTP 400).
 - Morpho public API rate limit (429): all server Morpho calls use `fetchMorphoGraphQL()` in `api-utils.ts` (in-memory cache, retries, stale fallback). Routes return 503 with `MORPHO_RATE_LIMIT_BODY` when limited.
+- Morpho asset USD price: query `price { usd }`; parse via `resolveMorphoAssetPriceUsd()` in `api-utils.ts`.
 - Overlay scroll lock: use `useLockPageScroll()` — locks `body` and `[data-app-scroll]` in `AppLayout`.
 - Turbopack chunk errors: `rm -rf .next .turbo && npm run dev`.
 

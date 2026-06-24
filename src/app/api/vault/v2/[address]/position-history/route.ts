@@ -205,7 +205,6 @@ export async function GET(
             asset {
               symbol
               decimals
-              priceUsd
             }
           }
         }

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { BASE_CHAIN_ID } from '@/lib/constants';
 
-/** User positions must be fresh — never use the 5 min Morpho GraphQL cache. */
+/** User positions must be fresh — never use the Morpho GraphQL response cache. */
 export const dynamic = 'force-dynamic';
 import { fetchMorphoGraphQL } from '@/lib/api-utils';
 import {
@@ -27,26 +27,9 @@ interface MorphoV2PositionItem {
   };
 }
 
-interface MorphoV1PositionItem {
-  vault: {
-    address: string;
-    name: string;
-    symbol?: string;
-    asset?: { symbol?: string; decimals?: number };
-  };
-  state?: {
-    assets?: number;
-    assetsUsd?: number;
-    shares?: number;
-    pnl?: number;
-    pnlUsd?: number;
-  };
-}
-
 interface UserPositionsGraphQL {
   userByAddress?: {
     vaultV2Positions: MorphoV2PositionItem[];
-    vaultPositions: MorphoV1PositionItem[];
   };
 }
 
@@ -59,8 +42,7 @@ function mapPosition(
   assets: number | string,
   assetsUsd: number,
   pnl: number | string | undefined,
-  pnlUsd: number | undefined,
-  version: 'v1' | 'v2'
+  pnlUsd: number | undefined
 ) {
   const registryVault = findVaultByAddress(vaultAddress);
   const decimals = assetDecimals || getAssetDecimalsForSymbol(assetSymbol);
@@ -74,7 +56,7 @@ function mapPosition(
       strategy: registryVault?.strategy,
       isCurated: !!registryVault,
     },
-    version,
+    version: 'v2' as const,
     assetDecimals: decimals,
     shares: normalizeMorphoShares(shares),
     assets: morphoAmountToRaw(assets),
@@ -119,24 +101,6 @@ export async function GET(request: NextRequest) {
             }
           }
         }
-        vaultPositions {
-          vault {
-            address
-            name
-            symbol
-            asset {
-              symbol
-              decimals
-            }
-          }
-          state {
-            assets
-            assetsUsd
-            shares
-            pnl
-            pnlUsd
-          }
-        }
       }
     }
   `;
@@ -164,9 +128,8 @@ export async function GET(request: NextRequest) {
     }
 
     const v2Raw = json.data?.userByAddress?.vaultV2Positions ?? [];
-    const v1Raw = json.data?.userByAddress?.vaultPositions ?? [];
 
-    const v2Positions = v2Raw
+    const positions = v2Raw
       .filter((p) => {
         if (includeEmpty) return true;
         const sharesRaw = normalizeMorphoShares(p.shares);
@@ -193,53 +156,9 @@ export async function GET(request: NextRequest) {
           p.assets,
           p.assetsUsd,
           p.pnl,
-          p.pnlUsd,
-          'v2'
+          p.pnlUsd
         );
       });
-
-    const v1Positions = v1Raw
-      .filter((p) => {
-        if (includeEmpty) return true;
-        return (p.state?.shares ?? 0) > 0;
-      })
-      .map((p) => {
-        const assetSymbol =
-          findVaultByAddress(p.vault.address)?.symbol ??
-          p.vault.asset?.symbol ??
-          p.vault.symbol ??
-          'UNKNOWN';
-        const assetDecimals =
-          p.vault.asset?.decimals ?? getAssetDecimalsForSymbol(assetSymbol);
-        const state = p.state ?? {
-          shares: 0,
-          assets: 0,
-          assetsUsd: 0,
-          pnl: 0,
-          pnlUsd: 0,
-        };
-        return mapPosition(
-          p.vault.address,
-          p.vault.name,
-          assetSymbol,
-          assetDecimals,
-          state.shares ?? 0,
-          state.assets ?? 0,
-          state.assetsUsd ?? 0,
-          state.pnl,
-          state.pnlUsd,
-          'v1'
-        );
-      });
-
-    // Deduplicate: if same address appears in both (shouldn't), prefer v2
-    const seen = new Set<string>();
-    const positions = [...v2Positions, ...v1Positions].filter((p) => {
-      const key = p.vault.address.toLowerCase();
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
 
     return NextResponse.json({ positions });
   } catch (err) {

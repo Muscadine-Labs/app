@@ -157,7 +157,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
 
       setLoading(true);
       try {
-        // NOTE: Position history graphs use Graph API (via /api/vault/v1|v2/[address]/position-history)
+        // NOTE: Position history graphs use Graph API (via /api/vault/v2/[address]/position-history)
         // This provides historical data points for chart display
         // Current position balance uses RPC (balanceOf + convertToAssets) - see above
         const response = await fetch(

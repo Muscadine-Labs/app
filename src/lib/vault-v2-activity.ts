@@ -6,7 +6,7 @@ import type {
 } from '@/types/api';
 import { DEFAULT_ASSET_PRICE, DEFAULT_ASSET_DECIMALS, STABLECOIN_SYMBOLS, MORPHO_GRAPHQL_REVALIDATE_SECONDS } from '@/lib/constants';
 import { logger } from '@/lib/logger';
-import { fetchMorphoGraphQL } from '@/lib/api-utils';
+import { fetchMorphoGraphQL, resolveMorphoAssetPriceUsd } from '@/lib/api-utils';
 
 export interface VaultV2ActivityData {
   transactions: Transaction[];
@@ -142,7 +142,9 @@ export async function fetchVaultV2ActivityData(
           asset {
             symbol
             decimals
-            priceUsd
+            price {
+              usd
+            }
           }
         }
       }
@@ -161,16 +163,16 @@ export async function fetchVaultV2ActivityData(
       const vaultInfo = vaultData.data?.vaultV2ByAddress;
       if (vaultInfo?.asset) {
         assetDecimals = vaultInfo.asset.decimals || DEFAULT_ASSET_DECIMALS;
-        assetPrice = vaultInfo.asset.priceUsd || DEFAULT_ASSET_PRICE;
+        assetPrice = resolveMorphoAssetPriceUsd(vaultInfo.asset, DEFAULT_ASSET_PRICE);
 
-        if (!vaultInfo.asset.priceUsd) {
+        if (!resolveMorphoAssetPriceUsd(vaultInfo.asset)) {
           const symbol = vaultInfo.asset.symbol || '';
           const symbolUpper = symbol.toUpperCase();
           if (
             symbol &&
             !STABLECOIN_SYMBOLS.includes(symbolUpper as (typeof STABLECOIN_SYMBOLS)[number])
           ) {
-            logger.warn('Vault asset missing priceUsd from Morpho', {
+            logger.warn('Vault asset missing USD price from Morpho', {
               symbol,
               vaultAddress,
             });

@@ -98,8 +98,8 @@ Never commit real keys. `.env.example` documents placeholders.
                             │
 ┌───────────────────────────▼─────────────────────────────────────┐
 │              Next.js Route Handlers (/api/...)                   │
-│  POST https://api.morpho.org/graphql  (revalidate ~5 min)         │
-│  vaultV2ByAddress (v2)  |  v1 position-history (backfill only)   │
+│  POST https://api.morpho.org/graphql  (revalidate ~60s)           │
+│  vaultV2ByAddress (v2) only                                         │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -128,7 +128,7 @@ Always resolve version with `getVaultVersion(address)` / `findVaultByAddress()` 
 
 **Dev mode (`VaultVersionContext`, `preference === 'all'`):** Transact **over-balance bypass** only. Explorer filters default to **All** (network, strategy, asset) for everyone — not dev-gated. **No v1/v2 version filter** (v1 removed).
 
-**Dashboard:** Shows all Morpho v1+v2 positions via `/api/user/morpho-positions`; non-curated vaults are read-only on dashboard. Portfolio chart aggregates position-history for **every** deposited Morpho vault (v1 + v2).
+**Dashboard:** Shows Morpho **v2** positions via `/api/user/morpho-positions`; non-curated vaults are read-only on dashboard. Portfolio chart aggregates v2 position-history only.
 
 ---
 
@@ -151,8 +151,6 @@ All vault writes use **`src/lib/transactionUtilsV2.ts`** (direct ERC-4626 + viem
 | **Liquidity in UI** | GraphQL `liquidity` / `liquidityUsd`, not `totalAssets` |
 
 Share tokens use **18 decimals**; underlying assets use registry decimals (USDC **6**, cbBTC **8**, WETH **18**).
-
-**v1 → v2 migration (portfolio chart only):** `legacy-vaults.ts` + `preparePortfolioVaultHistories()` truncates known Muscadine v1 history at first related **curated** v2 deposit — not symbol-only pairing with external vaults.
 
 ---
 
@@ -216,7 +214,7 @@ Notable fields: `asset`, `totalAssets`, `totalSupply`, `liquidity`, `liquidityUs
 
 Query root: `vaultV2ByAddress` → `historicalState`. APY series uses **`avgNetApy` only** (`avgNetApyExcludingRewards` is not on the history type). Maps to `apy` / `netApy` in the JSON response (percent × 100).
 
-### Position history (v1 & v2)
+### Position history (v2)
 
 - **V1:** `vaultPosition` + `historicalState.{assets,assetsUsd,shares}`
 - **V2:** `vaultV2PositionByAddress` + `history.{assets,assetsUsd,shares}`; raw `assets` / `shares` scaled by asset decimals / 1e18 in the route handler
@@ -227,16 +225,12 @@ Both return `currentPosition` + `history[]` with `{ timestamp, assets, assetsUsd
 
 Morpho often returns a **trailing interval** (current hour/day) with **zeros** for TVL and/or position while the in-progress bucket is empty. That makes charts dip to zero on the last point.
 
-**Fix:** `stripIncompleteVaultHistoryBuckets` (vault `history` routes) and `finalizePositionHistory` (`position-history` routes) in `src/lib/api-utils.ts` — applied on **v1 and v2** route responses before JSON is returned.
+**Fix:** `stripIncompleteVaultHistoryBuckets` (vault `history` routes) and `finalizePositionHistory` (`position-history` routes) in `src/lib/api-utils.ts` — applied on v2 route responses before JSON is returned.
 
 **`finalizePositionHistory` (position-history only):** uses the live `currentPosition` to disambiguate trailing zeros:
 
 - **Position open** (shares/assets > 0): trailing zero buckets are the in-progress interval → stripped (`stripIncompletePositionHistoryBuckets`).
 - **Position closed** (fully withdrawn): trailing zeros are real → kept. If Morpho's stale v1 history still ends at a **pre-withdrawal value**, a **zero point** is appended one bucket after the last point, so the dashboard's forward-fill aggregation drops to zero instead of being stuck at the last held amount (the "portfolio stuck at old v1 balance" bug).
-
-### V1 API (portfolio backfill only)
-
-- **`/api/vault/v1/[address]/position-history`** — kept for Muscadine v1 migration chart backfill (`legacy-vaults.ts`). No v1 complete, activity, history, or `/vault/v1/*` pages.
 
 ### Morpho GraphQL schema changes (2025–2026)
 
@@ -244,6 +238,8 @@ If `complete` routes return **HTTP 400**, validate queries against `https://api.
 
 | Removed / renamed | Use instead |
 |-------------------|-------------|
+| `Asset.priceUsd` | `price { usd }` — use `resolveMorphoAssetPriceUsd()` in `api-utils.ts` |
+| `VaultStateReward.yearlySupplyTokens` | Removed — query `supplyApr` only |
 | `whitelisted` on Vault / VaultV2 | `listed` (map to `whitelisted` in API responses for UI) |
 | `state.sharePrice` (v1 VaultState) | Compute from `totalAssets` / `totalSupply` |
 | `state.avgApy` (v1) | `avgNetApy` or `apy` |
@@ -280,8 +276,7 @@ If `complete` routes return **HTTP 400**, validate queries against `https://api.
 | `/transact` | Deposit/withdraw flow (`TransactionContext` + `TransactionFlow`) |
 | `/vault/v2/[address]` | V2 vault detail |
 | `/api/prices` | Price proxy/cache |
-| `/api/user/morpho-positions` | User Morpho v1+v2 positions (deduped v2-first) |
-| `/api/vault/v1/[address]/position-history` | v1 position history (portfolio backfill only) |
+| `/api/user/morpho-positions` | User Morpho v2 positions |
 | `/api/vault/v2/...` | V2 Morpho GraphQL proxies |
 | `/.well-known/farcaster.json` | Farcaster mini app manifest |
 
@@ -303,14 +298,13 @@ Three-row layout:
 | Bottom left | `PortfolioPositionChart` | Combined USD portfolio history (Recharts) |
 | Bottom right | `DashboardVaultTable` | **v2** vaults where user has non-zero position (registry + external) |
 
-**Important:** Dashboard ignores `VaultVersionContext`. Portfolio chart includes **all** Morpho v1+v2 positions from the API; **Your Vaults** is **v2-only**.
+**Important:** Dashboard ignores `VaultVersionContext`. Portfolio chart includes **v2** positions from the API; **Your Vaults** is **v2-only**.
 
 - **Your Vaults** lists v2 deposits only (`position.version === 'v2'`), sorted by USD. External (non-curated) vaults are shown but **not clickable**.
 - **Layout:** Chart + Your Vaults use **`min-[1000px]:grid-cols-2`** (side-by-side from ~1000px width; stacked below). `DashboardVaultTable` uses a **compact** `table-fixed` layout at `min-[1000px]+`; card layout below that.
 - **Portfolio chart** (`PortfolioPositionChart.tsx`):
-  1. Discovers vaults via `/api/user/morpho-positions?includeEmpty=true` (+ legacy v1 backfill for Muscadine migrations).
-  2. **`preparePortfolioVaultHistories()`** — curated v1→v2 cutover per `legacy-vaults.ts`.
-  3. **`aggregatePortfolioHistory()`** — forward-fill each series and sum USD.
+  1. Discovers vaults via `/api/user/morpho-positions?includeEmpty=true`.
+  2. **`aggregatePortfolioHistory()`** in `portfolio-utils.ts` — forward-fill and sum USD.
   - **Current holdings** in `WalletOverview` / Your Vaults from **`WalletContext`** (`/api/user/morpho-positions`).
 - Preloads vault API data for deposited vaults via `useVaultListPreloader`.
 - **Position display:** `formatPositionUsd` / `formatPositionTokenAmount` in `formatter.ts` (full values, no K/M/B; USDC 2 decimals, WETH/cbBTC 4).
@@ -330,7 +324,7 @@ Three-row layout:
 
 **Table columns** (`VaultExplorerTable.tsx`): Vault, **Your Position**, **Earned Interest**, **APY / TVL** (compact layout). Rows navigate to `/vault/v2/{address}`.
 
-**Vault list sort order** (`sortVaultsForDisplay`): (1) position USD high → low, (2) v2 before v1 (external positions), (3) TVL high → low, (4) name.
+**Vault list sort order** (`sortVaultsForDisplay`): (1) position USD high → low, (2) TVL high → low, (3) name.
 
 **Earned interest:** `useVaultEarnedInterest` for curated vaults; shows **0** when never deposited.
 
@@ -410,13 +404,12 @@ src/
   contexts/               # See table above
   hooks/
   lib/
-    portfolio-utils.ts    # ★ preparePortfolioVaultHistories + aggregatePortfolioHistory (dashboard)
+    portfolio-utils.ts    # ★ aggregatePortfolioHistory (dashboard)
     api-utils.ts          # Period/interval helpers; strip incomplete Morpho timeseries tails
     transactionUtilsV2.ts # ★ V2 on-chain (ERC-4626 ABI)
     transactionUtils.ts   # Errors, shared tx helpers
     vaults.ts             # ★ Vault registry (v2 Prime + Frontier)
     vault-utils.ts        # Routes, sortVaultsForDisplay, resolvePositionAssetsUsd, isCuratedVaultAddress
-    legacy-vaults.ts      # Muscadine v1 addresses for portfolio chart backfill
     interest-utils.ts     # Earned interest from activity
     asset-decimals.ts     # Morpho amount normalization
     constants.ts          # Chain, WETH, cache TTLs, GENERAL_ADAPTER
@@ -446,7 +439,7 @@ src/
 
 **Transact tabs:** Tab highlight uses `activeTab` (user selection). `effectiveActiveTab` infers deposit vs withdraw from From/To when both accounts are set (WETH prefs, max amount). `handleTabChange` resets accounts per tab; do not no-op on `tab === activeTab` alone — use `accountsMatchTransactionTab()` so mismatched From/To does not block clicks.
 
-**Portfolio position history:** Per-vault API at `/api/vault/{v1|v2}/{address}/position-history` (tails stripped server-side). Dashboard runs **`preparePortfolioVaultHistories` → `aggregatePortfolioHistory`**; single-vault charts use `VaultPosition.tsx`. Do not sum raw v1+v2 history for the same asset without cutover logic.
+**Portfolio position history:** Per-vault API at `/api/vault/v2/{address}/position-history` (tails stripped server-side). Dashboard runs **`aggregatePortfolioHistory`**; single-vault charts use `VaultPosition.tsx`.
 
 **Formatting conventions:**
 
@@ -460,7 +453,7 @@ src/
 `WalletContext`:
 
 - Native ETH + tokens: USDC, cbBTC, WETH, cbETH, wstETH (`TOKEN_ADDRESSES` on Base) via Alchemy
-- **Morpho positions:** `/api/user/morpho-positions` (v1+v2 from Morpho GraphQL, deduped v2-first); metadata from `/api/vault/v2/.../complete`
+- **Morpho positions:** `/api/user/morpho-positions` (v2); metadata from `/api/vault/v2/.../complete`
 - `refreshBalances`, `refreshBalancesWithPolling` after transactions
 
 ---
@@ -481,7 +474,7 @@ src/
 - `BASE_CHAIN_ID = 8453`
 - `BASE_WETH_ADDRESS` — Base canonical WETH
 - `GENERAL_ADAPTER_ADDRESS` — v1 bundler flows
-- Cache TTLs: vault data 5m, prices 10m, activity 1m
+- Cache TTLs: vault client + Morpho in-memory **60s**; prices 10m; activity 1m
 - Morpho GraphQL: `MORPHO_GRAPHQL_URL`, `MORPHO_GRAPHQL_REVALIDATE_SECONDS`, fetch timeout/retries, preload batch size — all Morpho calls go through `fetchMorphoGraphQL()` in `api-utils.ts`
 
 `next.config.ts`:
@@ -561,8 +554,6 @@ Do not bump without checking compatibility:
 ### Product / registry (planned)
 
 1. **Multi-chain vaults** — Extend beyond Base to **Ethereum** and **Hyperliquid**: multi-chain `VAULTS` entries, RPC/wagmi chains, Morpho GraphQL `chainId` on API routes, explorer Network filter (today only Base is real; “All” is forward-compatible).
-2. **Finish v1 sunset** — v1 UI and most API routes removed; only `position-history` remains for portfolio backfill. Remove cutover logic once no active v1 TVL.
-
 ### Technical (optional)
 
 3. **`@morpho-org/morpho-sdk` for v2** — Bundler3 deposits with `maxSharePrice` slippage; `forceWithdraw` / `forceRedeem` when GraphQL `liquidity` is low.
@@ -582,7 +573,7 @@ Do not bump without checking compatibility:
 | Task | Where to look |
 |------|----------------|
 | Dashboard layout | `src/app/page.tsx` |
-| Portfolio history chart | `PortfolioPositionChart.tsx`, `portfolio-utils.ts` (`preparePortfolioVaultHistories`, `aggregatePortfolioHistory`) |
+| Portfolio history chart | `PortfolioPositionChart.tsx`, `portfolio-utils.ts` (`aggregatePortfolioHistory`) |
 | Morpho timeseries tail fix | `api-utils.ts` (`stripIncomplete*`, `finalizePositionHistory`), used in vault `history` + `position-history` routes |
 | Position table formatting | `formatter.ts` (`formatPositionUsd`, `formatPositionTokenAmount`) |
 | Vault explorer page | `src/app/vaults/page.tsx`, `VaultExplorer*.tsx` |

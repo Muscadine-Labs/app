@@ -427,7 +427,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     }
   }, [address]);
 
-  // Fetch all Morpho vault positions from the API (v1 + v2, curated + external).
+  // Fetch all Morpho v2 vault positions from the API (curated + external).
   const fetchVaultPositions = useCallback(async (): Promise<void> => {
     if (!address) {
       setMorphoHoldings(prev => ({

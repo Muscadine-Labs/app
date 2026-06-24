@@ -152,25 +152,3 @@ export interface AlchemyTokenMetadataResponse {
   };
 }
 
-// Morpho Holdings Types
-export interface MorphoVaultPosition {
-  vault: {
-    address: string;
-    name: string;
-    symbol: string;
-    state: {
-      sharePriceUsd: number;
-      totalAssetsUsd: number;
-      totalSupply: string;
-    };
-  };
-  shares: string;
-  assets?: string;
-}
-
-export interface MorphoUserVaultPositions {
-  userByAddress?: {
-    vaultPositions: MorphoVaultPosition[];
-  };
-}
-

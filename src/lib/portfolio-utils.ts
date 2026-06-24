@@ -1,66 +1,6 @@
-import {
-  isLegacyMuscadineV1Vault,
-  normalizePortfolioAssetSymbol,
-} from '@/lib/legacy-vaults';
-import { findVaultByAddress } from '@/lib/vault-utils';
-
 export interface PositionHistoryPoint {
   timestamp: number;
   assetsUsd: number;
-}
-
-export interface PortfolioVaultHistoryInput {
-  address: string;
-  symbol: string;
-  version: 'v1' | 'v2';
-  history: PositionHistoryPoint[];
-}
-
-/**
- * Prepare per-vault histories for portfolio aggregation.
- *
- * Cutover (truncate v1 at first related v2 deposit) applies only to known Muscadine
- * v1→v2 migration pairs — not external v1/v2 vaults that share the same asset symbol.
- */
-export function preparePortfolioVaultHistories(
-  vaults: PortfolioVaultHistoryInput[]
-): PositionHistoryPoint[][] {
-  const prepared: PositionHistoryPoint[][] = [];
-  const v2Vaults = vaults.filter((v) => v.version === 'v2');
-
-  for (const vault of vaults) {
-    let history = vault.history;
-
-    if (
-      vault.version === 'v1' &&
-      isLegacyMuscadineV1Vault(vault.address) &&
-      v2Vaults.length > 0
-    ) {
-      const symbolKey = normalizePortfolioAssetSymbol(vault.symbol);
-      const relatedV2 = v2Vaults.filter((v) => {
-        if (normalizePortfolioAssetSymbol(v.symbol) !== symbolKey) return false;
-        return Boolean(findVaultByAddress(v.address));
-      });
-
-      if (relatedV2.length > 0) {
-        const firstV2Deposit = relatedV2
-          .flatMap((v) => v.history.filter((p) => p.assetsUsd > 0))
-          .sort((a, b) => a.timestamp - b.timestamp)[0];
-
-        if (firstV2Deposit) {
-          const cutover = firstV2Deposit.timestamp;
-          history = history.filter((p) => p.timestamp < cutover);
-          history.push({ timestamp: cutover, assetsUsd: 0 });
-        }
-      }
-    }
-
-    if (history.length > 0) {
-      prepared.push(history);
-    }
-  }
-
-  return prepared;
 }
 
 /**

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import type { GraphQLError } from '@/types/api';
 import { logger } from '@/lib/logger';
 import { isValidEthereumAddress } from '@/lib/vault-utils';
-import { isValidChainId, isValidPeriod, MIN_VALID_TIMESTAMP, PERIOD_SECONDS, INTERVAL_MAP, stripIncompleteVaultHistoryBuckets, fetchMorphoGraphQL, readMorphoGraphQLResponse, MORPHO_RATE_LIMIT_BODY } from '@/lib/api-utils';
+import { isValidChainId, isValidPeriod, MIN_VALID_TIMESTAMP, PERIOD_SECONDS, INTERVAL_MAP, stripIncompleteVaultHistoryBuckets, fetchMorphoGraphQL, readMorphoGraphQLResponse, MORPHO_RATE_LIMIT_BODY, resolveMorphoAssetPriceUsd } from '@/lib/api-utils';
 import { MORPHO_GRAPHQL_REVALIDATE_SECONDS } from '@/lib/constants';
 
 export async function GET(
@@ -67,7 +67,9 @@ export async function GET(
           asset {
             symbol
             decimals
-            priceUsd
+            price {
+              usd
+            }
           }
           historicalState {
             avgNetApy(options: $options) {
@@ -180,7 +182,7 @@ export async function GET(
     const totalSupplyData = vaultData.historicalState.totalSupply || [];
     
     const assetDecimals = vaultData.asset?.decimals || 18;
-    const assetPriceUsd = vaultData.asset?.priceUsd || 0;
+    const assetPriceUsd = resolveMorphoAssetPriceUsd(vaultData.asset);
 
     const timestamps = new Set<number>();
     netApyData.forEach((point: { x: number; y: number }) => timestamps.add(point.x));

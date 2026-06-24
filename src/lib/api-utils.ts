@@ -1,6 +1,5 @@
 import { logger } from '@/lib/logger';
 import {
-  CACHE_DURATION_VAULT_DATA,
   MORPHO_FETCH_TIMEOUT_MS,
   MORPHO_GRAPHQL_REVALIDATE_SECONDS,
   MORPHO_GRAPHQL_URL,
@@ -65,10 +64,7 @@ type MorphoCacheEntry = {
 const morphoResponseCache = new Map<string, MorphoCacheEntry>();
 
 function morphoMemoryCacheTtlMs(): number {
-  // Next.js does not dedupe Morpho fetches in dev; cache aggressively to avoid rate limits.
-  return process.env.NODE_ENV === 'development'
-    ? CACHE_DURATION_VAULT_DATA
-    : MORPHO_MEMORY_CACHE_MS;
+  return MORPHO_MEMORY_CACHE_MS;
 }
 
 function morphoCacheKey(body: { query: string; variables?: Record<string, unknown> }): string {
@@ -84,6 +80,22 @@ function toMorphoResponse(entry: MorphoCacheEntry): Response {
     status: entry.status,
     headers: { 'Content-Type': 'application/json' },
   });
+}
+
+export type MorphoAssetPriceFields = {
+  price?: { usd?: number | null } | null;
+};
+
+/** Read USD price from Morpho Asset (`price.usd`). */
+export function resolveMorphoAssetPriceUsd(
+  asset: MorphoAssetPriceFields | null | undefined,
+  fallback = 0
+): number {
+  const usd = asset?.price?.usd;
+  if (typeof usd === 'number' && Number.isFinite(usd) && usd > 0) {
+    return usd;
+  }
+  return fallback;
 }
 
 export function isMorphoRateLimitError(status: number, responseText: string): boolean {
