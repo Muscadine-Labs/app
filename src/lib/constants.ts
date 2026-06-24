@@ -18,6 +18,8 @@ export const MAX_WITHDRAW_QUEUE_ITEMS = 30; // Maximum items to fetch from withd
 export const ETH_GAS_RESERVE = 0.0001;
 /** Extra pause before WETH unwrap so wallet/RPC balance catches up after vault withdraw. */
 export const UNWRAP_SETTLE_DELAY_MS = 2000;
+/** Delay before follow-up balance refresh after tx (Morpho indexer lag). */
+export const POST_TX_BALANCE_REFRESH_DELAY_MS = 5000;
 
 // Request timeouts
 export const REQUEST_TIMEOUT_MS = 30000; // 30 seconds

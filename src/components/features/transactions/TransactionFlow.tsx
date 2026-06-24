@@ -15,7 +15,7 @@ import {
   simulateVaultWithdraw,
 } from '@/lib/liquidity-utils';
 import { formatAssetAmount } from '@/lib/formatter';
-import { BASE_CHAIN_ID } from '@/lib/constants';
+import { BASE_CHAIN_ID, POST_TX_BALANCE_REFRESH_DELAY_MS } from '@/lib/constants';
 import { depositToVaultV2, withdrawFromVaultV2, redeemFromVaultV2, resumeUnwrapWalletWethV2 } from '@/lib/transactionUtilsV2';
 import { TransactionConfirmation } from './TransactionConfirmation';
 import { WithdrawLiquidityWarningModal } from './WithdrawLiquidityWarningModal';
@@ -197,7 +197,7 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
       refreshData();
 
       refreshBalancesWithPolling({
-        followUpDelayMs: 8000,
+        followUpDelayMs: POST_TX_BALANCE_REFRESH_DELAY_MS,
         onComplete: async () => {
           logger.info('Wallet balances refreshed successfully after transaction', {
             txHash: hashToUse,
