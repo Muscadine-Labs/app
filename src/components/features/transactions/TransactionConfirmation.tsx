@@ -4,6 +4,8 @@ import Image from 'next/image';
 import { Account, VaultAccount, getVaultLogo } from '@/types/vault';
 import { TransactionType, useTransactionState } from '@/contexts/TransactionContext';
 import { formatAssetBalance } from '@/lib/formatter';
+import { ETH_GAS_RESERVE } from '@/lib/constants';
+import { VAULTS } from '@/lib/vaults';
 import { Button } from '@/components/ui';
 import { useAccount } from 'wagmi';
 import { useRouter } from 'next/navigation';
@@ -46,7 +48,7 @@ export function TransactionConfirmation({
 }: TransactionConfirmationProps) {
   const { address } = useAccount();
   const router = useRouter();
-  const { reset } = useTransactionState();
+  const { reset, ethGasReserveOnMax, preferredAsset } = useTransactionState();
   const { error: showErrorToast, showToast } = useToast();
   const { fetchVaultData } = useVaultData();
   const { refreshBalances } = useWallet();
@@ -107,6 +109,16 @@ export function TransactionConfirmation({
   };
 
   const formattedAmount = formatAmount();
+
+  const showNoGasReserveWarning =
+    transactionType === 'deposit' &&
+    assetSymbol === 'WETH' &&
+    fromAccount.type === 'wallet' &&
+    toAccount.type === 'vault' &&
+    (toAccount as VaultAccount).address.toLowerCase() ===
+      VAULTS.WETH_VAULT_V2.address.toLowerCase() &&
+    !ethGasReserveOnMax &&
+    (preferredAsset === 'ETH' || preferredAsset === 'ALL' || preferredAsset === undefined);
 
   // Get current date for transaction details
   const getCurrentDate = () => {
@@ -404,7 +416,22 @@ export function TransactionConfirmation({
             </svg>
           </div>
           <p className="text-xs md:text-sm text-[var(--foreground)]">
-            <span className="font-medium">Note:</span> Depositing ETH will wrap it to WETH. USDC can be used for gas fees on Base.
+            <span className="font-medium">Note:</span> Depositing ETH will wrap it to WETH before depositing to the vault.
+          </p>
+        </div>
+      )}
+
+      {showNoGasReserveWarning && (
+        <div className="flex items-start gap-2 md:gap-3 p-3 md:p-4 bg-[var(--warning-subtle)] rounded-lg border border-[var(--warning)]">
+          <div className="w-4 h-4 md:w-5 md:h-5 rounded-full bg-[var(--warning)] flex items-center justify-center shrink-0 mt-0.5">
+            <svg className="w-2.5 h-2.5 md:w-3 md:h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+          </div>
+          <p className="text-xs md:text-sm text-[var(--foreground)]">
+            <span className="font-medium">Gas warning:</span> You did not reserve {ETH_GAS_RESERVE}{' '}
+            ETH for gas. This transaction or future transactions may fail if your wallet runs out of
+            ETH for network fees.
           </p>
         </div>
       )}

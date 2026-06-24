@@ -23,6 +23,8 @@ export interface TransactionState {
   txHash: string | null;
   transactionType: TransactionType | null;
   preferredAsset?: 'ETH' | 'WETH' | 'ALL'; // For WETH vault deposits/withdrawals ('ALL' means use both ETH+WETH)
+  /** When false, MAX/deposit may use full ETH balance without gas reserve (user acknowledged risk). */
+  ethGasReserveOnMax: boolean;
 }
 
 interface TransactionContextType extends TransactionState {
@@ -33,6 +35,7 @@ interface TransactionContextType extends TransactionState {
   setAmount: (amount: string) => void;
   setStatus: (status: TransactionStatus, error?: string | null, txHash?: string | null) => void;
   setPreferredAsset: (asset: 'ETH' | 'WETH' | 'ALL' | undefined) => void;
+  setEthGasReserveOnMax: (reserve: boolean) => void;
   reset: () => void;
 }
 
@@ -48,6 +51,7 @@ export function TransactionProvider({ children }: { children: React.ReactNode })
     txHash: null,
     transactionType: null,
     preferredAsset: undefined,
+    ethGasReserveOnMax: true,
   });
 
   // Determine transaction type based on from/to accounts
@@ -87,7 +91,11 @@ export function TransactionProvider({ children }: { children: React.ReactNode })
   }, []);
 
   const setPreferredAsset = useCallback((asset: 'ETH' | 'WETH' | 'ALL' | undefined) => {
-    setState(prev => ({ ...prev, preferredAsset: asset }));
+    setState(prev => ({ ...prev, preferredAsset: asset, ethGasReserveOnMax: true }));
+  }, []);
+
+  const setEthGasReserveOnMax = useCallback((reserve: boolean) => {
+    setState(prev => ({ ...prev, ethGasReserveOnMax: reserve }));
   }, []);
 
   const setStatus = useCallback((status: TransactionStatus, error?: string | null, txHash?: string | null) => {
@@ -109,6 +117,7 @@ export function TransactionProvider({ children }: { children: React.ReactNode })
       txHash: null,
       transactionType: null,
       preferredAsset: undefined,
+      ethGasReserveOnMax: true,
     });
   }, []);
 
@@ -160,6 +169,7 @@ export function TransactionProvider({ children }: { children: React.ReactNode })
     setAmount,
     setStatus,
     setPreferredAsset,
+    setEthGasReserveOnMax,
     reset,
   };
 
