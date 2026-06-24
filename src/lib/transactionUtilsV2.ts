@@ -202,18 +202,12 @@ async function resolveWethBalanceForUnwrap(
     if (balance >= requiredAmount) {
       return balance;
     }
-    if (balance > BigInt(0) && attempt === maxAttempts - 1) {
-      return balance;
-    }
     if (attempt < maxAttempts - 1) {
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
   }
 
   const balance = await readWethBalance(publicClient, ownerAddress);
-  if (balance > BigInt(0)) {
-    return balance;
-  }
 
   throw new Error(
     'WETH from your withdrawal is not available to unwrap yet.\n\n' +
@@ -500,7 +494,7 @@ async function unwrapWeth(
     amount,
     confirmBlockNumber
   );
-  const unwrapAmount = amount > wethBalance ? wethBalance : amount;
+  const unwrapAmount = amount;
 
   if (unwrapAmount === BigInt(0)) {
     throw new Error(
@@ -752,8 +746,11 @@ export async function depositToVaultV2(
 
   const planLabels: string[] = [];
   if (needsWrap) planLabels.push('Wrap ETH');
-  if (needsReset) planLabels.push('Reset approval');
-  else if (needsApproval) planLabels.push('Approve token');
+  if (needsReset) {
+    planLabels.push('Reset approval', 'Approve token');
+  } else if (needsApproval) {
+    planLabels.push('Approve token');
+  }
   planLabels.push('Deposit');
   emitTransactionPlan(onProgress, planLabels);
 

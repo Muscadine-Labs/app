@@ -1,8 +1,8 @@
 'use client';
 
-import { formatAssetAmount, formatSmartCurrency } from '@/lib/formatter';
+import { formatAssetAmount, formatCurrency } from '@/lib/formatter';
 import type { VaultLiquidityBreakdown } from '@/types/vault';
-import { VaultStatPopover } from './VaultStatPopover';
+import { VaultStatPopover } from '@/components/features/vault/VaultStatPopover';
 
 interface VaultLiquidityInfoProps {
   breakdown: VaultLiquidityBreakdown;
@@ -30,7 +30,7 @@ function LiquidityRow({
     assetDecimals,
     assetSymbol
   );
-  const usdLabel = formatSmartCurrency(usdAmount, { alwaysTwoDecimals: true });
+  const usdLabel = formatCurrency(usdAmount);
 
   return (
     <div

@@ -1,7 +1,7 @@
 'use client';
 
 import { formatPercentage } from '@/lib/formatter';
-import { VaultStatPopover } from './VaultStatPopover';
+import { VaultStatPopover } from '@/components/features/vault/VaultStatPopover';
 
 interface VaultApyInfoProps {
   netApy: number;

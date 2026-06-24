@@ -570,6 +570,10 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
             return;
           }
         }
+      } catch (err) {
+        logger.error('Liquidity pre-check failed; continuing without warning gate', err, {
+          vaultAddress: vaultAccount.address,
+        });
       } finally {
         setIsCheckingLiquidity(false);
       }

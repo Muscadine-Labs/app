@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
 import { formatUnits } from 'viem';
-import { Vault, MorphoVaultData, VaultLiquidityBreakdown } from '../types/vault';
+import { Vault, MorphoVaultData, VaultLiquidityBreakdown } from '@/types/vault';
 import { getVaultVersion } from '../lib/vault-utils';
 
 interface AllocationData {
