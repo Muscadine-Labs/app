@@ -30,7 +30,7 @@ export default function VaultHero({ vaultData }: VaultHeroProps) {
           <div className="flex flex-col">
             <h1 
               onClick={handleCopyAddress}
-              className="text-5xl font-semibold text-[var(--foreground)] cursor-pointer hover:text-[var(--primary)] transition-colors duration-200 select-none"
+              className="text-3xl sm:text-4xl md:text-5xl font-semibold text-[var(--foreground)] cursor-pointer hover:text-[var(--primary)] transition-colors duration-200 select-none break-words"
               title={`Click to copy address: ${vaultData.address}`}
             >
               {vaultData.name}

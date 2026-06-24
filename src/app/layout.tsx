@@ -9,6 +9,7 @@ import { config } from '@/config/wagmi'
 import { PriceProvider } from '@/contexts/PriceContext'
 import { Analytics } from '@vercel/analytics/react'
 import { MiniAppInit } from '@/components/common/MiniAppInit'
+import { getAppUrl } from '@/lib/app-url'
 
 const figtree = Figtree({ 
   subsets: ['latin'],
@@ -36,8 +37,7 @@ const tinos = Tinos({
   variable: '--font-tinos',
 })
 
-
-const appUrl = process.env.NEXT_PUBLIC_URL || 'https://app.muscadine.io';
+const appUrl = getAppUrl();
 
 export const metadata: Metadata = {
   title: 'Muscadine Vaults',
@@ -51,14 +51,14 @@ export const metadata: Metadata = {
     'base:app_id': '6925cdc1547fca5d08131407',
     'fc:miniapp': JSON.stringify({
       version: 'next',
-      imageUrl: `${appUrl}/miniapp-image.png`,
+      imageUrl: `${appUrl}/favicon.png`,
       button: {
         title: 'Launch Muscadine Vaults',
         action: {
           type: 'launch_miniapp',
           name: 'Muscadine Vaults',
           url: appUrl,
-          splashImageUrl: `${appUrl}/miniapp-splash.png`,
+          splashImageUrl: `${appUrl}/favicon.png`,
           // eslint-disable-next-line no-restricted-syntax
           splashBackgroundColor: '#000000', // Base mini app requires hex color, not CSS variable
         },

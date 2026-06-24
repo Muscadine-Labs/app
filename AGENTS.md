@@ -41,6 +41,8 @@ Instructions for AI agents working in this repo. Full architecture docs live in 
 
 - Portfolio v1→v2 cutover: `preparePortfolioVaultHistories()` + `legacy-vaults.ts` — only for known Muscadine v1 addresses, not symbol-only pairing.
 - Morpho GraphQL invalid fields fail the whole request (HTTP 400).
+- Morpho public API rate limit (429): all server Morpho calls use `fetchMorphoGraphQL()` in `api-utils.ts` (in-memory cache, retries, stale fallback). Routes return 503 with `MORPHO_RATE_LIMIT_BODY` when limited.
+- Overlay scroll lock: use `useLockPageScroll()` — locks `body` and `[data-app-scroll]` in `AppLayout`.
 - Turbopack chunk errors: `rm -rf .next .turbo && npm run dev`.
 
 ## Commands

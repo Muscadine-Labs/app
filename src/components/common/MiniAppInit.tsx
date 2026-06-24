@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import { sdk } from '@farcaster/miniapp-sdk';
+import { logger } from '@/lib/logger';
 
 /**
  * Mini App SDK Initialization
@@ -9,17 +10,17 @@ import { sdk } from '@farcaster/miniapp-sdk';
  */
 export function MiniAppInit() {
   useEffect(() => {
-    // Async helper to initialize the SDK with proper error handling
     const initializeSDK = async () => {
       try {
         await sdk.actions.ready();
       } catch (error) {
-        console.error('Failed to initialize MiniApp SDK:', error);
-        // Optionally implement retry logic or fallback behavior here
+        logger.warn(
+          'MiniApp SDK ready() failed (expected outside Farcaster/Base mini app host)',
+          { error: error instanceof Error ? error.message : String(error) }
+        );
       }
     };
 
-    // Call ready() as soon as possible to prevent jitter and content reflows
     initializeSDK();
   }, []);
 

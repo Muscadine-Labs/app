@@ -24,6 +24,19 @@ export const POST_TX_BALANCE_REFRESH_DELAY_MS = 5000;
 // Request timeouts
 export const REQUEST_TIMEOUT_MS = 30000; // 30 seconds
 
+// Morpho GraphQL API
+export const MORPHO_GRAPHQL_URL = 'https://api.morpho.org/graphql' as const;
+/** Next.js fetch revalidate for Morpho route handlers (seconds). */
+export const MORPHO_GRAPHQL_REVALIDATE_SECONDS = 60; // 60 seconds
+export const MORPHO_FETCH_TIMEOUT_MS = 10_000;
+export const MORPHO_MAX_RETRIES = 3;
+/** In-memory Morpho response cache TTL in production (dev uses CACHE_DURATION_VAULT_DATA). */
+export const MORPHO_MEMORY_CACHE_MS = 60_000;
+/** Vault list preload concurrency — small batches avoid Morpho rate-limit bursts. */
+export const MORPHO_PRELOAD_BATCH_SIZE = 2;
+/** Back off failed Morpho fetches (rate limits, 5xx) before retrying the same vault. */
+export const MORPHO_FETCH_ERROR_COOLDOWN_MS = 60_000;
+
 // Price API configuration
 export const STABLECOIN_SYMBOLS = ['USDC'] as const;
 export const DEFAULT_ASSET_PRICE = 1;

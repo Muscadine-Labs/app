@@ -23,6 +23,7 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { ERC20_BALANCE_ABI, ERC4626_ABI } from '@/lib/abis';
 import { useUnixTimestamp } from '@/hooks/useClientOnly';
 import { useVaultEarnedInterest } from '@/hooks/useVaultEarnedInterest';
+import { useLockPageScroll } from '@/hooks/useLockPageScroll';
 import { resolveAssetDecimals } from '@/lib/asset-decimals';
 import { BASE_CHAIN_ID } from '@/lib/constants';
 
@@ -143,6 +144,8 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
     }
     return assetsDecimal * assetPrice;
   }, [currentAssetsRaw, depositAssetDecimals, vaultData.symbol, ethPrice, btcPrice]);
+
+  useLockPageScroll(isTimeFrameMenuOpen);
 
   useEffect(() => {
     const fetchPositionHistory = async () => {
@@ -629,7 +632,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
           {loading ? (
             <div className="bg-[var(--surface-elevated)] rounded-lg p-2 sm:p-4">
               {/* Controls Row Skeleton */}
-              <div className="flex items-center justify-between mb-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
                 <div className="flex items-center gap-2">
                   <Skeleton width="3rem" height="2rem" />
                   <Skeleton width="3rem" height="2rem" />
@@ -670,7 +673,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
           ) : fullUserDepositHistory.length > 0 ? (
             <div className="bg-[var(--surface-elevated)] rounded-lg p-2 sm:p-4">
               {/* Controls Row */}
-              <div className="flex items-center justify-between mb-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
                 {/* Time Frame Selector - Desktop: Buttons, Mobile: Hamburger Menu */}
                 <div className="relative">
                   {/* Desktop: Show buttons */}
@@ -713,7 +716,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
                     {isTimeFrameMenuOpen && (
                       <>
                         <div
-                          className="fixed inset-0 z-10"
+                          className="fixed inset-0 z-10 touch-none overscroll-none bg-black/20"
                           onClick={() => setIsTimeFrameMenuOpen(false)}
                         />
                         <div className="absolute left-0 top-full mt-2 bg-[var(--surface-elevated)] border border-[var(--border)] rounded-lg shadow-lg z-20 min-w-[120px]">

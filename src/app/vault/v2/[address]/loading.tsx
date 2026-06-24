@@ -2,11 +2,7 @@ import { Skeleton } from '@/components/ui/Skeleton';
 
 export default function VaultV2Loading() {
   return (
-    <div 
-      className="w-full bg-[var(--background)] flex flex-col overflow-hidden p-4 sm:p-6 md:p-8" 
-      style={{ height: 'calc(100vh - var(--navbar-height))' }}
-    >
-      {/* Hero Section Skeleton */}
+    <div className="w-full bg-[var(--background)] flex flex-col p-4 sm:p-6 md:p-8 pb-8 min-h-full">
       <div className="flex-shrink-0 mb-6">
         <div className="flex items-center gap-4">
           <div className="flex flex-col gap-2">
@@ -19,7 +15,6 @@ export default function VaultV2Loading() {
         </div>
       </div>
 
-      {/* Tabs Skeleton */}
       <div className="flex-shrink-0 mb-8">
         <div className="flex gap-2 border-b border-[var(--border-subtle)]">
           <Skeleton width="6rem" height="3rem" className="mb-2" />
@@ -28,8 +23,7 @@ export default function VaultV2Loading() {
         </div>
       </div>
 
-      {/* Content Skeleton */}
-      <div className="flex-1 min-h-0 space-y-6">
+      <div className="space-y-6">
         <Skeleton width="100%" height="16rem" />
         <div className="space-y-4">
           <Skeleton width="100%" height="4rem" />
@@ -40,4 +34,3 @@ export default function VaultV2Loading() {
     </div>
   );
 }
-

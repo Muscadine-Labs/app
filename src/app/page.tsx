@@ -6,8 +6,7 @@ import { WalletOverview, PortfolioPositionChart } from '@/components/features/wa
 import { DashboardVaultTable } from '@/components/features/vault/VaultExplorerTable';
 import { useVaultListPreloader } from '@/hooks/useVaultDataFetch';
 import { useWallet } from '@/contexts/WalletContext';
-import { findVaultByAddress, sortVaultsForDisplay, hasOnChainVaultShares } from '@/lib/vault-utils';
-import { useVaultData } from '@/contexts/VaultDataContext';
+import { findVaultByAddress, sortVaultsForDisplay, hasOnChainVaultShares, resolvePositionAssetsUsd } from '@/lib/vault-utils';
 import { Vault } from '@/types/vault';
 import { BASE_CHAIN_ID } from '@/lib/constants';
 import type { VaultStrategy } from '@/lib/vaults';
@@ -15,7 +14,6 @@ import type { VaultStrategy } from '@/lib/vaults';
 export default function Home() {
   const { address } = useAccount();
   const { morphoHoldings } = useWallet();
-  const { getVaultData } = useVaultData();
 
   const depositedVaults: Vault[] = useMemo(() => {
     const vaults: Vault[] = morphoHoldings.positions
@@ -44,9 +42,14 @@ export default function Home() {
     return sortVaultsForDisplay(
       vaults,
       morphoHoldings.positions,
-      (addr) => getVaultData(addr)?.totalDeposits ?? 0
+      (addr) => {
+        const position = morphoHoldings.positions.find(
+          (p) => p.vault.address.toLowerCase() === addr.toLowerCase()
+        );
+        return position ? resolvePositionAssetsUsd(position) : 0;
+      }
     );
-  }, [morphoHoldings.positions, getVaultData]);
+  }, [morphoHoldings.positions]);
 
   useVaultListPreloader(depositedVaults);
 

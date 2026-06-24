@@ -4,6 +4,8 @@ import React, { createContext, useContext, useState, useCallback, ReactNode } fr
 import { formatUnits } from 'viem';
 import { Vault, MorphoVaultData, VaultLiquidityBreakdown } from '@/types/vault';
 import { getVaultVersion } from '../lib/vault-utils';
+import { MORPHO_PRELOAD_BATCH_SIZE, MORPHO_FETCH_ERROR_COOLDOWN_MS } from '../lib/constants';
+import { VAULTS } from '../lib/vaults';
 
 interface AllocationData {
   market?: {
@@ -57,8 +59,11 @@ interface VaultDataContextType {
   getVaultAdapters: (address: string) => `0x${string}`[]; // Get adapter addresses for v2 vaults
   isLoading: (address: string) => boolean;
   hasError: (address: string) => boolean;
+  getVaultError: (address: string) => string | null;
   isStaleData: (address: string) => boolean;
   preloadVaults: (vaults: Vault[]) => Promise<void>;
+  /** Preload all registry vaults once per app session (transact account pickers). */
+  preloadRegistryVaults: () => Promise<void>;
 }
 
 const VaultDataContext = createContext<VaultDataContextType | undefined>(undefined);
@@ -76,14 +81,18 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
   
   // Request deduplication maps with cleanup mechanism
   const pendingRequests = React.useRef<Map<string, Promise<void>>>(new Map());
+  const registryPreloadedRef = React.useRef(false);
   
   // Ref to track current vaultData to avoid dependency issues
   const vaultDataRef = React.useRef<VaultDataState>(vaultData);
   
-  // Keep ref in sync with state
-  React.useEffect(() => {
-    vaultDataRef.current = vaultData;
-  }, [vaultData]);
+  const commitVaultData = React.useCallback((updater: React.SetStateAction<VaultDataState>) => {
+    setVaultData((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      vaultDataRef.current = next;
+      return next;
+    });
+  }, []);
 
   // Cleanup old pending requests periodically to prevent memory leaks
   React.useEffect(() => {
@@ -118,10 +127,15 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
     // Use ref to read current state without adding to dependencies
     if (!shouldForceRefresh) {
       const currentVaultData = vaultDataRef.current[address];
-      if (currentVaultData && 
-          currentVaultData.basic && 
-          !isDataStale(currentVaultData.lastFetched)) {
-        return;
+      if (currentVaultData?.lastFetched) {
+        const ageMs = Date.now() - currentVaultData.lastFetched;
+        if (currentVaultData.basic && ageMs < CACHE_DURATION_VAULT_DATA) {
+          return;
+        }
+        // Failed fetches (e.g. rate limit) must not retry in a tight loop
+        if (currentVaultData.error && ageMs < MORPHO_FETCH_ERROR_COOLDOWN_MS) {
+          return;
+        }
       }
     }
 
@@ -131,13 +145,13 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
     }
 
     const fetchPromise = (async () => {
-      setVaultData(prev => ({
+      commitVaultData((prev) => ({
         ...prev,
         [address]: {
           ...prev[address],
           loading: true,
           error: null,
-        }
+        },
       }));
 
       try {
@@ -146,7 +160,13 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
         const data = await response.json();
 
         if (!response.ok) {
-          throw new Error(data.error || 'Failed to fetch complete vault data');
+          const isRateLimited =
+            response.status === 503 || data.error === 'Morpho API rate limit exceeded';
+          throw new Error(
+            isRateLimited
+              ? 'Morpho API rate limit exceeded. Wait a few minutes and retry.'
+              : data.details || data.error || 'Failed to fetch complete vault data'
+          );
         }
 
         const vaultInfo = data.data.vaultByAddress;
@@ -289,7 +309,7 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
           lastUpdated: new Date().toISOString(),
         };
 
-        setVaultData(prev => ({
+        commitVaultData((prev) => ({
           ...prev,
           [address]: {
             basic: vault,
@@ -300,18 +320,19 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
             loading: false,
             error: null,
             lastFetched: Date.now(),
-          }
+          },
         }));
 
       } catch (error) {
-        setVaultData(prev => ({
+        commitVaultData((prev) => ({
           ...prev,
           [address]: {
             ...prev[address],
             adapters: null,
             loading: false,
             error: error instanceof Error ? error.message : 'Unknown error',
-          }
+            lastFetched: Date.now(),
+          },
         }));
       } finally {
         pendingRequests.current.delete(cacheKey);
@@ -320,7 +341,7 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
 
     pendingRequests.current.set(cacheKey, fetchPromise);
     return fetchPromise;
-  }, [isDataStale]);
+  }, [commitVaultData]);
 
 
 
@@ -371,6 +392,10 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
     return !!vaultData[address]?.error;
   }, [vaultData]);
 
+  const getVaultError = useCallback((address: string): string | null => {
+    return vaultData[address]?.error ?? null;
+  }, [vaultData]);
+
   const isStaleData = useCallback((address: string) => {
     const data = vaultData[address];
     if (!data) return false;
@@ -378,14 +403,27 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
   }, [vaultData, isDataStale]);
 
   const preloadVaults = useCallback(async (vaults: Vault[]) => {
-    // Preload complete vault data for all vaults in parallel (maximum efficiency)
-    // Promise.allSettled allows all requests to complete even if some fail
-    const promises = vaults.map((vault) =>
-      fetchCompleteVaultData(vault.address, vault.chainId, false)
-    );
-    
-    await Promise.allSettled(promises);
+    for (let i = 0; i < vaults.length; i += MORPHO_PRELOAD_BATCH_SIZE) {
+      const batch = vaults.slice(i, i + MORPHO_PRELOAD_BATCH_SIZE);
+      await Promise.allSettled(
+        batch.map((vault) => fetchCompleteVaultData(vault.address, vault.chainId, false))
+      );
+    }
   }, [fetchCompleteVaultData]);
+
+  const preloadRegistryVaults = useCallback(async () => {
+    if (registryPreloadedRef.current) return;
+    registryPreloadedRef.current = true;
+
+    const vaults: Vault[] = Object.values(VAULTS).map((v) => ({
+      address: v.address,
+      name: v.name,
+      symbol: v.symbol,
+      chainId: v.chainId,
+      version: v.version,
+    }));
+    await preloadVaults(vaults);
+  }, [preloadVaults]);
 
   // Extract market uniqueKeys from vault allocation data for simulation state
   const getVaultMarketIds = useCallback((address: string): `0x${string}`[] => {
@@ -419,8 +457,10 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
     getVaultAdapters,
     isLoading,
     hasError,
+    getVaultError,
     isStaleData,
     preloadVaults,
+    preloadRegistryVaults,
   };
 
   return (

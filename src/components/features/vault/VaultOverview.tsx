@@ -698,10 +698,10 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
         </div>
 
         {/* Chart Type Selector */}
-        <div className="flex gap-2 border-b border-[var(--border-subtle)]">
+        <div className="flex gap-2 border-b border-[var(--border-subtle)] overflow-x-auto overscroll-x-contain flex-nowrap scrollbar-hide [-webkit-overflow-scrolling:touch]">
           <button
             onClick={() => setChartType('apy')}
-            className={`px-4 py-2 text-sm font-medium transition-colors relative cursor-pointer ${
+            className={`shrink-0 px-4 py-2 text-sm font-medium transition-colors relative cursor-pointer touch-manipulation ${
               chartType === 'apy'
                 ? 'text-[var(--foreground)]'
                 : 'text-[var(--foreground-secondary)] hover:text-[var(--foreground)]'
@@ -714,7 +714,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
           </button>
           <button
             onClick={() => setChartType('tvl')}
-            className={`px-4 py-2 text-sm font-medium transition-colors relative cursor-pointer ${
+            className={`shrink-0 px-4 py-2 text-sm font-medium transition-colors relative cursor-pointer touch-manipulation ${
               chartType === 'tvl'
                 ? 'text-[var(--foreground)]'
                 : 'text-[var(--foreground-secondary)] hover:text-[var(--foreground)]'
@@ -727,7 +727,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
           </button>
           <button
             onClick={() => setChartType('sharePrice')}
-            className={`px-4 py-2 text-sm font-medium transition-colors relative cursor-pointer ${
+            className={`shrink-0 px-4 py-2 text-sm font-medium transition-colors relative cursor-pointer touch-manipulation ${
               chartType === 'sharePrice'
                 ? 'text-[var(--foreground)]'
                 : 'text-[var(--foreground-secondary)] hover:text-[var(--foreground)]'
@@ -744,14 +744,14 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
         {loading ? (
           <div className="bg-[var(--surface-elevated)] rounded-lg border border-[var(--border-subtle)] p-2 sm:p-4">
             {/* Controls Row */}
-            <div className="flex items-center justify-between gap-2 mb-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
               {/* Period Selector */}
-              <div className="flex gap-2">
+              <div className="flex gap-2 overflow-x-auto overscroll-x-contain flex-nowrap scrollbar-hide [-webkit-overflow-scrolling:touch] min-w-0">
                 {availablePeriods.map((p) => (
                   <button
                     key={p}
                     onClick={() => setPeriod(p)}
-                    className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors cursor-pointer ${
+                    className={`shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors cursor-pointer touch-manipulation ${
                       period === p
                         ? 'bg-[var(--primary)] text-white'
                         : 'bg-[var(--surface-elevated)] text-[var(--foreground-secondary)] hover:text-[var(--foreground)]'
@@ -764,7 +764,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
               
               {/* Value Type Toggle - Total Deposits & Share Price */}
               {(chartType === 'tvl' || chartType === 'sharePrice') && (
-                <div className="flex items-center gap-2 rounded-lg p-1 border border-[var(--border-subtle)]">
+                <div className="flex shrink-0 items-center gap-2 rounded-lg p-1 border border-[var(--border-subtle)] self-start sm:self-auto">
                   <button
                     onClick={() => setValueType('token')}
                     className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all cursor-pointer ${
@@ -817,14 +817,14 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
         ) : (historyData.length > 0) ? (
           <div className="bg-[var(--surface-elevated)] rounded-lg border border-[var(--border-subtle)] p-2 sm:p-4">
             {/* Controls Row */}
-            <div className="flex items-center justify-between gap-2 mb-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
               {/* Period Selector */}
-              <div className="flex gap-2">
+              <div className="flex gap-2 overflow-x-auto overscroll-x-contain flex-nowrap scrollbar-hide [-webkit-overflow-scrolling:touch] min-w-0">
                 {availablePeriods.map((p) => (
                   <button
                     key={p}
                     onClick={() => setPeriod(p)}
-                    className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors cursor-pointer ${
+                    className={`shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors cursor-pointer touch-manipulation ${
                       period === p
                         ? 'bg-[var(--primary)] text-white'
                         : 'bg-[var(--surface-elevated)] text-[var(--foreground-secondary)] hover:text-[var(--foreground)]'
@@ -837,7 +837,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
               
               {/* Value Type Toggle - Total Deposits & Share Price */}
               {(chartType === 'tvl' || chartType === 'sharePrice') && (
-                <div className="flex items-center gap-2 rounded-lg p-1 border border-[var(--border-subtle)]">
+                <div className="flex shrink-0 items-center gap-2 rounded-lg p-1 border border-[var(--border-subtle)] self-start sm:self-auto">
                   <button
                     onClick={() => setValueType('token')}
                     className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all cursor-pointer ${

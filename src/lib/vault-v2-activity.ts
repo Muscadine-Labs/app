@@ -4,7 +4,7 @@ import type {
   GraphQLV2TransactionItem,
   Transaction,
 } from '@/types/api';
-import { DEFAULT_ASSET_PRICE, DEFAULT_ASSET_DECIMALS, STABLECOIN_SYMBOLS } from '@/lib/constants';
+import { DEFAULT_ASSET_PRICE, DEFAULT_ASSET_DECIMALS, STABLECOIN_SYMBOLS, MORPHO_GRAPHQL_REVALIDATE_SECONDS } from '@/lib/constants';
 import { logger } from '@/lib/logger';
 import { fetchMorphoGraphQL } from '@/lib/api-utils';
 
@@ -88,7 +88,7 @@ export async function fetchVaultV2ActivityData(
           first: transactionLimit,
         },
       },
-      { revalidate: 60, tags: [`vault-${vaultAddress}-${chainId}`] }
+      { revalidate: MORPHO_GRAPHQL_REVALIDATE_SECONDS, tags: [`vault-${vaultAddress}-${chainId}`] }
     );
 
     const responseText = await response.text();

@@ -2,6 +2,7 @@
 
 import React, { useEffect } from 'react';
 import { CloseIcon } from './Icon';
+import { useLockPageScroll } from '@/hooks/useLockPageScroll';
 
 export interface ModalProps {
   isOpen: boolean;
@@ -20,17 +21,7 @@ export function Modal({
   showCloseButton = true,
   closeOnOverlayClick = false,
 }: ModalProps) {
-  // Prevent body scroll when modal is open
-  useEffect(() => {
-    if (isOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
-    return () => {
-      document.body.style.overflow = '';
-    };
-  }, [isOpen]);
+  useLockPageScroll(isOpen);
 
   // Handle escape key
   useEffect(() => {

@@ -255,7 +255,7 @@ If `complete` routes return **HTTP 400**, validate queries against `https://api.
 
 ### Caching
 
-`next: { revalidate: 300 }` (~5 minutes) + cache tags like `vault-{address}-{chainId}`.
+`next: { revalidate: MORPHO_GRAPHQL_REVALIDATE_SECONDS }` (60 seconds by default in `constants.ts`) + cache tags like `vault-{address}-{chainId}`.
 
 ### Client Apollo
 
@@ -467,9 +467,10 @@ src/
 
 ## Farcaster mini app
 
-- Manifest: `src/app/.well-known/farcaster.json/route.ts`
+- Manifest: `src/app/.well-known/farcaster.json/route.ts` — uses `getAppUrl()` from `src/lib/app-url.ts` (defaults to `https://app.muscadine.io`; supports `NEXT_PUBLIC_URL` or `NEXT_PUBLIC_APP_URL`)
 - Init: `components/common/MiniAppInit.tsx`
-- Images: `public/miniapp-image.png`, `miniapp-splash.png`
+- Embed metadata: `layout.tsx` `fc:miniapp` tag
+- Images: `public/favicon.png` (icon, splash, hero, OG in manifest and layout)
 
 ---
 
@@ -481,6 +482,7 @@ src/
 - `BASE_WETH_ADDRESS` — Base canonical WETH
 - `GENERAL_ADAPTER_ADDRESS` — v1 bundler flows
 - Cache TTLs: vault data 5m, prices 10m, activity 1m
+- Morpho GraphQL: `MORPHO_GRAPHQL_URL`, `MORPHO_GRAPHQL_REVALIDATE_SECONDS`, fetch timeout/retries, preload batch size — all Morpho calls go through `fetchMorphoGraphQL()` in `api-utils.ts`
 
 `next.config.ts`:
 

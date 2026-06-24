@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { logger } from '@/lib/logger';
 import { isValidEthereumAddress } from '@/lib/vault-utils';
-import { isValidChainId } from '@/lib/api-utils';
+import { isValidChainId, fetchMorphoGraphQL, readMorphoGraphQLResponse, MORPHO_RATE_LIMIT_BODY } from '@/lib/api-utils';
+import { MORPHO_GRAPHQL_REVALIDATE_SECONDS } from '@/lib/constants';
 
 export async function GET(
   request: NextRequest,
@@ -140,34 +141,30 @@ export async function GET(
       }
     `;
 
-    const response = await fetch('https://api.morpho.org/graphql', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'Accept-Encoding': 'gzip, deflate, br',
-      },
-      body: JSON.stringify({
+    const response = await fetchMorphoGraphQL(
+      {
         query,
         variables: {
           address,
           chainId,
         },
-      }),
-      // Use Next.js built-in caching instead of in-memory
-      next: { 
-        revalidate: 300, // 5 minutes
-        tags: [`vault-${address}-${chainId}`]
       },
-      // Enable HTTP/2 keep-alive for better performance
-      keepalive: true,
-    });
+      {
+        revalidate: MORPHO_GRAPHQL_REVALIDATE_SECONDS,
+        tags: [`vault-${address}-${chainId}`],
+      }
+    );
+
+    const { responseText, rateLimited } = await readMorphoGraphQLResponse(response);
 
     if (!response.ok) {
+      if (rateLimited) {
+        return NextResponse.json(MORPHO_RATE_LIMIT_BODY, { status: 503 });
+      }
       throw new Error(`Morpho API error: ${response.status}`);
     }
 
-    const data = await response.json();
+    const data = JSON.parse(responseText);
 
     if (data.errors) {
       throw new Error(`GraphQL errors: ${JSON.stringify(data.errors)}`);
@@ -295,7 +292,7 @@ export async function GET(
       timestamp: Date.now(),
     }, {
       headers: {
-        'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600',
+        'Cache-Control': `public, s-maxage=${MORPHO_GRAPHQL_REVALIDATE_SECONDS}, stale-while-revalidate=${MORPHO_GRAPHQL_REVALIDATE_SECONDS * 2}`,
       }
     });
 

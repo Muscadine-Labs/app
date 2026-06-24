@@ -1,3 +1,5 @@
+import { getAppUrl } from '@/lib/app-url';
+
 function withValidProperties(properties: Record<string, undefined | string | string[] | boolean>) {
   return Object.fromEntries(
     Object.entries(properties).filter(([, value]) => {
@@ -9,7 +11,7 @@ function withValidProperties(properties: Record<string, undefined | string | str
 }
 
 export async function GET() {
-  const URL = process.env.NEXT_PUBLIC_URL || 'https://app.muscadine.io';
+  const URL = getAppUrl();
 
   const manifest = {
     accountAssociation: {

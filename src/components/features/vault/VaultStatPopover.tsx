@@ -2,9 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { InfoCircleIcon } from '@/components/ui/Icon';
+import { CloseIcon, InfoCircleIcon } from '@/components/ui/Icon';
+import { useLockPageScroll } from '@/hooks/useLockPageScroll';
 
 const PANEL_WIDTH_PX = 288;
+const MOBILE_BREAKPOINT_PX = 640;
 
 interface VaultStatPopoverProps {
   ariaLabel: string;
@@ -19,37 +21,62 @@ export function VaultStatPopover({
   align = 'start',
 }: VaultStatPopoverProps) {
   const [open, setOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
   const [position, setPosition] = useState({ top: 0, left: 0 });
   const buttonRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
+  useLockPageScroll(open);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT_PX - 1}px)`);
+    const update = () => setIsMobile(mediaQuery.matches);
+    update();
+    mediaQuery.addEventListener('change', update);
+    return () => mediaQuery.removeEventListener('change', update);
+  }, []);
+
   const updatePosition = useCallback(() => {
     const button = buttonRef.current;
-    if (!button) return;
+    const panel = panelRef.current;
+    if (!button || isMobile) return;
 
     const rect = button.getBoundingClientRect();
     const gap = 8;
+    const panelHeight = panel?.offsetHeight ?? 240;
     const maxLeft = window.innerWidth - PANEL_WIDTH_PX - 8;
     const left =
       align === 'end'
         ? Math.max(8, Math.min(rect.right - PANEL_WIDTH_PX, maxLeft))
         : Math.max(8, Math.min(rect.left, maxLeft));
 
-    setPosition({ top: rect.bottom + gap, left });
-  }, [align]);
+    const spaceBelow = window.innerHeight - rect.bottom - gap;
+    const spaceAbove = rect.top - gap;
+    let top = rect.bottom + gap;
+
+    if (top + panelHeight > window.innerHeight - 8 && spaceAbove > spaceBelow) {
+      top = rect.top - gap - panelHeight;
+    }
+
+    top = Math.max(8, Math.min(top, window.innerHeight - panelHeight - 8));
+
+    setPosition({ top, left });
+  }, [align, isMobile]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || isMobile) return;
 
     updatePosition();
+    const frame = requestAnimationFrame(updatePosition);
     window.addEventListener('resize', updatePosition);
     window.addEventListener('scroll', updatePosition, true);
 
     return () => {
+      cancelAnimationFrame(frame);
       window.removeEventListener('resize', updatePosition);
       window.removeEventListener('scroll', updatePosition, true);
     };
-  }, [open, updatePosition]);
+  }, [open, isMobile, updatePosition]);
 
   useEffect(() => {
     if (!open) return;
@@ -61,21 +88,29 @@ export function VaultStatPopover({
       setOpen(false);
     };
 
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setOpen(false);
+      }
+    };
+
     document.addEventListener('mousedown', handlePointerDown);
-    document.addEventListener('touchstart', handlePointerDown);
+    document.addEventListener('touchstart', handlePointerDown, { passive: true });
+    window.addEventListener('keydown', handleEscape);
 
     return () => {
       document.removeEventListener('mousedown', handlePointerDown);
       document.removeEventListener('touchstart', handlePointerDown);
+      window.removeEventListener('keydown', handleEscape);
     };
   }, [open]);
 
   const toggle = () => {
-    if (!open) {
-      updatePosition();
-    }
     setOpen((prev) => !prev);
   };
+
+  const panelClassName =
+    'rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] shadow-xl p-3 overscroll-contain';
 
   return (
     <>
@@ -83,9 +118,10 @@ export function VaultStatPopover({
         ref={buttonRef}
         type="button"
         onClick={toggle}
-        className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-[var(--border-subtle)] bg-[var(--surface)] text-[var(--foreground-secondary)] shadow-sm hover:border-[var(--primary)] hover:text-[var(--primary)] transition-colors cursor-pointer"
+        className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-[var(--border-subtle)] bg-[var(--surface)] text-[var(--foreground-secondary)] shadow-sm hover:border-[var(--primary)] hover:text-[var(--primary)] transition-colors cursor-pointer touch-manipulation"
         aria-label={ariaLabel}
         aria-expanded={open}
+        aria-haspopup="dialog"
       >
         <InfoCircleIcon size="xs" color="secondary" />
       </button>
@@ -94,14 +130,44 @@ export function VaultStatPopover({
         typeof document !== 'undefined' &&
         createPortal(
           <>
-            <div className="fixed inset-0 z-[100]" aria-hidden onClick={() => setOpen(false)} />
             <div
-              ref={panelRef}
-              className="fixed z-[101] w-72 max-h-[min(70vh,24rem)] overflow-y-auto rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] shadow-xl p-3"
-              style={{ top: position.top, left: position.left }}
-            >
-              {children}
-            </div>
+              className="fixed inset-0 z-[100] bg-black/40 touch-none overscroll-none"
+              aria-hidden
+              onClick={() => setOpen(false)}
+            />
+            {isMobile ? (
+              <div
+                ref={panelRef}
+                role="dialog"
+                aria-modal="true"
+                aria-label={ariaLabel}
+                className={`fixed inset-x-0 bottom-0 z-[101] max-h-[min(85dvh,32rem)] overflow-y-auto rounded-t-2xl ${panelClassName} pb-[max(0.75rem,env(safe-area-inset-bottom))]`}
+              >
+                <div className="sticky top-0 z-10 -mx-3 -mt-3 mb-2 flex items-center justify-between gap-3 border-b border-[var(--border-subtle)] bg-[var(--surface-elevated)] px-3 py-3">
+                  <span className="text-sm font-semibold text-[var(--foreground)]">{ariaLabel}</span>
+                  <button
+                    type="button"
+                    onClick={() => setOpen(false)}
+                    className="rounded-md p-1.5 text-[var(--foreground-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] cursor-pointer touch-manipulation"
+                    aria-label="Close"
+                  >
+                    <CloseIcon size="sm" />
+                  </button>
+                </div>
+                {children}
+              </div>
+            ) : (
+              <div
+                ref={panelRef}
+                role="dialog"
+                aria-modal="true"
+                aria-label={ariaLabel}
+                className={`fixed z-[101] w-72 max-h-[min(70vh,24rem)] overflow-y-auto ${panelClassName}`}
+                style={{ top: position.top, left: position.left }}
+              >
+                {children}
+              </div>
+            )}
           </>,
           document.body
         )}
