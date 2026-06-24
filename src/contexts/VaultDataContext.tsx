@@ -343,6 +343,8 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
       apyChange: 0,
       totalDeposits: basic.totalDeposits || 0,
       currentLiquidity: basic.currentLiquidity || 0,
+      liquidityAssets: basic.liquidityAssets,
+      liquidityBreakdown: basic.liquidityBreakdown,
       sharePrice: basic.sharePrice || 1,
       sharePriceUsd: basic.sharePriceUsd || 0,
       whitelisted: basic.whitelisted ?? false,

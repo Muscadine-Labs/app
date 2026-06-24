@@ -7,8 +7,18 @@ import { VaultAccount } from '@/types/vault';
 import { useTransactionState } from '@/contexts/TransactionContext';
 import type { TransactionProgressStep } from '@/types/transactions';
 import { isCancellationError, formatTransactionError } from '@/lib/transactionUtils';
+import {
+  exceedsInstantLiquidity,
+  fetchInstantLiquidityAssets,
+  getMorphoVaultUrl,
+  parseTransactionAmount,
+  simulateVaultWithdraw,
+} from '@/lib/liquidity-utils';
+import { formatAssetAmount } from '@/lib/formatter';
+import { BASE_CHAIN_ID } from '@/lib/constants';
 import { depositToVaultV2, withdrawFromVaultV2, redeemFromVaultV2, resumeUnwrapWalletWethV2 } from '@/lib/transactionUtilsV2';
 import { TransactionConfirmation } from './TransactionConfirmation';
+import { WithdrawLiquidityWarningModal } from './WithdrawLiquidityWarningModal';
 import { TransactionStatus as TransactionStatusComponent } from './TransactionStatus';
 import { useToast } from '@/contexts/ToastContext';
 import { useWallet } from '@/contexts/WalletContext';
@@ -67,6 +77,13 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [isExecuting, setIsExecuting] = useState(false);
   const [partialFailure, setPartialFailure] = useState(false);
+  const [liquidityWarningOpen, setLiquidityWarningOpen] = useState(false);
+  const [liquidityWarningContext, setLiquidityWarningContext] = useState<{
+    morphoVaultUrl: string;
+    requestedAmountLabel: string;
+    instantLiquidityLabel: string;
+  } | null>(null);
+  const [isCheckingLiquidity, setIsCheckingLiquidity] = useState(false);
   const currentStepRef = useRef(0);
 
   const shouldClearFlowState = (status === 'idle' || status === 'preview') && !partialFailure;
@@ -122,6 +139,45 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
     const tolerance = maxAssetAmount * 0.001;
     return Math.abs(enteredAmount - maxAssetAmount) <= tolerance;
   }, [transactionType, fromAccount, amount, exactAssetAmount, getVaultData]);
+
+  const withdrawVaultAddress =
+    transactionType === 'withdraw' && fromAccount?.type === 'vault'
+      ? (fromAccount as VaultAccount).address
+      : null;
+
+  useEffect(() => {
+    if (status === 'preview' && withdrawVaultAddress) {
+      fetchVaultData(withdrawVaultAddress, BASE_CHAIN_ID, true).catch((err) => {
+        logger.error('Failed to refresh vault liquidity for withdraw preview', err, {
+          vaultAddress: withdrawVaultAddress,
+        });
+      });
+    }
+  }, [status, withdrawVaultAddress, fetchVaultData]);
+
+  const liquidityWarningPreview = useMemo(() => {
+    if (status !== 'preview' || !withdrawVaultAddress || !amount?.trim() || !derivedAsset) {
+      return null;
+    }
+
+    const vaultData = getVaultData(withdrawVaultAddress);
+    const instantRaw =
+      vaultData?.liquidityBreakdown?.instantLiquidityAssets ?? vaultData?.liquidityAssets;
+    if (!instantRaw) return null;
+
+    const decimals = derivedAsset.decimals ?? 18;
+    const requested = parseTransactionAmount(amount, decimals);
+    const instant = BigInt(instantRaw);
+
+    if (!exceedsInstantLiquidity(requested, instant, decimals)) {
+      return null;
+    }
+
+    return {
+      morphoVaultUrl: getMorphoVaultUrl(BASE_CHAIN_ID, withdrawVaultAddress),
+      instantLiquidityLabel: formatAssetAmount(instant, decimals, derivedAsset.symbol),
+    };
+  }, [status, withdrawVaultAddress, amount, derivedAsset, getVaultData]);
 
   // Wait for main transaction receipt (fallback only — v2 flow confirms inside depositToVaultV2)
   const txHashToWaitFor = effectiveCurrentTxHash || txHash;
@@ -260,7 +316,7 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
     }
   }, [receipt, receiptError, status, txHash, effectiveCurrentTxHash, isExecuting, completeSuccessfulTransaction, setStatus, showErrorToast]);
 
-  const handleConfirm = async () => {
+  const executeTransaction = useCallback(async () => {
     if (!fromAccount || !toAccount || !amount || !transactionType) return;
 
     const assetToUse = derivedAsset || (fromAccount.type === 'vault' 
@@ -284,6 +340,8 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
     }
 
     try {
+      setLiquidityWarningOpen(false);
+      setLiquidityWarningContext(null);
       setIsExecuting(true);
       const isResuming = partialFailure;
 
@@ -466,6 +524,103 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
         showErrorToast(errorMessage, 5000);
       }
     }
+  }, [
+    fromAccount,
+    toAccount,
+    amount,
+    transactionType,
+    derivedAsset,
+    walletClient,
+    publicClient,
+    partialFailure,
+    stepsInfo,
+    totalSteps,
+    preferredAsset,
+    isDevMode,
+    shouldUseWithdrawAll,
+    completeSuccessfulTransaction,
+    setStatus,
+    showErrorToast,
+  ]);
+
+  const handleConfirm = async () => {
+    if (!fromAccount || !toAccount || !amount || !transactionType) return;
+
+    const assetToUse = derivedAsset || (fromAccount.type === 'vault' 
+      ? { symbol: (fromAccount as VaultAccount).symbol, decimals: (fromAccount as VaultAccount).assetDecimals ?? 18 }
+      : toAccount.type === 'vault'
+      ? { symbol: (toAccount as VaultAccount).symbol, decimals: (toAccount as VaultAccount).assetDecimals ?? 18 }
+      : null);
+
+    if (!assetToUse) {
+      const errorMessage = 'Unable to determine asset type. Please try again.';
+      setStatus('error', errorMessage);
+      showErrorToast(errorMessage, 5000);
+      return;
+    }
+
+    if (!walletClient || !publicClient) {
+      const errorMessage = 'Wallet not connected. Please connect your wallet and try again.';
+      setStatus('error', errorMessage);
+      showErrorToast(errorMessage, 5000);
+      return;
+    }
+
+    if (!partialFailure && transactionType === 'withdraw' && fromAccount.type === 'vault') {
+      const vaultAccount = fromAccount as VaultAccount;
+      setIsCheckingLiquidity(true);
+      try {
+        const requested = parseTransactionAmount(amount, assetToUse.decimals);
+        const instant =
+          (await fetchInstantLiquidityAssets(vaultAccount.address, BASE_CHAIN_ID)) ??
+          (() => {
+            const cached = getVaultData(vaultAccount.address);
+            const raw =
+              cached?.liquidityBreakdown?.instantLiquidityAssets ?? cached?.liquidityAssets;
+            return raw ? BigInt(raw) : null;
+          })();
+
+        await fetchVaultData(vaultAccount.address, BASE_CHAIN_ID, true);
+
+        if (instant !== null && exceedsInstantLiquidity(requested, instant, assetToUse.decimals)) {
+          const simulationSucceeded = await simulateVaultWithdraw(
+            publicClient as PublicClient,
+            walletClient as WalletClient,
+            vaultAccount.address as Address,
+            requested,
+            shouldUseWithdrawAll
+          );
+
+          if (!simulationSucceeded) {
+            setLiquidityWarningContext({
+              morphoVaultUrl: getMorphoVaultUrl(BASE_CHAIN_ID, vaultAccount.address),
+              requestedAmountLabel: formatAssetAmount(
+                requested,
+                assetToUse.decimals,
+                assetToUse.symbol
+              ),
+              instantLiquidityLabel: formatAssetAmount(
+                instant,
+                assetToUse.decimals,
+                assetToUse.symbol
+              ),
+            });
+            setLiquidityWarningOpen(true);
+            return;
+          }
+        }
+      } finally {
+        setIsCheckingLiquidity(false);
+      }
+    }
+
+    await executeTransaction();
+  };
+
+  const handleLiquidityWarningContinue = async () => {
+    setLiquidityWarningOpen(false);
+    setLiquidityWarningContext(null);
+    await executeTransaction();
   };
 
   const isSigning = status === 'signing';
@@ -545,7 +700,8 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
           assetSymbol={assetSymbol}
           assetDecimals={derivedAsset?.decimals}
           transactionType={transactionType}
-          isLoading={isSigning || isApproving || isConfirming}
+          isLoading={isSigning || isApproving || isConfirming || isCheckingLiquidity}
+          liquidityWarningPreview={liquidityWarningPreview}
           progressSteps={walletSteps}
           showProgress={isSigning || isApproving || isConfirming || (isError && partialFailure)}
           isSuccess={isSuccess}
@@ -588,6 +744,16 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
           type="error"
           message={error || 'Transaction failed'}
           onRetry={() => setStatus('preview')}
+        />
+      )}
+      {liquidityWarningContext && (
+        <WithdrawLiquidityWarningModal
+          isOpen={liquidityWarningOpen}
+          onClose={() => setLiquidityWarningOpen(false)}
+          onContinue={handleLiquidityWarningContinue}
+          morphoVaultUrl={liquidityWarningContext.morphoVaultUrl}
+          requestedAmountLabel={liquidityWarningContext.requestedAmountLabel}
+          instantLiquidityLabel={liquidityWarningContext.instantLiquidityLabel}
         />
       )}
     </div>
