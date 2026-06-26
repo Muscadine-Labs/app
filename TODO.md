@@ -1,4 +1,6 @@
 **To Work on Today:**
+- Earned interest on home dashboard is a small inconsistantcy with earned interest amount on vault pages. Find out why there is an inconsitancy with token and usd amount than fix it. I believe the vault earned interest is the correct amount.
+- On the vault pages on overivew with the info toggles for apy and liquidty, there is a bug on the pop up where the top section like "Net APY" is cut off by "APY breakdown". Fix this and the other info section, than find any other small ui bugs.
 
 **To work on another day:**
 
