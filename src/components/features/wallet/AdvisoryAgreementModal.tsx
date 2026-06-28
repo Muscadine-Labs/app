@@ -63,19 +63,15 @@ export function AdvisoryAgreementModal() {
     <Modal
       isOpen={shouldShowModal}
       onClose={handleClose}
+      title="Advisory Agreement"
       showCloseButton={true}
       closeOnOverlayClick={false}
     >
       <div className="space-y-3 sm:space-y-4">
         {/* Header Content */}
-        <div>
-          <h2 className="text-base sm:text-lg font-semibold text-[var(--foreground)] mb-1">
-            Advisory Agreement
-          </h2>
-          <p className="text-xs sm:text-sm text-[var(--foreground-secondary)]">
-            Please review and accept the following terms before connecting your wallet.
-          </p>
-        </div>
+        <p className="text-xs sm:text-sm text-[var(--foreground-secondary)]">
+          Please review and accept the following terms before connecting your wallet.
+        </p>
 
         {/* Main Content */}
         <div className="space-y-1.5 sm:space-y-2">
