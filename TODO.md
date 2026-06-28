@@ -1,7 +1,7 @@
 **To Work on Today:**
 - Earned interest on home dashboard is a small inconsistantcy with earned interest amount on vault pages. Find out why there is an inconsitancy with token and usd amount than fix it. I believe the vault earned interest is the correct amount.
 - On the vault pages on overivew with the info toggles for apy and liquidty, there is a bug on the pop up where the top section like "Net APY" is cut off by "APY breakdown". Fix this and the other info section, than find any other small ui bugs.
-
+- On /vaults and net apy, there is a small diference between that apy and the apy on morpho. Tell me all of the net apy or apy morpgo ql call and what they are for each one. 
 **To work on another day:**
 
 - **Vault v2 force exit when withdraw > liquidity:** In-app withdraw warns (preview banner + confirm modal with Morpho link) when amount exceeds instant liquidity and on-chain simulation fails; user can continue anyway. Still TODO: auto-route via `forceDeallocate` then `withdraw`/`redeem` in `transactionUtilsV2.ts` (or Morpho SDK `forceWithdraw`/`forceRedeem`). Users can force-exit via [Morpho app](https://app.morpho.org) in the meantime. Ref: [Morpho force deallocate](https://morpho-org-vault-v2.mintlify.app/operations/force-deallocate).
