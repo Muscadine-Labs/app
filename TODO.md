@@ -1,10 +1,4 @@
 **To Work on Today:**
-- Earned interest on home dashboard is a small inconsistantcy with earned interest amount on vault pages. Find out why there is an inconsitancy with token and usd amount than fix it. I believe the vault earned interest is the correct amount.
-- On the vault pages on overivew with the info toggles for apy and liquidty, there is a bug on the pop up where the top section like "Net APY" is cut off by "APY breakdown". Fix this and the other info section, than find any other small ui bugs.
-- On /vaults and net apy, there is a small diference between that apy and the apy on morpho. Tell me all of the net apy or apy morpgo ql call and what they are for each one.
-- On Interest earned on dashbaord and on the /vault/v2 pages it does not count a transfer in as token deposited, or transfer out as token withdrawn. on Transaction History
-View all deposits and withdrawals for this vault tab, transfer is marked unknown and should be transfer in or transfer out. Review first. See about transfers that are bundled with " one or more Account Abstraction transactions (User Ops), such as this transcaction: 0x8f00707c3eb76374746bd70089cfb30cbe19f92067f4f4d496ce1a08ba623fa8
-
 
 **To work on another day:**
 

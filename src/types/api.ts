@@ -12,9 +12,17 @@ export interface GraphQLResponse<T> {
 }
 
 // Transaction Types
+export type TransactionType =
+  | 'deposit'
+  | 'withdraw'
+  | 'transfer_in'
+  | 'transfer_out'
+  | 'transfer'
+  | 'event';
+
 export interface Transaction {
   id: string;
-  type: 'deposit' | 'withdraw' | 'event';
+  type: TransactionType;
   timestamp: number;
   blockNumber?: number;
   transactionHash?: string;
@@ -78,9 +86,13 @@ export interface GraphQLV2TransactionItem {
   };
   shares?: string;
   data?: {
+    __typename?: string;
     assets?: number;
     sender?: string;
     onBehalf?: string;
+    receiver?: string;
+    from?: string;
+    to?: string;
   };
 }
 

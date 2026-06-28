@@ -215,19 +215,20 @@ export async function GET(
       });
     };
 
+    const activityData = await loadActivity();
+    const resolvedDecimals = activityData.assetDecimals ?? assetDecimals;
+    const deposits = activityData.deposits ?? [];
+    const withdrawals = activityData.withdrawals ?? [];
+    const hasActivityFlow = deposits.length > 0 || withdrawals.length > 0;
+
     // Never deposited → earned interest is zero (ignore stray Morpho pnl).
     if (!hasShares) {
-      const activityData = await loadActivity();
-      if ((activityData.deposits ?? []).length === 0) {
+      if (!hasActivityFlow) {
         return zeroEarnedInterestResponse(assetDecimals, 'none');
       }
     }
 
-    const activityData = await loadActivity();
-    const resolvedDecimals = activityData.assetDecimals ?? assetDecimals;
-    const deposits = activityData.deposits ?? [];
-
-    if (deposits.length > 0) {
+    if (hasActivityFlow) {
       return buildActivityEarnedResponse(
         resolveCurrentAssetsRaw(),
         activityData,

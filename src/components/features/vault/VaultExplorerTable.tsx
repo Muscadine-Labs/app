@@ -1,9 +1,11 @@
 'use client';
 
-import type { KeyboardEvent, ReactNode } from 'react';
+import { useMemo, type KeyboardEvent, type ReactNode } from 'react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
-import { useAccount } from 'wagmi';
+import { useAccount, useReadContract } from 'wagmi';
+import { BASE_CHAIN_ID } from '@/lib/constants';
+import { ERC20_BALANCE_ABI, ERC4626_ABI } from '@/lib/abis';
 import { Vault, getVaultLogo } from '@/types/vault';
 import type { MorphoVaultData } from '@/types/vault';
 import { useVaultData } from '@/contexts/VaultDataContext';
@@ -106,9 +108,35 @@ function EarnedInterestCell({
   const { address } = useAccount();
   const curated = vault.isCurated !== false;
   const resolvedDecimals = resolveAssetDecimals(vault.symbol, decimals);
+
+  const { data: sharesRaw } = useReadContract({
+    address: curated && address ? (vault.address as `0x${string}`) : undefined,
+    chainId: BASE_CHAIN_ID,
+    abi: ERC20_BALANCE_ABI,
+    functionName: 'balanceOf',
+    args: address ? [address as `0x${string}`] : undefined,
+    query: { enabled: curated && Boolean(address) },
+  });
+
+  const { data: assetsRaw } = useReadContract({
+    address: sharesRaw !== undefined ? (vault.address as `0x${string}`) : undefined,
+    chainId: BASE_CHAIN_ID,
+    abi: ERC4626_ABI,
+    functionName: 'convertToAssets',
+    args: sharesRaw !== undefined ? [sharesRaw] : undefined,
+    query: { enabled: curated && sharesRaw !== undefined },
+  });
+
+  const currentAssetsRaw = useMemo(() => {
+    if (assetsRaw !== undefined) return assetsRaw.toString();
+    if (sharesRaw === BigInt(0)) return '0';
+    return undefined;
+  }, [assetsRaw, sharesRaw]);
+
   const hookData = useVaultEarnedInterest(
     curated && address ? vault.address : undefined,
-    vault.symbol
+    vault.symbol,
+    currentAssetsRaw
   );
 
   const earnedUsd = curated ? hookData.earnedInterestUsd : (position?.pnlUsd ?? 0);
