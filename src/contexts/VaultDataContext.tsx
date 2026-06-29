@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
 import { formatUnits } from 'viem';
 import { Vault, MorphoVaultData, VaultLiquidityBreakdown } from '@/types/vault';
-import { getVaultVersion } from '../lib/vault-utils';
+import { getVaultVersion, isCuratedVaultAddress } from '../lib/vault-utils';
 import { MORPHO_PRELOAD_BATCH_SIZE, MORPHO_FETCH_ERROR_COOLDOWN_MS, CLIENT_VAULT_DATA_CACHE_MS } from '../lib/constants';
 import { VAULTS } from '../lib/vaults';
 
@@ -306,6 +306,7 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
           })(),
           timelockDuration: vaultInfo.state?.timelock || 0,
           lastUpdated: new Date().toISOString(),
+          isCurated: isCuratedVaultAddress(vaultInfo.address),
         };
 
         commitVaultData((prev) => ({
@@ -380,6 +381,7 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
       performanceFee: basic.performanceFee || 0.0,
       managementFee: basic.managementFee || 0.0,
       description: basic.description || 'High-yield lending vault optimized for stablecoin deposits with automated market allocation.',
+      isCurated: basic.isCurated ?? isCuratedVaultAddress(address),
     };
   }, [vaultData]);
 

@@ -105,6 +105,7 @@ export function sharesToAssetsRaw(
   ratio: VaultRatioSnapshot
 ): string | undefined {
   if (!shares) return undefined;
+  if (ratio.totalSupply === BigInt(0)) return undefined;
   try {
     const shareAmount = BigInt(shares);
     if (shareAmount <= BigInt(0)) return undefined;

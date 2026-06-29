@@ -2,8 +2,9 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import { findVaultByAddress } from '@/lib/vault-utils';
+import { resolveVaultForPage, isValidEthereumAddress } from '@/lib/vault-utils';
 import { useVaultDataFetch } from '@/hooks/useVaultDataFetch';
+import { useWallet } from '@/contexts/WalletContext';
 import VaultHero from '@/components/features/vault/VaultHero';
 import VaultOverview from '@/components/features/vault/VaultOverview';
 import VaultTabs from '@/components/features/vault/VaultTabs';
@@ -16,6 +17,7 @@ export default function VaultV2Page() {
   const router = useRouter();
   const address = (params?.address as string) || '';
   const [activeTab, setActiveTab] = useState<string>('position');
+  const { morphoHoldings } = useWallet();
 
   const handleTabChange = (tab: string) => {
     if (tab === 'safety') {
@@ -25,17 +27,28 @@ export default function VaultV2Page() {
     }
   };
 
-  const vault = useMemo(() => findVaultByAddress(address), [address]);
+  const walletPosition = useMemo(
+    () =>
+      morphoHoldings.positions.find(
+        (pos) => pos.vault.address.toLowerCase() === address.toLowerCase()
+      ),
+    [morphoHoldings.positions, address]
+  );
+
+  const vault = useMemo(
+    () => resolveVaultForPage(address, walletPosition),
+    [address, walletPosition]
+  );
   const { vaultData, isLoading, hasError, refetch, errorMessage } = useVaultDataFetch(vault);
 
   useEffect(() => {
-    if (!vault && address) {
+    if (address && !isValidEthereumAddress(address)) {
       const timer = setTimeout(() => {
         router.push('/');
       }, 100);
       return () => clearTimeout(timer);
     }
-  }, [vault, address, router]);
+  }, [address, router]);
 
   const pageShellClassName =
     'w-full bg-[var(--background)] flex flex-col p-4 sm:p-6 md:p-8 pb-8 min-h-full';

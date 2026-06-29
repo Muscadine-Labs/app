@@ -1,6 +1,7 @@
 import { VAULTS, VaultStrategy } from '@/lib/vaults';
 import { Vault } from '@/types/vault';
 import { getAssetDecimalsForSymbol } from '@/lib/asset-decimals';
+import { BASE_CHAIN_ID } from '@/lib/constants';
 
 /** Morpho holding row from WalletContext (minimal shape for display helpers). */
 export interface WalletMorphoPosition {
@@ -147,6 +148,38 @@ export function findVaultByAddress(address: string): Vault | null {
 
 export function isCuratedVaultAddress(address: string): boolean {
   return findVaultByAddress(address) !== null;
+}
+
+/** Minimal vault stub for external Morpho vaults not in the Muscadine registry. */
+export function createExternalVaultStub(
+  address: string,
+  options?: { name?: string; symbol?: string; chainId?: number }
+): Vault {
+  return {
+    address,
+    name: options?.name ?? `${address.slice(0, 6)}...${address.slice(-4)}`,
+    symbol: options?.symbol ?? 'UNKNOWN',
+    chainId: options?.chainId ?? BASE_CHAIN_ID,
+    version: 'v2',
+    isCurated: false,
+  };
+}
+
+/** Registry vault or external stub — used by vault detail pages. */
+export function resolveVaultForPage(
+  address: string,
+  walletPosition?: WalletMorphoPosition
+): Vault | null {
+  if (!address || !isValidEthereumAddress(address)) return null;
+
+  const registryVault = findVaultByAddress(address);
+  if (registryVault) return registryVault;
+
+  return createExternalVaultStub(address, {
+    name: walletPosition?.vault.name,
+    symbol: walletPosition?.vault.symbol,
+    chainId: BASE_CHAIN_ID,
+  });
 }
 
 /** Vault write/read product surface is v2 only. */

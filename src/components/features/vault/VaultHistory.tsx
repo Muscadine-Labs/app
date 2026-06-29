@@ -71,7 +71,7 @@ export default function VaultHistory({ vaultData }: VaultHistoryProps) {
           <div>
             <h2 className="text-lg font-semibold text-[var(--foreground)] mb-1">Transaction History</h2>
             <p className="text-sm text-[var(--foreground-secondary)]">
-              View all deposits and withdrawals for this vault
+              View all deposits, withdrawals, and transfers for this vault
             </p>
           </div>
           {address && userTransactions.length > 0 && (
