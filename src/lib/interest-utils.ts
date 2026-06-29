@@ -33,7 +33,8 @@ export function computeEarnedInterestFromActivity(options: {
     totalWithdrawals += transactionToRaw(tx.assets);
   }
 
-  const netDeposits = totalDeposits - totalWithdrawals;
+  const netDeposits =
+    totalDeposits > totalWithdrawals ? totalDeposits - totalWithdrawals : BigInt(0);
   const earned = currentAssetsRaw - netDeposits;
   return earned > BigInt(0) ? earned : BigInt(0);
 }

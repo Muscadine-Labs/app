@@ -1,6 +1,6 @@
 'use client';
 
-import { formatAssetAmount, formatCurrency } from '@/lib/formatter';
+import { formatVaultDetailTokenAmount, formatCurrency } from '@/lib/formatter';
 import type { VaultLiquidityBreakdown } from '@/types/vault';
 import { VaultStatPopover } from '@/components/features/vault/VaultStatPopover';
 
@@ -25,8 +25,8 @@ function LiquidityRow({
   assetDecimals: number;
   emphasized?: boolean;
 }) {
-  const tokenLabel = formatAssetAmount(
-    BigInt(tokenAmount || '0'),
+  const tokenLabel = formatVaultDetailTokenAmount(
+    tokenAmount || '0',
     assetDecimals,
     assetSymbol
   );

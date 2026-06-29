@@ -21,6 +21,7 @@ import {
   formatPositionTokenAmount,
   formatPositionUsd,
   formatSmartCurrency,
+  getPositionDisplayFractionDigits,
 } from '@/lib/formatter';
 import { formatUnits } from 'viem';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -40,10 +41,17 @@ function handleRowKeyDown(event: KeyboardEvent, onActivate: () => void) {
 }
 
 function formatCompactTokenAmount(rawValue: string | undefined, decimals: number, symbol: string): string {
-  if (!rawValue) return `0 ${symbol}`;
+  const zeroLabel = formatPositionTokenAmount('0', decimals, symbol);
+  if (!rawValue) return zeroLabel;
 
-  const value = Number(formatUnits(BigInt(rawValue), decimals));
-  if (!Number.isFinite(value) || value === 0) return `0 ${symbol}`;
+  let value: number;
+  try {
+    value = Number(formatUnits(BigInt(rawValue), decimals));
+  } catch {
+    return zeroLabel;
+  }
+
+  if (!Number.isFinite(value) || value === 0) return zeroLabel;
 
   const absValue = Math.abs(value);
   let formatted: string;
@@ -55,7 +63,11 @@ function formatCompactTokenAmount(rawValue: string | undefined, decimals: number
   } else if (absValue >= 1_000) {
     formatted = `${formatNumber(value / 1_000, { maximumFractionDigits: 2 })}K`;
   } else {
-    formatted = formatNumber(value, { maximumFractionDigits: 2 });
+    const fractionDigits = getPositionDisplayFractionDigits(symbol);
+    formatted = formatNumber(value, {
+      minimumFractionDigits: fractionDigits,
+      maximumFractionDigits: fractionDigits,
+    });
   }
 
   return `${formatted} ${symbol}`;
@@ -99,9 +111,11 @@ function MobileStatBlock({
 function EarnedInterestCell({
   vault,
   decimals,
+  align = 'end',
 }: {
   vault: Vault;
   decimals: number;
+  align?: 'start' | 'end';
 }) {
   const { address } = useAccount();
   const resolvedDecimals = resolveAssetDecimals(vault.symbol, decimals);
@@ -115,13 +129,15 @@ function EarnedInterestCell({
     query: { enabled: Boolean(address) },
   });
 
+  const hasShareBalance = sharesRaw !== undefined && sharesRaw > BigInt(0);
+
   const { data: assetsRaw } = useReadContract({
-    address: sharesRaw !== undefined ? (vault.address as `0x${string}`) : undefined,
+    address: hasShareBalance ? (vault.address as `0x${string}`) : undefined,
     chainId: BASE_CHAIN_ID,
     abi: ERC4626_ABI,
     functionName: 'convertToAssets',
-    args: sharesRaw !== undefined ? [sharesRaw] : undefined,
-    query: { enabled: sharesRaw !== undefined },
+    args: hasShareBalance ? [sharesRaw] : undefined,
+    query: { enabled: hasShareBalance },
   });
 
   const currentAssetsRaw = useMemo(() => {
@@ -140,8 +156,11 @@ function EarnedInterestCell({
     return <span className="text-sm text-[var(--foreground-muted)]">-</span>;
   }
 
+  const alignClass = align === 'start' ? 'items-start' : 'items-end';
+  const skeletonClass = align === 'start' ? '' : 'ml-auto';
+
   if (hookData.isLoading) {
-    return <Skeleton width="4rem" height="1rem" className="ml-auto" />;
+    return <Skeleton width="4rem" height="1rem" className={skeletonClass} />;
   }
 
   const earnedRawBigInt = (() => {
@@ -154,7 +173,7 @@ function EarnedInterestCell({
 
   if (earnedRawBigInt <= BigInt(0) && hookData.earnedInterestUsd <= 0) {
     return (
-      <div className="flex flex-col items-end gap-0.5">
+      <div className={`flex flex-col ${alignClass} gap-0.5`}>
         <span className="text-sm font-medium text-[var(--foreground)] tabular-nums">
           {formatPositionTokenAmount('0', resolvedDecimals, vault.symbol)}
         </span>
@@ -166,7 +185,7 @@ function EarnedInterestCell({
   }
 
   return (
-    <div className="flex flex-col items-end gap-0.5">
+    <div className={`flex flex-col ${alignClass} gap-0.5`}>
       <span className="text-sm font-medium text-[var(--foreground)] tabular-nums">
         {formatPositionTokenAmount(hookData.earnedInterestRaw || '0', resolvedDecimals, vault.symbol)}
       </span>
@@ -183,12 +202,15 @@ function VaultExplorerMobileCard({ vault, showYourPosition }: VaultExplorerRowPr
   const vaultData = getVaultData(vault.address);
   const loading = isLoading(vault.address);
   const decimals = resolveAssetDecimals(vault.symbol, vaultData?.assetDecimals);
+  const openVault = () => router.push(getVaultRoute(vault.address));
 
   return (
-    <button
-      type="button"
-      onClick={() => router.push(getVaultRoute(vault.address))}
-      className="w-full text-left px-4 py-4 border-b border-[var(--border)] hover:bg-[var(--surface-hover)] active:bg-[var(--surface-hover)] transition-colors touch-manipulation"
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={openVault}
+      onKeyDown={(event) => handleRowKeyDown(event, openVault)}
+      className="w-full text-left px-4 py-4 border-b border-[var(--border)] hover:bg-[var(--surface-hover)] active:bg-[var(--surface-hover)] transition-colors touch-manipulation cursor-pointer"
     >
       <div className="flex items-start gap-3 mb-3">
         <VaultLogo vault={vault} />
@@ -244,7 +266,7 @@ function VaultExplorerMobileCard({ vault, showYourPosition }: VaultExplorerRowPr
           />
         </MobileStatBlock>
       </div>
-    </button>
+    </div>
   );
 }
 
@@ -271,14 +293,16 @@ function DashboardVaultMobileCard({
   const isCurated = vault.isCurated !== false;
   const openVault = () => router.push(getVaultRoute(vault.address));
   const wrapperProps = {
-    type: 'button' as const,
+    role: 'button' as const,
+    tabIndex: 0,
     onClick: openVault,
+    onKeyDown: (event: KeyboardEvent) => handleRowKeyDown(event, openVault),
     className:
       'w-full text-left px-4 py-4 border-b border-[var(--border)] hover:bg-[var(--surface-hover)] active:bg-[var(--surface-hover)] transition-colors touch-manipulation cursor-pointer',
   };
 
   return (
-    <button {...wrapperProps}>
+    <div {...wrapperProps}>
       <div className="flex items-center gap-3 mb-3">
         <VaultLogo vault={vault} />
         <div className="min-w-0">
@@ -310,7 +334,7 @@ function DashboardVaultMobileCard({
           )}
         </MobileStatBlock>
         <MobileStatBlock label="Earned Interest">
-          <EarnedInterestCell vault={vault} decimals={decimals} />
+          <EarnedInterestCell vault={vault} decimals={decimals} align="start" />
         </MobileStatBlock>
         <MobileStatBlock label="APY / TVL">
           {loading || !vaultData ? (
@@ -327,7 +351,7 @@ function DashboardVaultMobileCard({
           )}
         </MobileStatBlock>
       </div>
-    </button>
+    </div>
   );
 }
 

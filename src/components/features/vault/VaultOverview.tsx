@@ -3,11 +3,13 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   formatSmartCurrency,
-  formatAssetAmount,
   formatPercentage,
   formatCurrency,
   formatVaultChartTokenAmount,
   formatVaultChartTokenAxisTick,
+  formatSharePriceTokenAmount,
+  formatSharePriceUsd,
+  formatVaultDetailTokenAmount,
 } from '@/lib/formatter';
 import { calculateYAxisDomain } from '@/lib/vault-utils';
 import { logger } from '@/lib/logger';
@@ -60,7 +62,7 @@ function formatTvlYAxisTick(
 }
 
 function getTvlYAxisWidth(valueType: 'usd' | 'token'): number {
-  return valueType === 'usd' ? 96 : 80;
+  return valueType === 'usd' ? 96 : 104;
 }
 
 function formatSharePriceYAxisTick(
@@ -69,9 +71,9 @@ function formatSharePriceYAxisTick(
   vaultData: MorphoVaultData
 ): string {
   if (valueType === 'usd') {
-    return formatCurrency(value);
+    return formatSharePriceUsd(value);
   }
-  return formatVaultChartTokenAmount(
+  return formatSharePriceTokenAmount(
     value,
     vaultData.assetDecimals || 18,
     vaultData.symbol,
@@ -80,7 +82,7 @@ function formatSharePriceYAxisTick(
 }
 
 function getSharePriceYAxisWidth(valueType: 'usd' | 'token'): number {
-  return valueType === 'usd' ? 96 : 88;
+  return valueType === 'usd' ? 96 : 104;
 }
 
 const PERIOD_SECONDS: Record<Period, number> = {
@@ -115,8 +117,8 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
     vaultData.liquidityAssets
   );
   const liquidityUsd = formatSmartCurrency(totalUnderlyingUsd, { alwaysTwoDecimals: true });
-  const liquidityRaw = formatAssetAmount(
-    BigInt(totalUnderlyingAssets || '0'),
+  const liquidityRaw = formatVaultDetailTokenAmount(
+    totalUnderlyingAssets || '0',
     vaultData.assetDecimals || 18,
     vaultData.symbol
   );
@@ -666,8 +668,8 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
           <div>
             <p className="text-xs text-[var(--foreground-secondary)] mb-1">Total Deposited</p>
             <p className="text-2xl font-bold text-[var(--foreground)]">
-              {formatAssetAmount(
-                BigInt(vaultData.totalAssets || '0'),
+              {formatVaultDetailTokenAmount(
+                vaultData.totalAssets || '0',
                 vaultData.assetDecimals || 18,
                 vaultData.symbol
               )}
@@ -953,10 +955,10 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                       formatter={(value) => {
                         if (value === undefined || typeof value !== 'number') return ['', 'Share Price'];
                         if (valueType === 'usd') {
-                          return [formatCurrency(value), 'Share Price (USD)'];
+                          return [formatSharePriceUsd(value), 'Share Price (USD)'];
                         }
                         return [
-                          formatVaultChartTokenAmount(
+                          formatSharePriceTokenAmount(
                             value,
                             vaultData.assetDecimals || 18,
                             vaultData.symbol

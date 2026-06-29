@@ -173,7 +173,7 @@ export function resolveVaultForPage(
   if (!address || !isValidEthereumAddress(address)) return null;
 
   const registryVault = findVaultByAddress(address);
-  if (registryVault) return registryVault;
+  if (registryVault?.version === 'v2') return registryVault;
 
   return createExternalVaultStub(address, {
     name: walletPosition?.vault.name,

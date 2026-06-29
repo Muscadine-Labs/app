@@ -6,6 +6,7 @@ import type {
   TransactionType,
 } from '@/types/api';
 import { DEFAULT_ASSET_PRICE, DEFAULT_ASSET_DECIMALS, STABLECOIN_SYMBOLS, MORPHO_GRAPHQL_REVALIDATE_SECONDS } from '@/lib/constants';
+import { resolveAssetDecimals } from '@/lib/asset-decimals';
 import { logger } from '@/lib/logger';
 import { fetchMorphoGraphQL, resolveMorphoAssetPriceUsd } from '@/lib/api-utils';
 import {
@@ -291,7 +292,10 @@ export async function fetchVaultV2ActivityData(
   let assetDecimals = DEFAULT_ASSET_DECIMALS;
 
   if (vaultInfo?.asset) {
-    assetDecimals = vaultInfo.asset.decimals || DEFAULT_ASSET_DECIMALS;
+    assetDecimals = resolveAssetDecimals(
+      vaultInfo.asset.symbol ?? '',
+      vaultInfo.asset.decimals
+    );
     assetPrice = resolveMorphoAssetPriceUsd(vaultInfo.asset, DEFAULT_ASSET_PRICE);
 
     if (!resolveMorphoAssetPriceUsd(vaultInfo.asset)) {

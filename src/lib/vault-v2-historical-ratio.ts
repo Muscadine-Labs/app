@@ -40,7 +40,7 @@ function buildSortedSeries(
   for (const point of points) {
     if (point.x == null) continue;
     const value = parseTimeseriesBigInt(point.y);
-    if (value === null || value <= BigInt(0)) continue;
+    if (value === null || value < BigInt(0)) continue;
     series.push({ timestamp: point.x, value });
   }
 

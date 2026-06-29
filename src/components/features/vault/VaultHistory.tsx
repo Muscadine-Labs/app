@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { MorphoVaultData } from '@/types/vault';
-import { formatAssetAmount, formatDate, formatCurrency } from '@/lib/formatter';
+import { formatVaultDetailTokenAmount, formatDate, formatCurrency } from '@/lib/formatter';
 import { useAccount } from 'wagmi';
 import CopiableAddress from '@/components/common/CopiableAddress';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -165,7 +165,11 @@ export default function VaultHistory({ vaultData }: VaultHistoryProps) {
                       </span>
                       {tx.assets && (
                         <span className="text-sm text-[var(--foreground)] font-medium">
-                          {formatAssetAmount(BigInt(tx.assets), vaultData.assetDecimals || 18, vaultData.symbol)}
+                          {formatVaultDetailTokenAmount(
+                            tx.assets,
+                            vaultData.assetDecimals || 18,
+                            vaultData.symbol
+                          )}
                         </span>
                       )}
                       {tx.assetsUsd !== undefined && tx.assetsUsd > 0 && (

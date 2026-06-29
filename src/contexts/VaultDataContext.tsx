@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
 import { formatUnits } from 'viem';
 import { Vault, MorphoVaultData, VaultLiquidityBreakdown } from '@/types/vault';
-import { getVaultVersion, isCuratedVaultAddress } from '../lib/vault-utils';
+import { getVaultVersion, isCuratedVaultAddress } from '@/lib/vault-utils';
 import { MORPHO_PRELOAD_BATCH_SIZE, MORPHO_FETCH_ERROR_COOLDOWN_MS, CLIENT_VAULT_DATA_CACHE_MS } from '../lib/constants';
 import { VAULTS } from '../lib/vaults';
 
