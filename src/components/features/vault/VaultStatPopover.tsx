@@ -109,8 +109,28 @@ export function VaultStatPopover({
     setOpen((prev) => !prev);
   };
 
-  const panelClassName =
-    'rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] shadow-xl p-3 overscroll-contain';
+  const panelShellClassName =
+    'rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] shadow-xl overscroll-contain flex flex-col';
+
+  const panelHeader = (
+    <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[var(--border-subtle)] px-3 py-2.5">
+      <span className="text-sm font-semibold text-[var(--foreground)]">{ariaLabel}</span>
+      {isMobile && (
+        <button
+          type="button"
+          onClick={() => setOpen(false)}
+          className="rounded-md p-1.5 text-[var(--foreground-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] cursor-pointer touch-manipulation"
+          aria-label="Close"
+        >
+          <CloseIcon size="sm" />
+        </button>
+      )}
+    </div>
+  );
+
+  const panelBody = (
+    <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">{children}</div>
+  );
 
   return (
     <>
@@ -141,20 +161,10 @@ export function VaultStatPopover({
                 role="dialog"
                 aria-modal="true"
                 aria-label={ariaLabel}
-                className={`fixed inset-x-0 bottom-0 z-[101] max-h-[min(85dvh,32rem)] overflow-y-auto rounded-t-2xl ${panelClassName} pb-[max(0.75rem,env(safe-area-inset-bottom))]`}
+                className={`fixed inset-x-0 bottom-0 z-[101] max-h-[min(85dvh,32rem)] ${panelShellClassName} pb-[max(0.75rem,env(safe-area-inset-bottom))] rounded-b-none rounded-t-2xl`}
               >
-                <div className="sticky top-0 z-10 -mx-3 -mt-3 mb-2 flex items-center justify-between gap-3 border-b border-[var(--border-subtle)] bg-[var(--surface-elevated)] px-3 py-3">
-                  <span className="text-sm font-semibold text-[var(--foreground)]">{ariaLabel}</span>
-                  <button
-                    type="button"
-                    onClick={() => setOpen(false)}
-                    className="rounded-md p-1.5 text-[var(--foreground-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] cursor-pointer touch-manipulation"
-                    aria-label="Close"
-                  >
-                    <CloseIcon size="sm" />
-                  </button>
-                </div>
-                {children}
+                {panelHeader}
+                {panelBody}
               </div>
             ) : (
               <div
@@ -162,10 +172,11 @@ export function VaultStatPopover({
                 role="dialog"
                 aria-modal="true"
                 aria-label={ariaLabel}
-                className={`fixed z-[101] w-72 max-h-[min(70vh,24rem)] overflow-y-auto ${panelClassName}`}
+                className={`fixed z-[101] w-72 max-h-[min(70vh,24rem)] ${panelShellClassName}`}
                 style={{ top: position.top, left: position.left }}
               >
-                {children}
+                {panelHeader}
+                {panelBody}
               </div>
             )}
           </>,

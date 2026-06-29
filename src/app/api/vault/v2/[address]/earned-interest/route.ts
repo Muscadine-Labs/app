@@ -178,6 +178,11 @@ export async function GET(
       return BigInt(0);
     };
 
+    const currentAssetsRaw = resolveCurrentAssetsRaw();
+    const hasPosition =
+      hasShares ||
+      currentAssetsRaw > BigInt(0);
+
     const buildActivityEarnedResponse = (
       currentAssetsRaw: bigint,
       activityData: NonNullable<typeof activity>,
@@ -215,27 +220,41 @@ export async function GET(
       });
     };
 
+    let activityData: Awaited<ReturnType<typeof loadActivity>> | null = null;
+    try {
+      activityData = await loadActivity();
+    } catch (activityError) {
+      logger.warn('Failed to fetch vault activity for earned interest', {
+        vaultAddress,
+        chainId,
+        userAddress,
+        error:
+          activityError instanceof Error ? activityError.message : String(activityError),
+      });
+    }
+
+    const resolvedDecimals = activityData?.assetDecimals ?? assetDecimals;
+    const deposits = activityData?.deposits ?? [];
+    const withdrawals = activityData?.withdrawals ?? [];
+    const hasActivityFlow =
+      !!activityData && (deposits.length > 0 || withdrawals.length > 0);
+
     // Never deposited → earned interest is zero (ignore stray Morpho pnl).
-    if (!hasShares) {
-      const activityData = await loadActivity();
-      if ((activityData.deposits ?? []).length === 0) {
+    if (!hasPosition) {
+      if (!hasActivityFlow) {
         return zeroEarnedInterestResponse(assetDecimals, 'none');
       }
     }
 
-    const activityData = await loadActivity();
-    const resolvedDecimals = activityData.assetDecimals ?? assetDecimals;
-    const deposits = activityData.deposits ?? [];
-
-    if (deposits.length > 0) {
+    if (activityData && hasActivityFlow) {
       return buildActivityEarnedResponse(
-        resolveCurrentAssetsRaw(),
+        currentAssetsRaw,
         activityData,
         resolvedDecimals
       );
     }
 
-    if (position?.pnl !== undefined && position.pnl !== null) {
+    if (hasPosition && position?.pnl !== undefined && position.pnl !== null) {
       const earned = positiveEarnedFromPnl(position.pnl, position.pnlUsd, assetDecimals);
       return NextResponse.json({
         ...earned,

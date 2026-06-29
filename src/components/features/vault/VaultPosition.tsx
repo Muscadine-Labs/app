@@ -4,7 +4,6 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAccount, useReadContract } from 'wagmi';
 import { MorphoVaultData } from '@/types/vault';
-import { useWallet } from '@/contexts/WalletContext';
 import {
   formatCurrency,
   formatNumber,
@@ -13,7 +12,15 @@ import {
   formatVaultChartTokenAxisTick,
   formatVaultDetailTokenAmount,
 } from '@/lib/formatter';
-import { calculateYAxisDomain } from '@/lib/vault-utils';
+import { calculateYAxisDomain, isCuratedVaultAddress } from '@/lib/vault-utils';
+import { getMorphoVaultUrl } from '@/lib/liquidity-utils';
+import {
+  buildActivityFlowEvents,
+  netDepositRawAtTime,
+  splitPositionValueAtPoint,
+  type ActivityFlowEvent,
+} from '@/lib/interest-utils';
+import { ExternalVaultTransactModal } from '@/components/features/vault/ExternalVaultTransactModal';
 import { logger } from '@/lib/logger';
 import { useToast } from '@/contexts/ToastContext';
 import { usePrices } from '@/contexts/PriceContext';
@@ -52,7 +59,6 @@ const formatDate = (timestamp: number) => {
 export default function VaultPosition({ vaultData }: VaultPositionProps) {
   const router = useRouter();
   const { address, isConnected } = useAccount();
-  const { morphoHoldings } = useWallet();
   const { btc: btcPrice, eth: ethPrice } = usePrices();
   const { error: showErrorToast } = useToast();
 
@@ -79,6 +85,12 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
     assetsUsd: number;
     shares: number;
   }>>([]);
+  const [activityFlowEvents, setActivityFlowEvents] = useState<ActivityFlowEvent[] | null>(null);
+  const [externalTransactAction, setExternalTransactAction] = useState<'deposit' | 'withdraw' | null>(null);
+
+  const isExternalVault =
+    vaultData.isCurated === false || !isCuratedVaultAddress(vaultData.address);
+  const morphoVaultUrl = getMorphoVaultUrl(vaultData.chainId, vaultData.address);
 
   // Get shares using balanceOf
   const { data: sharesRaw } = useReadContract({
@@ -114,11 +126,6 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
   const interestDecimals = resolveAssetDecimals(
     vaultData.symbol,
     earnedInterest.assetDecimals || vaultData.assetDecimals
-  );
-
-  // Find the current vault position from WalletContext (for holdings detection).
-  const currentVaultPosition = morphoHoldings.positions.find(
-    pos => pos.vault.address.toLowerCase() === vaultData.address.toLowerCase()
   );
 
   const depositAssetDecimals = resolveAssetDecimals(
@@ -316,6 +323,44 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
     return () => abortController.abort();
   }, [vaultData.address, vaultData.chainId, vaultData.version, address]);
 
+  useEffect(() => {
+    const abortController = new AbortController();
+
+    const fetchActivity = async () => {
+      if (!address) {
+        setActivityFlowEvents(null);
+        return;
+      }
+
+      try {
+        const response = await fetch(
+          `/api/vault/v2/${vaultData.address}/activity?chainId=${vaultData.chainId}&userAddress=${address}`,
+          { signal: abortController.signal }
+        );
+
+        if (!response.ok) {
+          setActivityFlowEvents(null);
+          return;
+        }
+
+        const data = await response.json().catch(() => ({}));
+        if (data.error || !Array.isArray(data.deposits) || !Array.isArray(data.withdrawals)) {
+          setActivityFlowEvents(null);
+          return;
+        }
+
+        const events = buildActivityFlowEvents(data.deposits, data.withdrawals);
+        setActivityFlowEvents(events.length > 0 ? events : null);
+      } catch (error) {
+        if (error instanceof Error && error.name === 'AbortError') return;
+        setActivityFlowEvents(null);
+      }
+    };
+
+    void fetchActivity();
+    return () => abortController.abort();
+  }, [vaultData.address, vaultData.chainId, address]);
+
   // Get asset price for calculating USD value when assetsUsd is 0
   const getAssetPrice = useMemo(() => {
     const symbolUpper = vaultData.symbol.toUpperCase();
@@ -426,11 +471,66 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
     return mappedData;
   }, [userDepositHistory, selectedTimeFrame, valueType, now]);
 
+  const hasActivityBreakdown =
+    activityFlowEvents !== null && activityFlowEvents.length > 0;
+
+  const chartData = useMemo(() => {
+    if (!hasActivityBreakdown || !activityFlowEvents) {
+      return filteredChartData;
+    }
+
+    const scale = 10 ** depositAssetDecimals;
+
+    return filteredChartData.map((item) => {
+      const positionValueRaw = BigInt(Math.round(item.valueToken * scale));
+      const netDepositRaw = netDepositRawAtTime(activityFlowEvents, item.timestamp);
+      const { depositedRaw, interestRaw } = splitPositionValueAtPoint({
+        positionValueRaw,
+        netDepositRaw,
+      });
+
+      const depositedToken = Number(depositedRaw) / scale;
+      const interestToken = Number(interestRaw) / scale;
+      const totalValue = valueType === 'usd' ? item.valueUsd : item.valueToken;
+
+      if (valueType === 'usd') {
+        if (item.valueToken > 0) {
+          const usdRatio = item.valueUsd / item.valueToken;
+          return {
+            ...item,
+            deposited: depositedToken * usdRatio,
+            interest: interestToken * usdRatio,
+            value: totalValue,
+          };
+        }
+        return {
+          ...item,
+          deposited: 0,
+          interest: 0,
+          value: totalValue,
+        };
+      }
+
+      return {
+        ...item,
+        deposited: depositedToken,
+        interest: interestToken,
+        value: totalValue,
+      };
+    });
+  }, [
+    filteredChartData,
+    hasActivityBreakdown,
+    activityFlowEvents,
+    depositAssetDecimals,
+    valueType,
+  ]);
+
   // Calculate Y-axis domain for better fit
   const yAxisDomain = useMemo(() => {
-    if (filteredChartData.length === 0) return [0, 100];
+    if (chartData.length === 0) return [0, 100];
     
-    const values = filteredChartData.map(d => d.value).filter(v => v !== null && v !== undefined && !isNaN(v));
+    const values = chartData.map((d) => d.value).filter((v) => v !== null && v !== undefined && !isNaN(v));
     const domain = calculateYAxisDomain(values, {
       bottomPaddingPercent: 0.25,
       topPaddingPercent: 0.2,
@@ -438,14 +538,14 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
     });
     
     return domain || [0, 100];
-  }, [filteredChartData]);
+  }, [chartData]);
 
   // Helper function to calculate chart ticks based on time frame
   const getChartTicks = useMemo(() => {
-    if (filteredChartData.length === 0) return undefined;
+    if (chartData.length === 0) return undefined;
     
     // Sort data once for all operations
-    const sortedData = [...filteredChartData].sort((a, b) => a.timestamp - b.timestamp);
+    const sortedData = [...chartData].sort((a, b) => a.timestamp - b.timestamp);
     
     // Determine interval configuration based on selected time frame
     let dayInterval: number;
@@ -499,19 +599,43 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
     });
     
     return ticks.length > 0 ? ticks : undefined;
-  }, [selectedTimeFrame, filteredChartData]);
+  }, [selectedTimeFrame, chartData]);
   
 
   const handleDeposit = () => {
+    if (isExternalVault) {
+      setExternalTransactAction('deposit');
+      return;
+    }
     router.push(`/transact?vault=${vaultData.address}&action=deposit`);
   };
 
   const handleWithdraw = () => {
+    if (isExternalVault) {
+      setExternalTransactAction('withdraw');
+      return;
+    }
     router.push(`/transact?vault=${vaultData.address}&action=withdraw`);
   };
 
+  const formatChartValue = useCallback(
+    (value: number) => {
+      if (valueType === 'usd') {
+        return formatCurrency(value);
+      }
+      return formatVaultChartTokenAmount(value, depositAssetDecimals, vaultData.symbol);
+    },
+    [valueType, depositAssetDecimals, vaultData.symbol]
+  );
+
   return (
     <div className="space-y-6">
+      <ExternalVaultTransactModal
+        isOpen={externalTransactAction !== null}
+        onClose={() => setExternalTransactAction(null)}
+        morphoVaultUrl={morphoVaultUrl}
+        action={externalTransactAction ?? 'deposit'}
+      />
       {/* Position Value */}
       <div>
         <div className="flex flex-col md:flex-row items-start justify-between gap-6 mb-4">
@@ -521,10 +645,16 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
               <p className="text-xs text-[var(--foreground-secondary)] mb-1">Your Position</p>
               {!isConnected ? (
                 <p className="text-sm text-[var(--foreground-muted)]">Connect wallet</p>
-              ) : !currentVaultPosition && currentAssetsRaw === undefined ? (
-                <p className="text-sm text-[var(--foreground-muted)]">No holdings</p>
               ) : positionRawValue === null ? (
                 <Skeleton width="8rem" height="2rem" />
+              ) : (() => {
+                try {
+                  return BigInt(positionRawValue) <= BigInt(0);
+                } catch {
+                  return false;
+                }
+              })() ? (
+                <p className="text-sm text-[var(--foreground-muted)]">No holdings</p>
               ) : (
                 <>
                   <p className="text-2xl font-bold text-[var(--foreground)]">
@@ -768,7 +898,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
               </div>
               <div className="w-full min-w-0 h-80">
                 <ResponsiveContainer width="100%" height="100%" minHeight={320} debounce={50}>
-                  <AreaChart data={filteredChartData}>
+                  <AreaChart data={chartData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" />
                     <XAxis 
                       dataKey="timestamp" 
@@ -804,30 +934,64 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
                         border: '1px solid var(--border-subtle)',
                         borderRadius: '8px',
                       }}
-                      formatter={(value) => {
-                        if (value === undefined || typeof value !== 'number') return ['', 'Your Position'];
-                        if (valueType === 'usd') {
-                          return [formatCurrency(value), 'Your Position'];
-                        } else {
-                          return [
-                            formatVaultChartTokenAmount(
-                              value,
-                              depositAssetDecimals,
-                              vaultData.symbol
-                            ),
-                            'Your Position',
-                          ];
+                      content={({ active, payload, label }) => {
+                        if (!active || !payload?.length) return null;
+                        const point = payload[0]?.payload as {
+                          deposited?: number;
+                          interest?: number;
+                          value?: number;
+                        };
+                        const timestamp =
+                          typeof label === 'number' ? label : parseFloat(String(label));
+
+                        if (
+                          hasActivityBreakdown &&
+                          point &&
+                          (point.deposited !== undefined || point.interest !== undefined)
+                        ) {
+                          const deposited = point.deposited ?? 0;
+                          const interest = point.interest ?? 0;
+                          const total = point.value ?? deposited + interest;
+                          return (
+                            <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] px-3 py-2 text-sm shadow-sm">
+                              <p className="mb-2 font-medium text-[var(--foreground)]">
+                                {`Date: ${formatDate(timestamp)}`}
+                              </p>
+                              <div className="space-y-1 text-[var(--foreground-secondary)]">
+                                <p>
+                                  <span className="text-[var(--primary)]">Deposited:</span>{' '}
+                                  {formatChartValue(deposited)}
+                                </p>
+                                <p>
+                                  <span className="text-[var(--success)]">Earned interest:</span>{' '}
+                                  {formatChartValue(interest)}
+                                </p>
+                                <p className="border-t border-[var(--border-subtle)] pt-1 font-medium text-[var(--foreground)]">
+                                  Total: {formatChartValue(total)}
+                                </p>
+                              </div>
+                            </div>
+                          );
                         }
-                      }}
-                      labelFormatter={(label) => {
-                        const timestamp = typeof label === 'number' ? label : parseFloat(String(label));
-                        return `Date: ${formatDate(timestamp)}`;
+
+                        const value = payload[0]?.value;
+                        if (typeof value !== 'number') return null;
+                        return (
+                          <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] px-3 py-2 text-sm shadow-sm">
+                            <p className="mb-1 font-medium text-[var(--foreground)]">
+                              {`Date: ${formatDate(timestamp)}`}
+                            </p>
+                            <p className="text-[var(--foreground-secondary)]">
+                              Your Position: {formatChartValue(value)}
+                            </p>
+                          </div>
+                        );
                       }}
                     />
-                    <Area 
-                      type="monotone" 
-                      dataKey="value" 
-                      stroke="var(--primary)" 
+                    <Area
+                      type="monotone"
+                      dataKey="value"
+                      stroke="var(--primary)"
                       fill="var(--primary-subtle)"
                       strokeWidth={2}
                       dot={false}

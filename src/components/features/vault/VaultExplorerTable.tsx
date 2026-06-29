@@ -1,9 +1,11 @@
 'use client';
 
-import type { KeyboardEvent, ReactNode } from 'react';
+import { useMemo, type KeyboardEvent, type ReactNode } from 'react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
-import { useAccount } from 'wagmi';
+import { useAccount, useReadContract } from 'wagmi';
+import { BASE_CHAIN_ID } from '@/lib/constants';
+import { ERC20_BALANCE_ABI, ERC4626_ABI } from '@/lib/abis';
 import { Vault, getVaultLogo } from '@/types/vault';
 import type { MorphoVaultData } from '@/types/vault';
 import { useVaultData } from '@/contexts/VaultDataContext';
@@ -19,6 +21,7 @@ import {
   formatPositionTokenAmount,
   formatPositionUsd,
   formatSmartCurrency,
+  getPositionDisplayFractionDigits,
 } from '@/lib/formatter';
 import { formatUnits } from 'viem';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -38,10 +41,17 @@ function handleRowKeyDown(event: KeyboardEvent, onActivate: () => void) {
 }
 
 function formatCompactTokenAmount(rawValue: string | undefined, decimals: number, symbol: string): string {
-  if (!rawValue) return `0 ${symbol}`;
+  const zeroLabel = formatPositionTokenAmount('0', decimals, symbol);
+  if (!rawValue) return zeroLabel;
 
-  const value = Number(formatUnits(BigInt(rawValue), decimals));
-  if (!Number.isFinite(value) || value === 0) return `0 ${symbol}`;
+  let value: number;
+  try {
+    value = Number(formatUnits(BigInt(rawValue), decimals));
+  } catch {
+    return zeroLabel;
+  }
+
+  if (!Number.isFinite(value) || value === 0) return zeroLabel;
 
   const absValue = Math.abs(value);
   let formatted: string;
@@ -53,7 +63,11 @@ function formatCompactTokenAmount(rawValue: string | undefined, decimals: number
   } else if (absValue >= 1_000) {
     formatted = `${formatNumber(value / 1_000, { maximumFractionDigits: 2 })}K`;
   } else {
-    formatted = formatNumber(value, { maximumFractionDigits: 2 });
+    const fractionDigits = getPositionDisplayFractionDigits(symbol);
+    formatted = formatNumber(value, {
+      minimumFractionDigits: fractionDigits,
+      maximumFractionDigits: fractionDigits,
+    });
   }
 
   return `${formatted} ${symbol}`;
@@ -96,45 +110,70 @@ function MobileStatBlock({
 
 function EarnedInterestCell({
   vault,
-  position,
   decimals,
+  align = 'end',
 }: {
   vault: Vault;
-  position?: { pnl?: number; pnlUsd?: number; pnlRaw?: string; assets?: string };
   decimals: number;
+  align?: 'start' | 'end';
 }) {
   const { address } = useAccount();
-  const curated = vault.isCurated !== false;
   const resolvedDecimals = resolveAssetDecimals(vault.symbol, decimals);
-  const hookData = useVaultEarnedInterest(
-    curated && address ? vault.address : undefined,
-    vault.symbol
-  );
 
-  const earnedUsd = curated ? hookData.earnedInterestUsd : (position?.pnlUsd ?? 0);
-  const earnedRaw = curated
-    ? hookData.earnedInterestRaw
-    : (position?.pnlRaw ?? '0');
+  const { data: sharesRaw } = useReadContract({
+    address: address ? (vault.address as `0x${string}`) : undefined,
+    chainId: BASE_CHAIN_ID,
+    abi: ERC20_BALANCE_ABI,
+    functionName: 'balanceOf',
+    args: address ? [address as `0x${string}`] : undefined,
+    query: { enabled: Boolean(address) },
+  });
+
+  const hasShareBalance = sharesRaw !== undefined && sharesRaw > BigInt(0);
+
+  const { data: assetsRaw } = useReadContract({
+    address: hasShareBalance ? (vault.address as `0x${string}`) : undefined,
+    chainId: BASE_CHAIN_ID,
+    abi: ERC4626_ABI,
+    functionName: 'convertToAssets',
+    args: hasShareBalance ? [sharesRaw] : undefined,
+    query: { enabled: hasShareBalance },
+  });
+
+  const currentAssetsRaw = useMemo(() => {
+    if (assetsRaw !== undefined) return assetsRaw.toString();
+    if (sharesRaw === BigInt(0)) return '0';
+    return undefined;
+  }, [assetsRaw, sharesRaw]);
+
+  const hookData = useVaultEarnedInterest(
+    address ? vault.address : undefined,
+    vault.symbol,
+    currentAssetsRaw
+  );
 
   if (!address) {
     return <span className="text-sm text-[var(--foreground-muted)]">-</span>;
   }
 
-  if (curated && hookData.isLoading) {
-    return <Skeleton width="4rem" height="1rem" className="ml-auto" />;
+  const alignClass = align === 'start' ? 'items-start' : 'items-end';
+  const skeletonClass = align === 'start' ? '' : 'ml-auto';
+
+  if (hookData.isLoading) {
+    return <Skeleton width="4rem" height="1rem" className={skeletonClass} />;
   }
 
   const earnedRawBigInt = (() => {
     try {
-      return BigInt(earnedRaw);
+      return BigInt(hookData.earnedInterestRaw || '0');
     } catch {
       return BigInt(0);
     }
   })();
 
-  if (earnedRawBigInt <= BigInt(0) && earnedUsd <= 0) {
+  if (earnedRawBigInt <= BigInt(0) && hookData.earnedInterestUsd <= 0) {
     return (
-      <div className="flex flex-col items-end gap-0.5">
+      <div className={`flex flex-col ${alignClass} gap-0.5`}>
         <span className="text-sm font-medium text-[var(--foreground)] tabular-nums">
           {formatPositionTokenAmount('0', resolvedDecimals, vault.symbol)}
         </span>
@@ -146,12 +185,12 @@ function EarnedInterestCell({
   }
 
   return (
-    <div className="flex flex-col items-end gap-0.5">
+    <div className={`flex flex-col ${alignClass} gap-0.5`}>
       <span className="text-sm font-medium text-[var(--foreground)] tabular-nums">
-        {formatPositionTokenAmount(earnedRaw, resolvedDecimals, vault.symbol)}
+        {formatPositionTokenAmount(hookData.earnedInterestRaw || '0', resolvedDecimals, vault.symbol)}
       </span>
       <span className="text-xs text-[var(--foreground-secondary)] tabular-nums">
-        {formatPositionUsd(earnedUsd)}
+        {formatPositionUsd(hookData.earnedInterestUsd)}
       </span>
     </div>
   );
@@ -163,12 +202,15 @@ function VaultExplorerMobileCard({ vault, showYourPosition }: VaultExplorerRowPr
   const vaultData = getVaultData(vault.address);
   const loading = isLoading(vault.address);
   const decimals = resolveAssetDecimals(vault.symbol, vaultData?.assetDecimals);
+  const openVault = () => router.push(getVaultRoute(vault.address));
 
   return (
-    <button
-      type="button"
-      onClick={() => router.push(getVaultRoute(vault.address))}
-      className="w-full text-left px-4 py-4 border-b border-[var(--border)] hover:bg-[var(--surface-hover)] active:bg-[var(--surface-hover)] transition-colors touch-manipulation"
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={openVault}
+      onKeyDown={(event) => handleRowKeyDown(event, openVault)}
+      className="w-full text-left px-4 py-4 border-b border-[var(--border)] hover:bg-[var(--surface-hover)] active:bg-[var(--surface-hover)] transition-colors touch-manipulation cursor-pointer"
     >
       <div className="flex items-start gap-3 mb-3">
         <VaultLogo vault={vault} />
@@ -224,7 +266,7 @@ function VaultExplorerMobileCard({ vault, showYourPosition }: VaultExplorerRowPr
           />
         </MobileStatBlock>
       </div>
-    </button>
+    </div>
   );
 }
 
@@ -232,14 +274,12 @@ function DashboardVaultMobileCard({
   vault,
   positionAssets,
   positionUsd,
-  position,
   loading,
   vaultData,
 }: {
   vault: Vault;
   positionAssets?: string;
   positionUsd: number;
-  position?: { pnl?: number; pnlUsd?: number; assets?: string };
   loading: boolean;
   vaultData: MorphoVaultData | null;
 }) {
@@ -251,21 +291,18 @@ function DashboardVaultMobileCard({
     ? formatPositionTokenAmount(positionAssets, decimals, vault.symbol)
     : '-';
   const isCurated = vault.isCurated !== false;
-  const Wrapper = isCurated ? 'button' : 'div';
-  const wrapperProps = isCurated
-    ? {
-        type: 'button' as const,
-        onClick: () => router.push(getVaultRoute(vault.address)),
-        className:
-          'w-full text-left px-4 py-4 border-b border-[var(--border)] hover:bg-[var(--surface-hover)] active:bg-[var(--surface-hover)] transition-colors touch-manipulation cursor-pointer',
-      }
-    : {
-        className:
-          'w-full text-left px-4 py-4 border-b border-[var(--border)] opacity-90',
-      };
+  const openVault = () => router.push(getVaultRoute(vault.address));
+  const wrapperProps = {
+    role: 'button' as const,
+    tabIndex: 0,
+    onClick: openVault,
+    onKeyDown: (event: KeyboardEvent) => handleRowKeyDown(event, openVault),
+    className:
+      'w-full text-left px-4 py-4 border-b border-[var(--border)] hover:bg-[var(--surface-hover)] active:bg-[var(--surface-hover)] transition-colors touch-manipulation cursor-pointer',
+  };
 
   return (
-    <Wrapper {...wrapperProps}>
+    <div {...wrapperProps}>
       <div className="flex items-center gap-3 mb-3">
         <VaultLogo vault={vault} />
         <div className="min-w-0">
@@ -297,7 +334,7 @@ function DashboardVaultMobileCard({
           )}
         </MobileStatBlock>
         <MobileStatBlock label="Earned Interest">
-          <EarnedInterestCell vault={vault} position={position} decimals={decimals} />
+          <EarnedInterestCell vault={vault} decimals={decimals} align="start" />
         </MobileStatBlock>
         <MobileStatBlock label="APY / TVL">
           {loading || !vaultData ? (
@@ -314,7 +351,7 @@ function DashboardVaultMobileCard({
           )}
         </MobileStatBlock>
       </div>
-    </Wrapper>
+    </div>
   );
 }
 
@@ -632,7 +669,6 @@ export function DashboardVaultTable({
               vault={vault}
               positionAssets={position?.assets}
               positionUsd={positionUsd}
-              position={position}
               loading={loading}
               vaultData={vaultData}
             />
@@ -671,18 +707,18 @@ export function DashboardVaultTable({
               ? formatPositionTokenAmount(position.assets, decimals, vault.symbol)
               : '-';
 
+            const openVault = () => router.push(getVaultRoute(vault.address));
             const isCurated = vault.isCurated !== false;
-            const openVault = isCurated ? () => router.push(getVaultRoute(vault.address)) : undefined;
 
             return (
               <tr
                 key={vault.address}
-                role={isCurated ? 'button' : undefined}
-                tabIndex={isCurated ? 0 : undefined}
-                aria-label={isCurated ? `Open ${vault.name}` : vault.name}
+                role="button"
+                tabIndex={0}
+                aria-label={`Open ${vault.name}`}
                 onClick={openVault}
-                onKeyDown={openVault ? (event) => handleRowKeyDown(event, openVault) : undefined}
-                className={`border-b border-[var(--border)] ${isCurated ? 'hover:bg-[var(--surface-hover)] transition-colors cursor-pointer' : ''}`}
+                onKeyDown={(event) => handleRowKeyDown(event, openVault)}
+                className="border-b border-[var(--border)] hover:bg-[var(--surface-hover)] transition-colors cursor-pointer"
               >
                 <td className="px-2 py-3 align-middle">
                   <div className="flex items-center gap-2 min-w-0">
@@ -711,7 +747,7 @@ export function DashboardVaultTable({
                   )}
                 </td>
                 <td className="px-2 py-3 align-middle text-right">
-                  <EarnedInterestCell vault={vault} position={position} decimals={decimals} />
+                  <EarnedInterestCell vault={vault} decimals={decimals} />
                 </td>
                 <td className="px-2 py-3 align-middle text-right">
                   {loading || !vaultData ? (

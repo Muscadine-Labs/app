@@ -2,25 +2,18 @@
 
 import { useState, useEffect } from 'react';
 import { MorphoVaultData } from '@/types/vault';
-import { formatAssetAmount, formatDate, formatCurrency } from '@/lib/formatter';
+import { formatVaultDetailTokenAmount, formatDate, formatCurrency } from '@/lib/formatter';
 import { useAccount } from 'wagmi';
 import CopiableAddress from '@/components/common/CopiableAddress';
 import { Skeleton } from '@/components/ui/Skeleton';
+import type { Transaction } from '@/types/api';
+import {
+  formatTransactionTypeLabel,
+  transactionTypeDotClass,
+} from '@/lib/transaction-labels';
 
 interface VaultHistoryProps {
   vaultData: MorphoVaultData;
-}
-
-interface Transaction {
-  id: string;
-  type: 'deposit' | 'withdraw' | 'event';
-  timestamp: number;
-  blockNumber?: number;
-  transactionHash?: string;
-  user?: string;
-  assets?: string;
-  shares?: string;
-  assetsUsd?: number;
 }
 
 export default function VaultHistory({ vaultData }: VaultHistoryProps) {
@@ -78,7 +71,7 @@ export default function VaultHistory({ vaultData }: VaultHistoryProps) {
           <div>
             <h2 className="text-lg font-semibold text-[var(--foreground)] mb-1">Transaction History</h2>
             <p className="text-sm text-[var(--foreground-secondary)]">
-              View all deposits and withdrawals for this vault
+              View all deposits, withdrawals, and transfers for this vault
             </p>
           </div>
           {address && userTransactions.length > 0 && (
@@ -89,7 +82,7 @@ export default function VaultHistory({ vaultData }: VaultHistoryProps) {
                     ['Date', 'Type', 'Amount (USD)', 'Transaction Hash'].join(','),
                     ...userTransactions.map(tx => [
                       formatDate(tx.timestamp),
-                      tx.type,
+                      formatTransactionTypeLabel(tx.type),
                       tx.assetsUsd ? formatCurrency(tx.assetsUsd).replace('$', '') : '0',
                       tx.transactionHash || '',
                     ].join(',')),
@@ -164,17 +157,19 @@ export default function VaultHistory({ vaultData }: VaultHistoryProps) {
                 className="flex items-center justify-between p-4 bg-[var(--surface-elevated)] rounded-lg border border-[var(--border-subtle)] hover:border-[var(--border)] transition-colors"
               >
                 <div className="flex items-center gap-4 flex-1">
-                  <div className={`w-2 h-2 rounded-full ${
-                    tx.type === 'deposit' ? 'bg-[var(--success)]' : 'bg-[var(--danger)]'
-                  }`} />
+                  <div className={`w-2 h-2 rounded-full ${transactionTypeDotClass(tx.type)}`} />
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-[var(--foreground)] capitalize">
-                        {tx.type}
+                      <span className="text-sm font-medium text-[var(--foreground)]">
+                        {formatTransactionTypeLabel(tx.type)}
                       </span>
                       {tx.assets && (
                         <span className="text-sm text-[var(--foreground)] font-medium">
-                          {formatAssetAmount(BigInt(tx.assets), vaultData.assetDecimals || 18, vaultData.symbol)}
+                          {formatVaultDetailTokenAmount(
+                            tx.assets,
+                            vaultData.assetDecimals || 18,
+                            vaultData.symbol
+                          )}
                         </span>
                       )}
                       {tx.assetsUsd !== undefined && tx.assetsUsd > 0 && (
