@@ -74,7 +74,7 @@ Never commit real keys. `.env.example` documents placeholders.
 | Framework | Next.js 16 (App Router) |
 | Bundler (dev/build) | Turbopack (`next dev --turbopack`, `next build --turbopack`) |
 | UI | React 19, Tailwind CSS 4 |
-| Wallet | wagmi **2.x**, RainbowKit 2, **Base Account** (`baseAccount` wallet), viem 2 |
+| Wallet | wagmi **2.x**, RainbowKit 2, viem 2 |
 | Chain | Base only (`8453`) |
 | Server data | Next.js Route Handlers → Morpho GraphQL |
 | Client GraphQL | Apollo Client → `https://api.morpho.org/graphql` |
@@ -82,7 +82,7 @@ Never commit real keys. `.env.example` documents placeholders.
 | V2 txs | **Direct ERC-4626 + ERC-20 ABIs** via viem (`transactionUtilsV2.ts`) |
 | Charts | Recharts |
 | Analytics | `@vercel/analytics` |
-| Base Account SDK | `@base-org/account` (via RainbowKit `baseAccount` wallet) |
+| Base Account SDK | `@base-org/account` |
 
 ---
 
@@ -465,11 +465,8 @@ Standard web app on Base — no Farcaster manifest or mini-app SDK. Register on 
 | Piece | Location |
 |-------|----------|
 | `base:app_id` meta tag | `src/lib/base-app.ts` → `layout.tsx` |
-| Base Account wallet | `baseAccount` first in `src/config/wagmi.ts` (RainbowKit) |
 | `appUrl` / `appIcon` for Base Account UI | `getAppUrl()` + `/favicon.png` in wagmi config |
 | Builder code (ERC-8021) | `src/lib/builder-code.ts` → `transactionUtilsV2.ts` |
-
-Wallet order in connect modal: **Base Account**, Rabby, MetaMask, Coinbase, Phantom, WalletConnect.
 
 Optional later: [Base Notifications API](https://docs.base.org/apps/technical-guides/base-notifications) (wallet-address based; no Farcaster).
 

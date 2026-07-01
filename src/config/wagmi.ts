@@ -1,14 +1,6 @@
 'use client'
 
 import { getDefaultConfig } from '@rainbow-me/rainbowkit'
-import {
-  baseAccount,
-  base as coinbaseWallet,
-  metaMaskWallet,
-  phantomWallet,
-  rabbyWallet,
-  walletConnectWallet,
-} from '@rainbow-me/rainbowkit/wallets'
 import { base as baseChain } from 'wagmi/chains'
 import { http, fallback } from 'wagmi'
 import { getAppUrl } from '@/lib/app-url'
@@ -40,19 +32,6 @@ export const config = getDefaultConfig({
   appIcon: `${appUrl}/favicon.png`,
   projectId: walletConnectProjectId,
   chains: [baseChain],
-  wallets: [
-    {
-      groupName: 'Recommended',
-      wallets: [
-        baseAccount,
-        rabbyWallet,
-        metaMaskWallet,
-        coinbaseWallet,
-        phantomWallet,
-        walletConnectWallet,
-      ],
-    },
-  ],
   transports: {
     [baseChain.id]: fallback([http(alchemyUrl), http()]),
   },

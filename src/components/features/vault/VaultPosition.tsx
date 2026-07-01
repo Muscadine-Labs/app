@@ -6,11 +6,9 @@ import { useAccount, useReadContract } from 'wagmi';
 import { MorphoVaultData } from '@/types/vault';
 import {
   formatCurrency,
-  formatChartUsdAxisTick,
   formatPositionUsd,
   chartTokenAmountToRaw,
   formatVaultChartTokenAmount,
-  formatVaultChartTokenAxisTick,
   formatVaultDetailTokenAmount,
 } from '@/lib/formatter';
 import { calculateYAxisDomain, isCuratedVaultAddress } from '@/lib/vault-utils';
@@ -533,9 +531,8 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
     
     const values = chartData.map((d) => d.value).filter((v) => v !== null && v !== undefined && !isNaN(v));
     const domain = calculateYAxisDomain(values, {
-      anchorZero: true,
-      bottomPaddingPercent: 0,
-      topPaddingPercent: 0.1,
+      bottomPaddingPercent: 0.12,
+      topPaddingPercent: 0.12,
     });
     
     return domain || [0, 100];
@@ -910,19 +907,19 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
                       ticks={getChartTicks}
                     />
                     <YAxis
-                      width={valueType === 'usd' ? 72 : 64}
+                      width={valueType === 'usd' ? 120 : 128}
                       domain={yAxisDomain}
                       tickFormatter={(value) => {
                         if (value === undefined || typeof value !== 'number') return '';
                         if (valueType === 'usd') {
-                          return formatChartUsdAxisTick(value);
-                        } else {
-                          return formatVaultChartTokenAxisTick(
-                            value,
-                            depositAssetDecimals,
-                            vaultData.symbol
-                          );
+                          return formatCurrency(value);
                         }
+                        return formatVaultChartTokenAmount(
+                          value,
+                          depositAssetDecimals,
+                          vaultData.symbol,
+                          { includeSymbol: false }
+                        );
                       }}
                       stroke="var(--foreground-secondary)"
                       style={{ fontSize: '12px' }}
