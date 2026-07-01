@@ -8,38 +8,39 @@ import { Providers } from './Providers'
 import { config } from '@/config/wagmi'
 import { PriceProvider } from '@/contexts/PriceContext'
 import { Analytics } from '@vercel/analytics/react'
-import { MiniAppInit } from '@/components/common/MiniAppInit'
 import { getAppUrl } from '@/lib/app-url'
+import { BASE_APP_ID } from '@/lib/base-app'
 
-const figtree = Figtree({ 
+const figtree = Figtree({
   subsets: ['latin'],
   weight: ['300', '400', '500', '600', '700', '800', '900'],
   style: ['normal', 'italic'],
   variable: '--font-figtree',
 })
 
-const funnelDisplay = Funnel_Display({ 
+const funnelDisplay = Funnel_Display({
   subsets: ['latin'],
   weight: ['300', '400', '500', '600', '700', '800'],
   variable: '--font-funnel-display',
 })
 
-const outfit = Outfit({ 
+const outfit = Outfit({
   subsets: ['latin'],
   weight: ['100', '200', '300', '400', '500', '600', '700', '800', '900'],
   variable: '--font-outfit',
 })
 
-const tinos = Tinos({ 
+const tinos = Tinos({
   subsets: ['latin'],
   weight: ['400', '700'],
   style: ['normal', 'italic'],
   variable: '--font-tinos',
 })
 
-const appUrl = getAppUrl();
+const appUrl = getAppUrl()
 
 export const metadata: Metadata = {
+  metadataBase: new URL(appUrl),
   title: 'Muscadine Vaults',
   description: 'Powered by Muscadine Labs',
   icons: {
@@ -48,22 +49,7 @@ export const metadata: Metadata = {
     apple: '/favicon.png',
   },
   other: {
-    'base:app_id': '6925cdc1547fca5d08131407',
-    'fc:miniapp': JSON.stringify({
-      version: 'next',
-      imageUrl: `${appUrl}/favicon.png`,
-      button: {
-        title: 'Launch Muscadine Vaults',
-        action: {
-          type: 'launch_miniapp',
-          name: 'Muscadine Vaults',
-          url: appUrl,
-          splashImageUrl: `${appUrl}/favicon.png`,
-          // eslint-disable-next-line no-restricted-syntax
-          splashBackgroundColor: '#000000', // Base mini app requires hex color, not CSS variable
-        },
-      },
-    }),
+    'base:app_id': BASE_APP_ID,
   },
 }
 
@@ -73,17 +59,13 @@ export default async function RootLayout({
   children: React.ReactNode
 }) {
   const cookie = (await headers()).get('cookie')
-
-  // Only restore cookie state in production
   const initialState = cookieToInitialState(config, cookie)
-      
 
   return (
     <html lang="en">
       <body className={`${figtree.className} ${funnelDisplay.variable} ${outfit.variable} ${tinos.variable}`}>
           <Providers initialState={initialState}>
               <PriceProvider>
-                <MiniAppInit />
                 <AppLayout>{children}</AppLayout>
               </PriceProvider>
           </Providers>

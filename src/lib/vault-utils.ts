@@ -217,6 +217,8 @@ export function calculateYAxisDomain(
     defaultMin?: number;
     filterPositiveOnly?: boolean;
     tokenThreshold?: number;
+    /** Anchor balance charts at zero instead of zooming into a narrow band near max. */
+    anchorZero?: boolean;
   } = {}
 ): [number, number] | undefined {
   const {
@@ -226,6 +228,7 @@ export function calculateYAxisDomain(
     defaultMin = 0,
     filterPositiveOnly = false,
     tokenThreshold,
+    anchorZero = false,
   } = options;
 
   let filteredValues = values.filter(
@@ -245,14 +248,16 @@ export function calculateYAxisDomain(
 
   let adjustedMinValue = minValue;
 
-  if (tokenThreshold !== undefined) {
+  if (anchorZero) {
+    adjustedMinValue = defaultMin;
+  } else if (tokenThreshold !== undefined) {
     if (maxValue >= tokenThreshold) {
       const threshold = maxValue * 0.01;
-      adjustedMinValue = minValue < threshold ? 0 : minValue;
+      adjustedMinValue = minValue < threshold ? defaultMin : minValue;
     }
   } else {
     const threshold = maxValue * thresholdPercent;
-    adjustedMinValue = minValue < threshold ? 0 : minValue;
+    adjustedMinValue = minValue < threshold ? defaultMin : minValue;
   }
 
   const range = maxValue - adjustedMinValue;
@@ -260,7 +265,11 @@ export function calculateYAxisDomain(
   const topPadding = range * topPaddingPercent;
 
   const domainMin = Math.max(defaultMin, adjustedMinValue - bottomPadding);
-  const domainMax = maxValue + topPadding;
+  let domainMax = maxValue + topPadding;
+
+  if (domainMax <= domainMin) {
+    domainMax = domainMin === defaultMin ? defaultMin + (maxValue > 0 ? maxValue * 0.1 : 100) : domainMin + 1;
+  }
 
   return [domainMin, domainMax];
 }

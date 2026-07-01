@@ -5,8 +5,10 @@ import {
   formatSmartCurrency,
   formatPercentage,
   formatCurrency,
+  formatChartUsdAxisValue,
+  formatChartTokenAxisValue,
+  formatSharePriceAxisTokenValue,
   formatVaultChartTokenAmount,
-  formatVaultChartTokenAxisTick,
   formatSharePriceTokenAmount,
   formatSharePriceUsd,
   formatVaultDetailTokenAmount,
@@ -52,9 +54,9 @@ function formatTvlYAxisTick(
   vaultData: MorphoVaultData
 ): string {
   if (valueType === 'usd') {
-    return formatCurrency(value);
+    return formatChartUsdAxisValue(value);
   }
-  return formatVaultChartTokenAxisTick(
+  return formatChartTokenAxisValue(
     value,
     vaultData.assetDecimals || 18,
     vaultData.symbol
@@ -62,7 +64,7 @@ function formatTvlYAxisTick(
 }
 
 function getTvlYAxisWidth(valueType: 'usd' | 'token'): number {
-  return valueType === 'usd' ? 96 : 104;
+  return valueType === 'usd' ? 120 : 128;
 }
 
 function formatSharePriceYAxisTick(
@@ -71,13 +73,12 @@ function formatSharePriceYAxisTick(
   vaultData: MorphoVaultData
 ): string {
   if (valueType === 'usd') {
-    return formatSharePriceUsd(value);
+    return formatChartUsdAxisValue(value);
   }
-  return formatSharePriceTokenAmount(
+  return formatSharePriceAxisTokenValue(
     value,
     vaultData.assetDecimals || 18,
-    vaultData.symbol,
-    { includeSymbol: false }
+    vaultData.symbol
   );
 }
 
@@ -224,13 +225,11 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
     const values = tvlChartData.map(d => d.value).filter(v => v !== null && v !== undefined && !isNaN(v));
     
     return calculateYAxisDomain(values, {
-      bottomPaddingPercent: 0.25,
-      topPaddingPercent: 0.2,
-      thresholdPercent: valueType === 'usd' ? 0.02 : undefined,
+      bottomPaddingPercent: 0.12,
+      topPaddingPercent: 0.12,
       filterPositiveOnly: true,
-      tokenThreshold: valueType === 'token' ? 1000 : undefined,
     });
-  }, [tvlChartData, chartType, valueType]);
+  }, [tvlChartData, chartType]);
 
   const sharePriceChartData = useMemo(() => {
     if (chartType !== 'sharePrice') return [];

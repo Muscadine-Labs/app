@@ -6,10 +6,11 @@ import { useAccount, useReadContract } from 'wagmi';
 import { MorphoVaultData } from '@/types/vault';
 import {
   formatCurrency,
-  formatNumber,
+  formatChartUsdAxisValue,
+  formatChartTokenAxisValue,
   formatPositionUsd,
+  chartTokenAmountToRaw,
   formatVaultChartTokenAmount,
-  formatVaultChartTokenAxisTick,
   formatVaultDetailTokenAmount,
 } from '@/lib/formatter';
 import { calculateYAxisDomain, isCuratedVaultAddress } from '@/lib/vault-utils';
@@ -482,7 +483,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
     const scale = 10 ** depositAssetDecimals;
 
     return filteredChartData.map((item) => {
-      const positionValueRaw = BigInt(Math.round(item.valueToken * scale));
+      const positionValueRaw = chartTokenAmountToRaw(item.valueToken, depositAssetDecimals);
       const netDepositRaw = netDepositRawAtTime(activityFlowEvents, item.timestamp);
       const { depositedRaw, interestRaw } = splitPositionValueAtPoint({
         positionValueRaw,
@@ -532,9 +533,8 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
     
     const values = chartData.map((d) => d.value).filter((v) => v !== null && v !== undefined && !isNaN(v));
     const domain = calculateYAxisDomain(values, {
-      bottomPaddingPercent: 0.25,
-      topPaddingPercent: 0.2,
-      thresholdPercent: 0.02,
+      bottomPaddingPercent: 0.12,
+      topPaddingPercent: 0.12,
     });
     
     return domain || [0, 100];
@@ -908,22 +908,19 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
                       interval="preserveStartEnd"
                       ticks={getChartTicks}
                     />
-                    <YAxis 
+                    <YAxis
+                      width={valueType === 'usd' ? 120 : 128}
                       domain={yAxisDomain}
                       tickFormatter={(value) => {
                         if (value === undefined || typeof value !== 'number') return '';
                         if (valueType === 'usd') {
-                          if (value < 1000) {
-                            return '$' + formatNumber(value, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                          }
-                          return '$' + formatNumber(value / 1000, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + 'k';
-                        } else {
-                          return formatVaultChartTokenAxisTick(
-                            value,
-                            depositAssetDecimals,
-                            vaultData.symbol
-                          );
+                          return formatChartUsdAxisValue(value);
                         }
+                        return formatChartTokenAxisValue(
+                          value,
+                          depositAssetDecimals,
+                          vaultData.symbol
+                        );
                       }}
                       stroke="var(--foreground-secondary)"
                       style={{ fontSize: '12px' }}

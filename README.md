@@ -58,9 +58,19 @@ We will acknowledge receipt within 48 hours and provide an assessment within 7 d
 
 ## Environment Variables
 
-Required environment variables:
+Copy `.env.example` → `.env.local`.
 
-- `NEXT_PUBLIC_ALCHEMY_API_KEY` - Alchemy API key for Base mainnet
-- `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` - WalletConnect project ID
+| Variable | Required? | Purpose |
+|----------|-----------|---------|
+| `NEXT_PUBLIC_ALCHEMY_API_KEY` | **Yes** | Base RPC |
+| `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | **Yes** | RainbowKit / WalletConnect |
+| `NEXT_PUBLIC_URL` | No | Canonical URL (default `https://app.muscadine.xyz`; set on Vercel in production) |
 
-These should be set in `.env.local` and never committed to the repository.
+**Base App (in source, no env):** `base:app_id`, builder code `bc_mwkqu9rd`, Base Account via RainbowKit. Register app metadata on [base.dev](https://base.dev) at **`https://app.muscadine.xyz`**.
+
+## Deployment checklist
+
+1. **Vercel** — set `NEXT_PUBLIC_ALCHEMY_API_KEY`, `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID`, and `NEXT_PUBLIC_URL=https://app.muscadine.xyz`.
+2. **base.dev** — register primary app URL as `https://app.muscadine.xyz` (app id in `src/lib/base-app.ts`).
+3. **DNS** — point `app.muscadine.xyz` to Vercel.
+4. **Verify** — navbar logo/favicon load (`/favicon.png`), connect wallet works, chart Y-axes show readable ticks (zoomed to data range, not 8-decimal tails).

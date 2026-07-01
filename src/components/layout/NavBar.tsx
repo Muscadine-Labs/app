@@ -115,7 +115,7 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                             Company
                                         </h3>
                                         <a
-                                            href="https://muscadine.io"
+                                            href="https://muscadine.xyz"
                                             target="_blank"
                                             rel="noopener noreferrer"
                                             className="block py-2 text-sm text-[var(--foreground)] hover:text-[var(--primary)] transition-colors cursor-pointer"
@@ -131,7 +131,7 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                             FAQ
                                         </h3>
                                         <a
-                                            href="https://docs.muscadine.io"
+                                            href="https://docs.muscadine.xyz"
                                             target="_blank"
                                             rel="noopener noreferrer"
                                             className="block py-2 text-sm text-[var(--foreground)] hover:text-[var(--primary)] transition-colors cursor-pointer"
@@ -147,7 +147,7 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                             Protocol
                                         </h3>
                                         <a
-                                            href="https://analytics.muscadine.io"
+                                            href="https://analytics.muscadine.xyz"
                                             target="_blank"
                                             rel="noopener noreferrer"
                                             className="block py-2 text-sm text-[var(--foreground)] hover:text-[var(--primary)] transition-colors cursor-pointer"
@@ -157,7 +157,7 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                         </a>
                                         <div className="border-t border-[var(--border)]"></div>
                                         <a
-                                            href="https://muscadine.io/terms"
+                                            href="https://muscadine.xyz/terms"
                                             target="_blank"
                                             rel="noopener noreferrer"
                                             className="block py-2 text-sm text-[var(--foreground)] hover:text-[var(--primary)] transition-colors cursor-pointer"
@@ -166,7 +166,7 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                             Terms of Use
                                         </a>
                                         <a
-                                            href="https://muscadine.io/legal"
+                                            href="https://muscadine.xyz/legal"
                                             target="_blank"
                                             rel="noopener noreferrer"
                                             className="block py-2 text-sm text-[var(--foreground)] hover:text-[var(--primary)] transition-colors cursor-pointer"
@@ -175,7 +175,7 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                             Legal Disclaimer
                                         </a>
                                         <a
-                                            href="https://muscadine.io/privacy"
+                                            href="https://muscadine.xyz/privacy"
                                             target="_blank"
                                             rel="noopener noreferrer"
                                             className="block py-2 text-sm text-[var(--foreground)] hover:text-[var(--primary)] transition-colors cursor-pointer"
@@ -184,7 +184,7 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                             Privacy Policy
                                         </a>
                                         <a
-                                            href="https://muscadine.io/risk"
+                                            href="https://muscadine.xyz/risk"
                                             target="_blank"
                                             rel="noopener noreferrer"
                                             className="block py-2 text-sm text-[var(--foreground)] hover:text-[var(--primary)] transition-colors cursor-pointer"
@@ -221,7 +221,7 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                             </svg>
                                         </a>
                                         <a
-                                            href="https://muscadine.io/contact"
+                                            href="https://muscadine.xyz/contact"
                                             target="_blank"
                                             rel="noopener noreferrer"
                                             className="w-8 h-8 rounded-full bg-[var(--surface)] border border-[var(--border-subtle)] flex items-center justify-center hover:bg-[var(--surface-hover)] transition-colors cursor-pointer"

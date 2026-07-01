@@ -96,7 +96,7 @@ export function AdvisoryAgreementModal() {
               </h3>
               <div className="space-y-0">
                 <a
-                  href="https://muscadine.io/terms"
+                  href="https://muscadine.xyz/terms"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="block py-1 sm:py-1.5 text-xs sm:text-sm text-[var(--foreground)] hover:text-[var(--primary)] transition-colors cursor-pointer"
@@ -104,7 +104,7 @@ export function AdvisoryAgreementModal() {
                   Terms of Use
                 </a>
                 <a
-                  href="https://muscadine.io/legal"
+                  href="https://muscadine.xyz/legal"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="block py-1 sm:py-1.5 text-xs sm:text-sm text-[var(--foreground)] hover:text-[var(--primary)] transition-colors cursor-pointer"
@@ -112,7 +112,7 @@ export function AdvisoryAgreementModal() {
                   Legal Disclaimer
                 </a>
                 <a
-                  href="https://muscadine.io/privacy"
+                  href="https://muscadine.xyz/privacy"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="block py-1 sm:py-1.5 text-xs sm:text-sm text-[var(--foreground)] hover:text-[var(--primary)] transition-colors cursor-pointer"
@@ -120,7 +120,7 @@ export function AdvisoryAgreementModal() {
                   Privacy Policy
                 </a>
                 <a
-                  href="https://muscadine.io/risk"
+                  href="https://muscadine.xyz/risk"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="block py-1 sm:py-1.5 text-xs sm:text-sm text-[var(--foreground)] hover:text-[var(--primary)] transition-colors cursor-pointer"
@@ -137,7 +137,7 @@ export function AdvisoryAgreementModal() {
               </h3>
               <div className="space-y-0">
                 <a
-                  href="https://analytics.muscadine.io"
+                  href="https://analytics.muscadine.xyz"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="block py-1 sm:py-1.5 text-xs sm:text-sm text-[var(--foreground)] hover:text-[var(--primary)] transition-colors cursor-pointer"
@@ -145,7 +145,7 @@ export function AdvisoryAgreementModal() {
                   Risk Analytics
                 </a>
                 <a
-                  href="https://docs.muscadine.io"
+                  href="https://docs.muscadine.xyz"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="block py-1 sm:py-1.5 text-xs sm:text-sm text-[var(--foreground)] hover:text-[var(--primary)] transition-colors cursor-pointer"
@@ -169,7 +169,7 @@ export function AdvisoryAgreementModal() {
             <span className="text-xs sm:text-sm text-[var(--foreground)] group-hover:text-[var(--foreground-secondary)] leading-relaxed">
               I have read and agree with the{' '}
               <a
-                href="https://muscadine.io/terms"
+                href="https://muscadine.xyz/terms"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-[var(--primary)] hover:underline"
@@ -191,7 +191,7 @@ export function AdvisoryAgreementModal() {
             <span className="text-xs sm:text-sm text-[var(--foreground)] group-hover:text-[var(--foreground-secondary)] leading-relaxed">
               I have read the{' '}
               <a
-                href="https://muscadine.io/risk"
+                href="https://muscadine.xyz/risk"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-[var(--primary)] hover:underline"

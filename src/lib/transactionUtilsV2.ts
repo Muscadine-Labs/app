@@ -4,6 +4,7 @@
  */
 
 import { type Address, type PublicClient, type WalletClient, type TransactionReceipt, parseUnits, formatUnits, getAddress, parseEventLogs } from 'viem';
+import { builderWriteOpts } from './builder-code';
 import { BASE_WETH_ADDRESS, ETH_GAS_RESERVE, UNWRAP_SETTLE_DELAY_MS } from './constants';
 import type { TransactionProgressCallback } from '../types/transactions';
 
@@ -355,6 +356,7 @@ async function ensureApproval(
       args: [spenderAddress, BigInt(0)],
       account: walletClient.account,
       chain: undefined,
+      ...builderWriteOpts(),
     });
 
     onProgress?.({
@@ -389,6 +391,7 @@ async function ensureApproval(
     args: [spenderAddress, amount],
     account: walletClient.account,
     chain: undefined,
+    ...builderWriteOpts(),
   });
 
   onProgress?.({
@@ -449,6 +452,7 @@ async function wrapEthIfNeeded(
     value: amount,
     account: walletClient.account,
     chain: undefined,
+    ...builderWriteOpts(),
   });
 
   onProgress?.({
@@ -511,6 +515,7 @@ async function unwrapWeth(
     args: [unwrapAmount],
     account: walletClient.account,
     chain: undefined,
+    ...builderWriteOpts(),
   });
 
   onProgress?.({
@@ -577,6 +582,7 @@ export async function approveToken(
       args: [spenderAddress, BigInt(0)],
       account: walletClient.account,
       chain: undefined,
+      ...builderWriteOpts(),
     });
 
     onProgress?.({
@@ -609,6 +615,7 @@ export async function approveToken(
     args: [spenderAddress, amount],
     account: walletClient.account,
     chain: undefined,
+    ...builderWriteOpts(),
   });
 
   onProgress?.({
@@ -794,6 +801,7 @@ export async function depositToVaultV2(
     args: [amountBigInt, userAddress], // assets, onBehalf
     account: walletClient.account,
     chain: undefined,
+    ...builderWriteOpts(),
   });
 
   onProgress?.({
@@ -902,6 +910,7 @@ export async function withdrawFromVaultV2(
     args: [amountBigInt, userAddress, userAddress],
     account: walletClient.account,
     chain: undefined,
+    ...builderWriteOpts(),
   });
 
   onProgress?.({
@@ -1015,6 +1024,7 @@ export async function redeemFromVaultV2(
     args: [userShares, userAddress, userAddress],
     account: walletClient.account,
     chain: undefined,
+    ...builderWriteOpts(),
   });
 
   onProgress?.({

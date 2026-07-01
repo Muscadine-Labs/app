@@ -437,7 +437,7 @@ export function TransactionConfirmation({
         <p className="text-[10px] md:text-xs text-[var(--foreground-secondary)] leading-relaxed">
           By confirming this transaction, you agree to the{' '}
           <a
-            href="https://muscadine.io/terms"
+            href="https://muscadine.xyz/terms"
             target="_blank"
             rel="noopener noreferrer"
             className="text-[var(--primary)] hover:underline"
@@ -446,7 +446,7 @@ export function TransactionConfirmation({
           </a>
           {', '}
           <a
-            href="https://muscadine.io/privacy"
+            href="https://muscadine.xyz/privacy"
             target="_blank"
             rel="noopener noreferrer"
             className="text-[var(--primary)] hover:underline"
