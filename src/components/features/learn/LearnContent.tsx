@@ -12,7 +12,7 @@ export default function LearnContent() {
                         size="md"
                         icon={<ExternalLinkIcon size="sm" />}
                         iconPosition="right"
-                        onClick={() => window.open('https://docs.muscadine.io/', '_blank', 'noopener,noreferrer')}
+                        onClick={() => window.open('https://docs.muscadine.xyz/', '_blank', 'noopener,noreferrer')}
                     >
                         View All Resources
                     </Button>

@@ -199,10 +199,15 @@ export function getVaultChartTokenFractionDigits(symbol: string): number {
 }
 
 /** viem parseUnits rejects scientific notation; chart values are already decimal numbers. */
-function chartValueToRawUnits(value: number, assetDecimals: number): bigint {
+export function chartTokenAmountToRaw(value: number, assetDecimals: number): bigint {
   if (!Number.isFinite(value)) return BigInt(0);
   const decimalString = value.toFixed(assetDecimals).replace(/\.?0+$/, '') || '0';
   return parseUnits(decimalString, assetDecimals);
+}
+
+/** Compact USD label for chart y-axis ticks. */
+export function formatChartUsdAxisTick(value: number): string {
+  return formatSmartCurrency(value);
 }
 
 /** Token amount for vault charts with fixed trailing zeros. */
@@ -216,7 +221,7 @@ export function formatVaultChartTokenAmount(
   const fractionDigits = getVaultChartTokenFractionDigits(symbol);
   const resolvedDecimals = assetDecimals > 0 ? assetDecimals : 18;
   const formatted = formatAssetAmount(
-    chartValueToRawUnits(value, resolvedDecimals),
+    chartTokenAmountToRaw(value, resolvedDecimals),
     resolvedDecimals,
     symbol,
     { minimumFractionDigits: fractionDigits, maximumFractionDigits: fractionDigits }
@@ -242,19 +247,23 @@ export function formatSharePriceUsd(value: number): string {
   return formatCurrency(value);
 }
 
-/** Y-axis tick for vault chart token mode; compacts values ≥ 1,000 as "X.XXk". */
+/** Y-axis tick for vault chart token mode; compact labels (not full precision). */
 export function formatVaultChartTokenAxisTick(
   value: number,
   assetDecimals: number,
   symbol: string
 ): string {
-  const fractionDigits = getVaultChartTokenFractionDigits(symbol);
-  if (value >= 1000) {
-    const scaled = value / 1000;
-    return `${formatNumber(scaled, {
-      minimumFractionDigits: fractionDigits,
-      maximumFractionDigits: fractionDigits,
+  const abs = Math.abs(value);
+  if (abs >= 1_000_000) {
+    return `${formatNumber(value / 1_000_000, { maximumFractionDigits: 2 })}M`;
+  }
+  if (abs >= 1000) {
+    return `${formatNumber(value / 1000, {
+      maximumFractionDigits: abs >= 100_000 ? 0 : 1,
     })}k`;
+  }
+  if (abs >= 1) {
+    return formatNumber(value, { maximumFractionDigits: 2 });
   }
   return formatVaultChartTokenAmount(value, assetDecimals, symbol, { includeSymbol: false });
 }

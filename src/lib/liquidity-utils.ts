@@ -4,6 +4,7 @@ import {
   type PublicClient,
   type WalletClient,
 } from 'viem';
+import { builderWriteOpts } from './builder-code';
 import { BASE_CHAIN_ID } from './constants';
 import { ERC4626_ABI } from './abis';
 import type { VaultLiquidityBreakdown } from '@/types/vault';
@@ -133,6 +134,7 @@ export async function simulateVaultWithdraw(
         functionName: 'redeem',
         args: [shares, userAddress, userAddress],
         account: userAddress,
+        ...builderWriteOpts(),
       });
     } else {
       await publicClient.simulateContract({
@@ -141,6 +143,7 @@ export async function simulateVaultWithdraw(
         functionName: 'withdraw',
         args: [amountAssets, userAddress, userAddress],
         account: userAddress,
+        ...builderWriteOpts(),
       });
     }
 

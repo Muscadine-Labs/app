@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
+  formatChartUsdAxisTick,
   formatSmartCurrency,
   formatPercentage,
   formatCurrency,
@@ -52,7 +53,7 @@ function formatTvlYAxisTick(
   vaultData: MorphoVaultData
 ): string {
   if (valueType === 'usd') {
-    return formatCurrency(value);
+    return formatChartUsdAxisTick(value);
   }
   return formatVaultChartTokenAxisTick(
     value,
@@ -224,13 +225,12 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
     const values = tvlChartData.map(d => d.value).filter(v => v !== null && v !== undefined && !isNaN(v));
     
     return calculateYAxisDomain(values, {
-      bottomPaddingPercent: 0.25,
-      topPaddingPercent: 0.2,
-      thresholdPercent: valueType === 'usd' ? 0.02 : undefined,
+      anchorZero: true,
+      bottomPaddingPercent: 0,
+      topPaddingPercent: 0.1,
       filterPositiveOnly: true,
-      tokenThreshold: valueType === 'token' ? 1000 : undefined,
     });
-  }, [tvlChartData, chartType, valueType]);
+  }, [tvlChartData, chartType]);
 
   const sharePriceChartData = useMemo(() => {
     if (chartType !== 'sharePrice') return [];

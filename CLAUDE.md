@@ -4,7 +4,7 @@ Comprehensive context for AI assistants and developers. This is the canonical �
 
 **Product:** Web app for Muscadine vaults on **Base (chain id 8453)** — deposit, withdraw, portfolio view, vault analytics. **v2 Prime and Frontier** vaults for USDC, cbBTC, and WETH. **v1 MetaMorpho removed** from registry and codebase (v2-only writes).
 
-**Version:** `package.json` → `1.1.5`
+**Version:** `package.json` → `1.1.7`
 
 ---
 
@@ -33,7 +33,7 @@ Comprehensive context for AI assistants and developers. This is the canonical �
 13. [Directory map](#directory-map)
 14. [UI / transaction UX](#ui--transaction-ux)
 15. [Wallet & balances](#wallet--balances)
-16. [Farcaster mini app](#farcaster-mini-app)
+16. [Base App](#base-app)
 17. [Configuration & constants](#configuration--constants)
 18. [Development](#development)
 19. [Dependency constraints](#dependency-constraints)
@@ -57,10 +57,11 @@ npm run lint
 
 **Required env vars** (validated in `src/config/wagmi.ts` at startup):
 
-| Variable | Purpose |
-|----------|---------|
-| `NEXT_PUBLIC_ALCHEMY_API_KEY` | Base RPC (Alchemy) |
-| `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | RainbowKit / WalletConnect |
+| Variable | Required? | Purpose |
+|----------|-----------|---------|
+| `NEXT_PUBLIC_ALCHEMY_API_KEY` | **Yes** | Base RPC (Alchemy) |
+| `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | **Yes** | RainbowKit / WalletConnect |
+| `NEXT_PUBLIC_URL` or `NEXT_PUBLIC_APP_URL` | No (default `https://app.muscadine.xyz`) | Canonical URL + Base Account `appUrl` |
 
 Never commit real keys. `.env.example` documents placeholders.
 
@@ -73,7 +74,7 @@ Never commit real keys. `.env.example` documents placeholders.
 | Framework | Next.js 16 (App Router) |
 | Bundler (dev/build) | Turbopack (`next dev --turbopack`, `next build --turbopack`) |
 | UI | React 19, Tailwind CSS 4 |
-| Wallet | wagmi **2.x**, RainbowKit 2, viem 2 |
+| Wallet | wagmi **2.x**, RainbowKit 2, **Base Account** (`baseAccount` wallet), viem 2 |
 | Chain | Base only (`8453`) |
 | Server data | Next.js Route Handlers → Morpho GraphQL |
 | Client GraphQL | Apollo Client → `https://api.morpho.org/graphql` |
@@ -81,7 +82,7 @@ Never commit real keys. `.env.example` documents placeholders.
 | V2 txs | **Direct ERC-4626 + ERC-20 ABIs** via viem (`transactionUtilsV2.ts`) |
 | Charts | Recharts |
 | Analytics | `@vercel/analytics` |
-| Mini app | `@farcaster/miniapp-sdk` |
+| Base Account SDK | `@base-org/account` (via RainbowKit `baseAccount` wallet) |
 
 ---
 
@@ -278,7 +279,6 @@ If `complete` routes return **HTTP 400**, validate queries against `https://api.
 | `/api/prices` | Price proxy/cache |
 | `/api/user/morpho-positions` | User Morpho v2 positions |
 | `/api/vault/v2/...` | V2 Morpho GraphQL proxies |
-| `/.well-known/farcaster.json` | Farcaster mini app manifest |
 
 **NavBar:** Dashboard → `/`, Vaults → `/vaults`, Transact → `/transact`. Settings: **Developer mode** toggle (`preference` `v2` ↔ `all`) — transact test bypass only.
 
@@ -359,10 +359,10 @@ Shown before wallet connect (`ConnectButton` → `AdvisoryAgreementProvider`). C
 
 | Label | URL |
 |-------|-----|
-| Terms of Use | https://muscadine.io/terms |
-| Legal Disclaimer | https://muscadine.io/legal |
-| Privacy Policy | https://muscadine.io/privacy |
-| Risk Framework | https://muscadine.io/risk |
+| Terms of Use | https://muscadine.xyz/terms |
+| Legal Disclaimer | https://muscadine.xyz/legal |
+| Privacy Policy | https://muscadine.xyz/privacy |
+| Risk Framework | https://muscadine.xyz/risk |
 | U.S. economic sanctions (checkbox) | https://ofac.treasury.gov/sanctions-programs-and-country-information |
 
 Same Risk Framework link appears in **NavBar** Muscadine dropdown (Protocol section, with Terms / Legal / Privacy).
@@ -397,7 +397,7 @@ src/
       learn/              # LearnContent
     layout/               # AppLayout, NavBar, RightSidebar
     ui/                   # Button, Modal, Toast, Skeleton, Icon
-    common/               # ErrorBoundary, CopiableAddress, MiniAppInit
+    common/               # ErrorBoundary, CopiableAddress
   config/
     wagmi.ts              # Base + Alchemy + RainbowKit wallets
     navigation.tsx        # Nav links (Vaults → page; transact)
@@ -458,12 +458,20 @@ src/
 
 ---
 
-## Farcaster mini app
+## Base App
 
-- Manifest: `src/app/.well-known/farcaster.json/route.ts` — uses `getAppUrl()` from `src/lib/app-url.ts` (defaults to `https://app.muscadine.io`; supports `NEXT_PUBLIC_URL` or `NEXT_PUBLIC_APP_URL`)
-- Init: `components/common/MiniAppInit.tsx`
-- Embed metadata: `layout.tsx` `fc:miniapp` tag
-- Images: `public/favicon.png` (icon, splash, hero, OG in manifest and layout)
+Standard web app on Base — no Farcaster manifest or mini-app SDK. Register on [base.dev](https://base.dev) with primary URL **`https://app.muscadine.xyz`** (no separate `miniapp.*` subdomain).
+
+| Piece | Location |
+|-------|----------|
+| `base:app_id` meta tag | `src/lib/base-app.ts` → `layout.tsx` |
+| Base Account wallet | `baseAccount` first in `src/config/wagmi.ts` (RainbowKit) |
+| `appUrl` / `appIcon` for Base Account UI | `getAppUrl()` + `/favicon.png` in wagmi config |
+| Builder code (ERC-8021) | `src/lib/builder-code.ts` → `transactionUtilsV2.ts` |
+
+Wallet order in connect modal: **Base Account**, Rabby, MetaMask, Coinbase, Phantom, WalletConnect.
+
+Optional later: [Base Notifications API](https://docs.base.org/apps/technical-guides/base-notifications) (wallet-address based; no Farcaster).
 
 ---
 
