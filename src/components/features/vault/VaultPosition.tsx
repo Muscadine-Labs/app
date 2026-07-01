@@ -6,6 +6,8 @@ import { useAccount, useReadContract } from 'wagmi';
 import { MorphoVaultData } from '@/types/vault';
 import {
   formatCurrency,
+  formatChartUsdAxisValue,
+  formatChartTokenAxisValue,
   formatPositionUsd,
   chartTokenAmountToRaw,
   formatVaultChartTokenAmount,
@@ -912,13 +914,12 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
                       tickFormatter={(value) => {
                         if (value === undefined || typeof value !== 'number') return '';
                         if (valueType === 'usd') {
-                          return formatCurrency(value);
+                          return formatChartUsdAxisValue(value);
                         }
-                        return formatVaultChartTokenAmount(
+                        return formatChartTokenAxisValue(
                           value,
                           depositAssetDecimals,
-                          vaultData.symbol,
-                          { includeSymbol: false }
+                          vaultData.symbol
                         );
                       }}
                       stroke="var(--foreground-secondary)"

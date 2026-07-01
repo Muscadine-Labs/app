@@ -205,9 +205,103 @@ export function chartTokenAmountToRaw(value: number, assetDecimals: number): big
   return parseUnits(decimalString, assetDecimals);
 }
 
+/** Fixed fraction digits for chart Y-axis USD ticks. */
+const CHART_AXIS_USD_FRACTION_DIGITS = 2;
+
+/** Fixed fraction digits for chart Y-axis token ticks (USDC and default). */
+const CHART_AXIS_STABLE_FRACTION_DIGITS = 2;
+
+/** Fixed fraction digits for chart Y-axis WETH / cbBTC token ticks. */
+const CHART_AXIS_WETH_CBBTC_FRACTION_DIGITS = 6;
+
+/** Fraction digits for chart Y-axis USD ticks. */
+export function getChartUsdAxisFractionDigits(): {
+  minimumFractionDigits: number;
+  maximumFractionDigits: number;
+} {
+  return {
+    minimumFractionDigits: CHART_AXIS_USD_FRACTION_DIGITS,
+    maximumFractionDigits: CHART_AXIS_USD_FRACTION_DIGITS,
+  };
+}
+
+/** Fraction digits for chart Y-axis token ticks. */
+export function getChartTokenAxisFractionDigits(symbol: string): {
+  minimumFractionDigits: number;
+  maximumFractionDigits: number;
+} {
+  const normalized = symbol.toUpperCase();
+  const digits =
+    normalized === 'WETH' ||
+    normalized === 'CBBTC' ||
+    normalized === 'CBTC' ||
+    normalized === 'BTC'
+      ? CHART_AXIS_WETH_CBBTC_FRACTION_DIGITS
+      : CHART_AXIS_STABLE_FRACTION_DIGITS;
+
+  return { minimumFractionDigits: digits, maximumFractionDigits: digits };
+}
+
+/** Share price Y-axis token ticks. */
+export function formatSharePriceAxisTokenValue(
+  value: number,
+  assetDecimals: number,
+  symbol: string
+): string {
+  const numberValue = Number(value);
+  if (!Number.isFinite(numberValue)) return '';
+
+  const { minimumFractionDigits, maximumFractionDigits } =
+    getChartTokenAxisFractionDigits(symbol);
+  const resolvedDecimals = assetDecimals > 0 ? assetDecimals : 18;
+  const formatted = formatAssetAmount(
+    chartTokenAmountToRaw(numberValue, resolvedDecimals),
+    resolvedDecimals,
+    symbol,
+    { minimumFractionDigits, maximumFractionDigits }
+  );
+  return formatted.replace(` ${symbol}`, '').trim();
+}
+
+/** Full USD label for chart Y-axis ticks (not abbreviated). */
+export function formatChartUsdAxisValue(value: number): string {
+  const numberValue = Number(value);
+  if (!Number.isFinite(numberValue)) return '';
+
+  const { minimumFractionDigits, maximumFractionDigits } = getChartUsdAxisFractionDigits();
+
+  return formatNumber(numberValue, {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits,
+    maximumFractionDigits,
+  });
+}
+
+/** Full token label for chart Y-axis ticks (no symbol suffix). */
+export function formatChartTokenAxisValue(
+  value: number,
+  assetDecimals: number,
+  symbol: string
+): string {
+  const numberValue = Number(value);
+  if (!Number.isFinite(numberValue)) return '';
+
+  const { minimumFractionDigits, maximumFractionDigits } =
+    getChartTokenAxisFractionDigits(symbol);
+  const resolvedDecimals = assetDecimals > 0 ? assetDecimals : 18;
+  const formatted = formatAssetAmount(
+    chartTokenAmountToRaw(numberValue, resolvedDecimals),
+    resolvedDecimals,
+    symbol,
+    { minimumFractionDigits, maximumFractionDigits }
+  );
+  return formatted.replace(` ${symbol}`, '').trim();
+}
+
 /** Compact USD label for chart y-axis ticks. */
 export function formatChartUsdAxisTick(value: number): string {
-  return formatSmartCurrency(value);
+  return formatChartUsdAxisValue(value);
 }
 
 /** Token amount for vault charts with fixed trailing zeros. */
@@ -247,25 +341,13 @@ export function formatSharePriceUsd(value: number): string {
   return formatCurrency(value);
 }
 
-/** Y-axis tick for vault chart token mode; compact labels (not full precision). */
+/** Y-axis tick for vault chart token mode. */
 export function formatVaultChartTokenAxisTick(
   value: number,
   assetDecimals: number,
   symbol: string
 ): string {
-  const abs = Math.abs(value);
-  if (abs >= 1_000_000) {
-    return `${formatNumber(value / 1_000_000, { maximumFractionDigits: 2 })}M`;
-  }
-  if (abs >= 1000) {
-    return `${formatNumber(value / 1000, {
-      maximumFractionDigits: abs >= 100_000 ? 0 : 1,
-    })}k`;
-  }
-  if (abs >= 1) {
-    return formatNumber(value, { maximumFractionDigits: 2 });
-  }
-  return formatVaultChartTokenAmount(value, assetDecimals, symbol, { includeSymbol: false });
+  return formatChartTokenAxisValue(value, assetDecimals, symbol);
 }
 
 /** Vault detail page: deposits + earned interest (fixed trailing zeros per asset). */

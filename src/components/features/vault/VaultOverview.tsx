@@ -5,6 +5,9 @@ import {
   formatSmartCurrency,
   formatPercentage,
   formatCurrency,
+  formatChartUsdAxisValue,
+  formatChartTokenAxisValue,
+  formatSharePriceAxisTokenValue,
   formatVaultChartTokenAmount,
   formatSharePriceTokenAmount,
   formatSharePriceUsd,
@@ -51,13 +54,12 @@ function formatTvlYAxisTick(
   vaultData: MorphoVaultData
 ): string {
   if (valueType === 'usd') {
-    return formatCurrency(value);
+    return formatChartUsdAxisValue(value);
   }
-  return formatVaultChartTokenAmount(
+  return formatChartTokenAxisValue(
     value,
     vaultData.assetDecimals || 18,
-    vaultData.symbol,
-    { includeSymbol: false }
+    vaultData.symbol
   );
 }
 
@@ -71,13 +73,12 @@ function formatSharePriceYAxisTick(
   vaultData: MorphoVaultData
 ): string {
   if (valueType === 'usd') {
-    return formatSharePriceUsd(value);
+    return formatChartUsdAxisValue(value);
   }
-  return formatSharePriceTokenAmount(
+  return formatSharePriceAxisTokenValue(
     value,
     vaultData.assetDecimals || 18,
-    vaultData.symbol,
-    { includeSymbol: false }
+    vaultData.symbol
   );
 }
 

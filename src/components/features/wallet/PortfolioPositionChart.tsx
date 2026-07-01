@@ -9,7 +9,7 @@ import {
   mapPortfolioHistoryToChartData,
   PositionHistoryPoint,
 } from '@/lib/portfolio-utils';
-import { formatCurrency } from '@/lib/formatter';
+import { formatCurrency, formatChartUsdAxisValue } from '@/lib/formatter';
 import { logger } from '@/lib/logger';
 import { useUnixTimestamp } from '@/hooks/useClientOnly';
 import { useLockPageScroll } from '@/hooks/useLockPageScroll';
@@ -452,7 +452,7 @@ export default function PortfolioPositionChart() {
                     domain={yAxisDomain}
                     tickFormatter={(value) => {
                       if (value === undefined || typeof value !== 'number') return '';
-                      return formatCurrency(value);
+                      return formatChartUsdAxisValue(value);
                     }}
                     stroke="var(--foreground-secondary)"
                     style={{ fontSize: '12px' }}

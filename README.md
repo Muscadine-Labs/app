@@ -73,4 +73,4 @@ Copy `.env.example` → `.env.local`.
 1. **Vercel** — set `NEXT_PUBLIC_ALCHEMY_API_KEY`, `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID`, and `NEXT_PUBLIC_URL=https://app.muscadine.xyz`.
 2. **base.dev** — register primary app URL as `https://app.muscadine.xyz` (app id in `src/lib/base-app.ts`).
 3. **DNS** — point `app.muscadine.xyz` to Vercel.
-4. **Verify** — navbar logo/favicon load (`/favicon.png`), connect wallet shows Base Account, position/TVL charts y-axis scales from zero.
+4. **Verify** — navbar logo/favicon load (`/favicon.png`), connect wallet works, chart Y-axes show readable ticks (zoomed to data range, not 8-decimal tails).
