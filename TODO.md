@@ -1,5 +1,6 @@
 **To Work on Today:**
 - Review the miniapp congifuration for the base app. Might be a base app issue or repo issue because i have to manually search up our app on base app. Also on base app, review why on the miniapp it takes a long time to load into it, than it blanks, than it loads up and correctly works. Review the docs and anaylze the code.
+- Still cant connect to walletconnect from rainbow kit. Research why and try to click on it? Is it a rainbow wallet thing or should we use something else?
 
 **To work on another day:**
 
