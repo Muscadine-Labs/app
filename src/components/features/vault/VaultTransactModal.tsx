@@ -175,7 +175,7 @@ export function VaultTransactModal({
                     <button
                       type="button"
                       onClick={tx.calculateMaxAmount}
-                      disabled={tx.getMaxAmount === null}
+                      disabled={tx.getMaxAmount === null || tx.isWithdrawMaxLoading}
                       className="min-h-9 min-w-11 px-2 text-xs text-[var(--primary)] hover:text-[var(--primary-hover)] disabled:text-[var(--foreground-muted)] disabled:cursor-not-allowed cursor-pointer touch-manipulation"
                     >
                       MAX

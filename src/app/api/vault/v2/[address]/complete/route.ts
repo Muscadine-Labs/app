@@ -96,39 +96,11 @@ export async function GET(
             supplyApr
           }
           
-          # Allocation & Strategy (V2 uses adapters)
+          # Adapters (addresses only — allocation detail lives in /allocations route)
           adapters(first: 20) {
             items {
-              __typename
               address
-              assets
-              assetsUsd
               type
-              ... on MorphoMarketV1Adapter {
-                positions(first: 100) {
-                  items {
-                    market {
-                      marketId
-                      loanAsset {
-                        symbol
-                        decimals
-                      }
-                      collateralAsset {
-                        symbol
-                      }
-                      state {
-                        supplyAssetsUsd
-                        liquidityAssetsUsd
-                        netSupplyApy
-                      }
-                    }
-                    state {
-                      supplyAssets
-                      supplyAssetsUsd
-                    }
-                  }
-                }
-              }
             }
           }
           
@@ -231,7 +203,7 @@ export async function GET(
         address: alloc.allocator?.address || '',
       })) || [];
       
-      // Headline: Morpho current netApy (allocation-weighted). Popover uses apy → fees → netApy.
+      // Headline: Morpho netApy; popover uses gross apy → fees → netApy.
       const morphoGrossApy = vault.apy ?? vault.netApy ?? 0;
       const morphoNetApy =
         vault.netApy ?? vault.apy ?? vault.avgNetApy ?? vault.avgNetApyExcludingRewards ?? 0;

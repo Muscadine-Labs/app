@@ -16,6 +16,7 @@ import {
 import { ERC4626_ABI } from '@/lib/abis';
 import { getAssetDecimalsForSymbol } from '@/lib/asset-decimals';
 import {
+  accountsMatchTransactionTab,
   findTokenBySymbol,
   getTokenBalanceAmount,
   isWethVault,
@@ -190,16 +191,29 @@ export function useScopedVaultTransaction({
 
   const handleTabChange = useCallback(
     (tab: VaultTransactionTab) => {
-      if (status !== 'idle' || tab === activeTab) return;
+      if (status !== 'idle') return;
+      if (
+        tab === activeTab &&
+        accountsMatchTransactionTab(tab, fromAccount, toAccount)
+      ) {
+        return;
+      }
       setActiveTab(tab);
       setAmount('');
       setBalanceBypassAcknowledged(false);
       applyTabAccounts(tab);
     },
-    [status, activeTab, setAmount, applyTabAccounts]
+    [
+      status,
+      activeTab,
+      fromAccount,
+      toAccount,
+      setAmount,
+      applyTabAccounts,
+    ]
   );
 
-  const { data: exactAssetAmount } = useReadContract({
+  const { data: exactAssetAmount, isPending: isExactAssetAmountPending } = useReadContract({
     address:
       effectiveActiveTab === 'withdraw' && vaultShareBalance
         ? (vaultAddress as `0x${string}`)
@@ -216,6 +230,17 @@ export function useScopedVaultTransaction({
         BigInt(vaultShareBalance) > BigInt(0),
     },
   });
+
+  const isWithdrawMaxLoading = useMemo(() => {
+    if (effectiveActiveTab !== 'withdraw') return false;
+    if (!vaultShareBalance || BigInt(vaultShareBalance) === BigInt(0)) return false;
+    return exactAssetAmount === undefined && isExactAssetAmountPending;
+  }, [
+    effectiveActiveTab,
+    vaultShareBalance,
+    exactAssetAmount,
+    isExactAssetAmountPending,
+  ]);
 
   const getWrappableEthBalance = useCallback(() => {
     const ethBal = parseFloat(ethBalance || '0');
@@ -341,6 +366,7 @@ export function useScopedVaultTransaction({
     if (exactAssetAmount !== undefined) {
       return parseFloat(formatUnits(exactAssetAmount, assetDecimals));
     }
+    if (isExactAssetAmountPending) return null;
     return 0;
   }, [
     derivedAsset,
@@ -351,6 +377,7 @@ export function useScopedVaultTransaction({
     tokenBalances,
     vaultShareBalance,
     exactAssetAmount,
+    isExactAssetAmountPending,
     getCombinedEthWethBalance,
     getWrappableEthBalance,
   ]);
@@ -512,6 +539,7 @@ export function useScopedVaultTransaction({
     handleResetToIdle,
     canClose,
     isDevMode,
+    isWithdrawMaxLoading,
     vaultAddress,
     vaultSymbol,
   };

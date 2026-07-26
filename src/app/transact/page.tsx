@@ -23,6 +23,10 @@ import {
 } from '@/lib/vault-utils';
 import { getAssetDecimalsForSymbol } from '@/lib/asset-decimals';
 import { TOKEN_ADDRESSES_LOWER, type TokenBalance } from '@/contexts/WalletContext';
+import {
+  accountsMatchTransactionTab,
+  type TransactionTab,
+} from '@/lib/transaction-form-utils';
 
 function buildRegistryVaultList(): Vault[] {
   return Object.values(VAULTS).map((vault) => ({
@@ -75,19 +79,6 @@ const findTokenBySymbol = (
   // Fallback to symbol-based matching for other tokens
   return tokenBalances.find((t) => t.symbol.toUpperCase() === symbol.toUpperCase());
 };
-
-type TransactionTab = 'deposit' | 'withdraw';
-
-function accountsMatchTransactionTab(
-  tab: TransactionTab,
-  from: Account | null,
-  to: Account | null
-): boolean {
-  if (tab === 'deposit') {
-    return from?.type === 'wallet' && (to === null || to.type === 'vault');
-  }
-  return from?.type === 'vault' && to?.type === 'wallet';
-}
 
 /** Restore wallet/vault slots for the selected tab while keeping the same vault. */
 function syncAccountsToTab(
