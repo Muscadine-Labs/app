@@ -302,7 +302,7 @@ export default function PortfolioPositionChart() {
   }, [selectedTimeFrame, filteredChartData]);
 
   return (
-    <div className="flex flex-col rounded-lg bg-[var(--surface)] h-full w-full overflow-hidden">
+    <div className="@container flex flex-col rounded-lg bg-[var(--surface)] h-full w-full overflow-hidden">
       <div className="px-3 sm:px-4 py-2 sm:py-2.5 border-b border-[var(--border)] shrink-0">
         <h2 className="text-sm sm:text-md text-[var(--foreground)]">Portfolio Value</h2>
         <p className="text-xs text-[var(--foreground-secondary)] mt-0.5">
@@ -331,7 +331,8 @@ export default function PortfolioPositionChart() {
           <div className="bg-[var(--surface-elevated)] rounded-lg p-2 sm:p-3 flex flex-col h-full min-h-0">
             <div className="flex items-center justify-between mb-2 shrink-0">
               <div className="relative">
-                <div className="hidden md:flex items-center gap-2">
+                {/* Button row when the chart container itself is wide enough (not viewport). */}
+                <div className="hidden @min-[480px]:flex items-center gap-2 flex-wrap">
                   {availableTimeFrames.map((timeFrame) => (
                     <Button
                       key={timeFrame}
@@ -345,7 +346,7 @@ export default function PortfolioPositionChart() {
                   ))}
                 </div>
 
-                <div className="md:hidden">
+                <div className="@min-[480px]:hidden">
                   <button
                     type="button"
                     onClick={() => setIsTimeFrameMenuOpen(!isTimeFrameMenuOpen)}

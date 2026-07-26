@@ -4,7 +4,7 @@ Comprehensive context for AI assistants and developers. This is the canonical �
 
 **Product:** Web app for Muscadine vaults on **Base (chain id 8453)** — deposit, withdraw, portfolio view, vault analytics. **v2 Prime and Frontier** vaults for USDC, cbBTC, and WETH. **v1 MetaMorpho removed** from registry and codebase (v2-only writes).
 
-**Version:** `package.json` → `1.1.7`
+**Version:** `package.json` → `1.3.0`
 
 ---
 
@@ -217,7 +217,7 @@ Base Bundler3 + GeneralAdapter1. Deposit/withdraw/redeem adapter calls use share
 
 v2-only: `depositToVaultV2` / `withdrawFromVaultV2` / `redeemFromVaultV2` / `forceWithdrawFromVaultV2`. Redeem when amount ≈ max via `shouldUseWithdrawAll` (unless a force plan is active).
 
-**Max withdraw detection:** Compares entered amount to `convertToAssets(fullShares)` with a tight tolerance (~1 unit at ≤8 dp, or 0.001% of max) → uses redeem path / force redeem.
+**Max withdraw detection:** Compares entered amount to `convertToAssets(fullShares)` via **bigint** `parseUnits` with a tight tolerance (~1 unit at ≤8 dp, or 0.001% of max) → uses redeem path / force redeem.
 
 **Liquidity warning:** Before withdraw, if amount > instant liquidity, show `WithdrawLiquidityWarningModal` (force path or Morpho link).
 
@@ -296,7 +296,7 @@ If `complete` routes return **HTTP 400**, validate queries against `https://api.
 | Path | Description |
 |------|-------------|
 | `/` | **Dashboard** — compact `WalletOverview` strip, portfolio chart (~⅖), Tokens + Your Vaults panels |
-| `/asset/[slug]` | Asset detail — combined wallet+vault holdings, price, related curated vaults (`usdc`, `cbbtc`, `eth`) |
+| `/asset/[slug]` | Asset detail — combined wallet+vault holdings, price, related vaults (`usdc`, `btc`, `eth`; `cbbtc` → `btc`) |
 | `/vaults` | **Vault explorer** — filter bar + table of registry vaults |
 | `/transact` | Deposit/withdraw flow (`TransactionContext` + `TransactionFlow`) |
 | `/vault/v2/[address]` | V2 vault detail |
@@ -348,13 +348,17 @@ Adaptive layout (content-sized panels; empty sections omitted):
 | Network | All, Base | Default **All**; `base` filters `chainId === 8453` |
 | Strategy | All, Prime, Frontier | Default **All** (shows Prime + Frontier) |
 | Asset | All, USDC, cbBTC, WETH | Local filter state |
-| In Wallet | Toggle | Shows only vaults user is deposited in |
+| Scope | Deposits + whitelisted, In wallet, **Whitelisted** | Default **Deposits + whitelisted**. Wallet modes can list external deposits as **External** (not clickable). |
 
-**Table columns** (`VaultExplorerTable.tsx`): Vault, **Your Position**, **Earned Interest**, **APY / TVL** (compact layout). Rows navigate to `/vault/v2/{address}`.
+**Table columns** (`VaultExplorerTable.tsx`): Vault, **Your Position**, **Earned Interest**, **APY / TVL** (compact layout). **Whitelisted** rows navigate to `/vault/v2/{address}`; external rows are display-only.
 
 **Vault list sort order** (`sortVaultsForDisplay`): (1) position USD high → low, (2) TVL high → low, (3) name.
 
 **Earned interest:** `useVaultEarnedInterest` for curated vaults; shows **0** when never deposited.
+
+### Vault detail (`/vault/v2/[address]`)
+
+Whitelisted registry vaults only — unknown / external addresses redirect home. In-app Deposit/Withdraw via `VaultTransactModal`.
 
 ### Vault detail charts (`VaultOverview.tsx`)
 
@@ -514,10 +518,8 @@ Optional later: [Base Notifications API](https://docs.base.org/apps/technical-gu
 
 `next.config.ts`:
 
-- Webpack/Turbopack aliases for `wagmi` and `@tanstack/react-query` (singleton — avoids duplicate React Query context with simulation-sdk-wagmi)
+- Webpack/Turbopack aliases for `wagmi` and `@tanstack/react-query` (singleton React Query context)
 - Externals: `pino-pretty`, `lokijs`, `encoding`
-
-`Providers.tsx` imports `core-js/proposals/iterator-helpers` for `@morpho-org/blue-sdk-wagmi`.
 
 ---
 

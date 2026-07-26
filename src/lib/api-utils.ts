@@ -108,6 +108,11 @@ export function isMorphoRateLimitError(status: number, responseText: string): bo
   }
 }
 
+/** Upstream blips that are worth retrying (wallet switch bursts often hit these). */
+export function isTransientMorphoHttpStatus(status: number): boolean {
+  return status === 429 || status === 502 || status === 503 || status === 504;
+}
+
 /** Shared 503 payload when Morpho public API rate limit is hit. */
 export const MORPHO_RATE_LIMIT_BODY = {
   error: 'Morpho API rate limit exceeded',
@@ -197,8 +202,11 @@ export async function fetchMorphoGraphQL(
       return toMorphoResponse(entry);
     }
 
-    if (isMorphoRateLimitError(response.status, responseText)) {
-      if (!skipMemoryCache && cached?.ok) {
+    const rateLimited = isMorphoRateLimitError(response.status, responseText);
+    const transient = isTransientMorphoHttpStatus(response.status);
+
+    if (rateLimited || transient) {
+      if (!skipMemoryCache && rateLimited && cached?.ok) {
         return toMorphoResponse(cached);
       }
       if (attempt < MORPHO_MAX_RETRIES) {

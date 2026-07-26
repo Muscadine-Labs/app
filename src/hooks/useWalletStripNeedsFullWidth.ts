@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  useEffect,
   useLayoutEffect,
   useRef,
   useState,
@@ -22,6 +23,10 @@ const WALLET_CHROME_X_PX = 42;
 /** Enter/leave wide mode with light hysteresis (avoids flicker without lagging resize). */
 const ENTER_SLACK_PX = 8;
 const EXIT_SLACK_PX = 24;
+
+/** useLayoutEffect in the browser; useEffect during SSR (avoids React warning). */
+const useIsomorphicLayoutEffect =
+  typeof window !== 'undefined' ? useLayoutEffect : useEffect;
 
 type Options = {
   /** Outer dashboard content width (full row / grid container). */
@@ -48,7 +53,7 @@ export function useWalletStripNeedsFullWidth({
   const [wide, setWide] = useState(false);
   const wideRef = useRef(false);
 
-  useLayoutEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     const apply = (next: boolean) => {
       if (wideRef.current === next) return;
       wideRef.current = next;

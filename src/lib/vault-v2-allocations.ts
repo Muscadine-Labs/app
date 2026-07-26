@@ -256,20 +256,31 @@ export function parseVaultV2AllocationsFromGraphQL(
     (a, b) => b.allocatedUsd - a.allocatedUsd
   );
 
+  const idleAllocatedUsd = Number.isFinite(idleAssetsUsd) ? idleAssetsUsd : 0;
+  let idleAssetsPositive = false;
+  if (idleAssetsRaw && idleAssetsRaw !== '0') {
+    try {
+      idleAssetsPositive = BigInt(idleAssetsRaw) > BigInt(0);
+    } catch {
+      idleAssetsPositive = false;
+    }
+  }
+  const hasIdle = idleAllocatedUsd > 0 || idleAssetsPositive;
+
   const idleRow: VaultMarketAllocation = {
     id: 'idle',
     kind: 'idle',
     name: `${assetSymbol} (Idle)`,
-    allocatedUsd: Number.isFinite(idleAssetsUsd) ? idleAssetsUsd : 0,
+    allocatedUsd: idleAllocatedUsd,
     allocatedAssetsRaw: idleAssetsRaw,
     tokenSymbol: assetSymbol,
     tokenDecimals: assetDecimals,
     marketSizeUsd: null,
-    liquidityUsd: Number.isFinite(idleAssetsUsd) ? idleAssetsUsd : 0,
+    liquidityUsd: idleAllocatedUsd,
     apy: idleApy,
   };
 
-  const allocations = [idleRow, ...marketRows];
+  const allocations = hasIdle ? [idleRow, ...marketRows] : marketRows;
 
   const weightInputs = marketRows
     .filter((row) => row.allocatedUsd > 0)
@@ -280,7 +291,7 @@ export function parseVaultV2AllocationsFromGraphQL(
 
   const weightedNetApy = computeWeightedVaultNetApy(
     weightInputs,
-    idleRow.allocatedUsd,
+    hasIdle ? idleRow.allocatedUsd : 0,
     idleApy
   );
 

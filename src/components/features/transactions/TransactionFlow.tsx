@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useWaitForTransactionReceipt, useReadContract, useWalletClient, usePublicClient } from 'wagmi';
-import { formatUnits, type Address, type PublicClient, type WalletClient } from 'viem';
+import { parseUnits, type Address, type PublicClient, type WalletClient } from 'viem';
 import { VaultAccount } from '@/types/vault';
 import { useTransactionState } from '@/contexts/TransactionContext';
 import type { TransactionProgressStep } from '@/types/transactions';
@@ -58,7 +58,7 @@ function stepTypeForLabel(label: string): 'signing' | 'approving' | 'confirming'
 
 /**
  * Resume only the post-exit unwrap (force→ETH), not the atomic Bundler3 "Withdraw to ETH" step.
- * Match unwrap-only labels, or any retry after a force exit was already submitted.
+ * Match unwrap-only labels, or failures after a force exit already progressed past step 0.
  */
 function shouldResumeUnwrapOnly(
   transactionType: string | null,
@@ -76,8 +76,13 @@ function shouldResumeUnwrapOnly(
 
   const priorStep = stepsInfo.find((s) => s.stepIndex === 0);
   const priorLabel = priorStep?.label?.toLowerCase() ?? '';
-  // Force exit already broadcast — never re-run forceDeallocate on Try again.
-  return priorLabel.includes('force') && Boolean(priorStep?.txHash);
+  // Force was broadcast and we failed on a later step (approve / unwrap) — resume unwrap.
+  // Do NOT resume when still on step 0 (force may have reverted; retry the force plan).
+  return (
+    failedStepIndex > 0 &&
+    priorLabel.includes('force') &&
+    Boolean(priorStep?.txHash)
+  );
 }
 
 export function TransactionFlow({
@@ -158,7 +163,7 @@ export function TransactionFlow({
     },
   });
 
-  // Treat as full exit only when amount is essentially MAX (tight tolerance — not 0.1%).
+  // Treat as full exit only when amount is essentially MAX (bigint compare — not float).
   const shouldUseWithdrawAll = useMemo(() => {
     if (transactionType !== 'withdraw' || !fromAccount || fromAccount.type !== 'vault' || !amount || !exactAssetAmount) {
       return false;
@@ -170,17 +175,23 @@ export function TransactionFlow({
       getVaultData(vaultAccount.address)?.assetDecimals ??
       18;
 
-    const maxAssetAmount = parseFloat(formatUnits(exactAssetAmount, decimals));
-    const enteredAmount = parseFloat(amount);
-
-    if (isNaN(enteredAmount) || isNaN(maxAssetAmount) || maxAssetAmount === 0) {
+    let entered: bigint;
+    try {
+      entered = parseUnits(amount, decimals);
+    } catch {
       return false;
     }
 
-    // ~1 unit at 8 dp, or 0.001% of max — whichever is larger (handles float noise without near-max full exits).
-    const absTol = Math.pow(10, -Math.min(decimals, 8));
-    const relTol = maxAssetAmount * 0.00001;
-    return Math.abs(enteredAmount - maxAssetAmount) <= Math.max(absTol, relTol);
+    const max = exactAssetAmount;
+    if (max === BigInt(0)) return false;
+
+    const diff = entered > max ? entered - max : max - entered;
+    // ~1 unit at ≤8 display decimals, or 0.001% of max — whichever is larger.
+    const absTol =
+      decimals > 8 ? BigInt(10) ** BigInt(decimals - 8) : BigInt(1);
+    const relTol = max / BigInt(100_000);
+    const tol = absTol > relTol ? absTol : relTol;
+    return diff <= tol;
   }, [transactionType, fromAccount, amount, exactAssetAmount, getVaultData]);
 
   // Wait for main transaction receipt (fallback only — v2 flow confirms inside depositToVaultV2)
@@ -389,11 +400,6 @@ export function TransactionFlow({
             stepLabel: step.stepLabel,
             timestamp: new Date().toISOString(),
           });
-          // Force exit is on-chain once hashed — drop the plan so a later unwrap
-          // failure resumes unwrap instead of re-running forceDeallocate.
-          if (step.stepLabel?.toLowerCase().includes('force')) {
-            forcePlanRef.current = null;
-          }
         }
         setTotalSteps(step.totalSteps);
         setCurrentStepIndex(step.stepIndex);
@@ -445,6 +451,7 @@ export function TransactionFlow({
         isResuming &&
         shouldResumeUnwrapOnly(transactionType, resumeStepIndex, stepsInfo)
       ) {
+        forcePlanRef.current = null;
         const priorWithdrawHash = stepsInfo.find((s) => s.stepIndex === 0 && s.txHash)?.txHash;
         if (!priorWithdrawHash) {
           throw new Error(

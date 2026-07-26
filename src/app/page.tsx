@@ -71,6 +71,58 @@ function DashboardPanel({
   );
 }
 
+function DashboardSideColumn({
+  className = '',
+  hasVaults,
+  depositedVaults,
+  hasTokens,
+  hasStocks,
+  tokenCount,
+  stockCount,
+}: {
+  className?: string;
+  hasVaults: boolean;
+  depositedVaults: Vault[];
+  hasTokens: boolean;
+  hasStocks: boolean;
+  tokenCount: number;
+  stockCount: number;
+}) {
+  return (
+    <div className={`flex flex-col gap-3 sm:gap-4 min-w-0 w-full ${className}`}>
+      {hasVaults ? (
+        <DashboardPanel
+          title="Your Vaults"
+          scrollable={depositedVaults.length > PANEL_VISIBLE_ROWS}
+          bodyMaxClass={VAULTS_SCROLL_MAX}
+        >
+          <DashboardVaultTable vaults={depositedVaults} />
+        </DashboardPanel>
+      ) : null}
+      {hasTokens ? (
+        <DashboardPanel
+          title="Tokens"
+          subtitle="Wallet + vaults combined"
+          scrollable={tokenCount > PANEL_VISIBLE_ROWS}
+          bodyMaxClass={LIST_SCROLL_MAX}
+        >
+          <DashboardTokensPanel />
+        </DashboardPanel>
+      ) : null}
+      {hasStocks ? (
+        <DashboardPanel
+          title="Stocks"
+          subtitle="Base network"
+          scrollable={stockCount > PANEL_VISIBLE_ROWS}
+          bodyMaxClass={LIST_SCROLL_MAX}
+        >
+          <DashboardStocksPanel />
+        </DashboardPanel>
+      ) : null}
+    </div>
+  );
+}
+
 export default function Home() {
   const { address, isConnected } = useAccount();
   const {
@@ -152,17 +204,9 @@ export default function Home() {
 
   useVaultListPreloader(depositedVaults);
 
-  const tokensUnderVaults = hasVaults && hasTokens && !hasStocks;
-  const stocksUnderVaults = hasVaults && hasStocks && !hasTokens;
-  const tokensFillRight = !hasVaults && hasTokens && !hasStocks;
-  const stocksFillRight = !hasVaults && hasStocks && !hasTokens;
-  const showAssetPairRow = hasTokens && hasStocks;
-  const showRightColumn =
-    hasVaults ||
-    tokensFillRight ||
-    stocksFillRight ||
-    tokensUnderVaults ||
-    stocksUnderVaults;
+  // Right column stacks vaults / tokens / stocks whenever any exist — avoids
+  // jumping Tokens out to a full-width pair row when Stocks appear.
+  const showRightColumn = hasVaults || hasTokens || hasStocks;
 
   const layoutKey = [
     totalUsdValue,
@@ -183,105 +227,72 @@ export default function Home() {
   });
 
   /**
-   * Desktop (≥1000px) grid areas:
-   * - compact: wallet|side / chart|side  (vaults align with wallet)
-   * - wide:    wallet|wallet / chart|side (wallet full width; vaults align with chart)
-   * Mobile: single column stack in DOM order (wallet → chart → side).
+   * Desktop (≥1000px):
+   * - compact: two independent columns (wallet+chart | side) — avoids row-stretch gap
+   *   when the right column is taller than the wallet strip.
+   * - wide: wallet full-width, then chart | side (wallet strip too wide for half column).
+   * Mobile: single column stack (wallet → chart → side).
    */
-  const desktopGridAreas = wideWallet
-    ? '"wallet wallet" "chart side"'
-    : '"wallet side" "chart side"';
+  const useWideDesktopLayout = showRightColumn && wideWallet;
+
+  const sideProps = {
+    hasVaults,
+    depositedVaults,
+    hasTokens,
+    hasStocks,
+    tokenCount,
+    stockCount,
+  };
 
   return (
     <div className="w-full bg-[var(--background)] h-full">
       <div className="flex-1 overflow-y-auto">
         <div className="flex flex-col gap-3 sm:gap-4 p-4 sm:p-6 min-h-full">
-          <div
-            ref={viewportRef}
-            className={
-              showRightColumn
-                ? 'grid grid-cols-1 gap-3 sm:gap-4 min-w-0 items-start min-[1000px]:grid-cols-2 min-[1000px]:[grid-template-areas:var(--dash-areas)]'
-                : 'flex flex-col gap-3 sm:gap-4 min-w-0'
-            }
-            style={
-              showRightColumn
-                ? ({ ['--dash-areas' as string]: desktopGridAreas } as CSSProperties)
-                : undefined
-            }
-          >
+          {useWideDesktopLayout ? (
             <div
-              className={
-                showRightColumn ? 'min-w-0 min-[1000px]:[grid-area:wallet]' : 'min-w-0'
-              }
+              ref={viewportRef}
+              className="grid grid-cols-1 gap-3 sm:gap-4 min-w-0 items-start min-[1000px]:grid-cols-2 min-[1000px]:[grid-template-areas:var(--dash-areas)]"
+              style={{ ['--dash-areas' as string]: '"wallet wallet" "chart side"' } as CSSProperties}
             >
-              <WalletOverview measureRef={walletStripRef} />
-            </div>
-
-            <div
-              className={`rounded-lg ${CHART_HEIGHT_CLASS} flex flex-col min-w-0 w-full ${
-                showRightColumn ? 'min-[1000px]:[grid-area:chart]' : ''
-              }`}
-            >
-              <PortfolioPositionChart key={address ?? 'disconnected'} />
-            </div>
-
-            {showRightColumn ? (
-              <div className="flex flex-col gap-3 sm:gap-4 min-w-0 w-full min-[1000px]:[grid-area:side]">
-                {hasVaults ? (
-                  <DashboardPanel
-                    title="Your Vaults"
-                    scrollable={depositedVaults.length > PANEL_VISIBLE_ROWS}
-                    bodyMaxClass={VAULTS_SCROLL_MAX}
-                  >
-                    <DashboardVaultTable vaults={depositedVaults} />
-                  </DashboardPanel>
-                ) : null}
-
-                {tokensUnderVaults || tokensFillRight ? (
-                  <DashboardPanel
-                    title="Tokens"
-                    subtitle="Wallet + vaults combined"
-                    scrollable={tokenCount > PANEL_VISIBLE_ROWS}
-                    bodyMaxClass={LIST_SCROLL_MAX}
-                  >
-                    <DashboardTokensPanel />
-                  </DashboardPanel>
-                ) : null}
-
-                {stocksUnderVaults || stocksFillRight ? (
-                  <DashboardPanel
-                    title="Stocks"
-                    subtitle="Base network"
-                    scrollable={stockCount > PANEL_VISIBLE_ROWS}
-                    bodyMaxClass={LIST_SCROLL_MAX}
-                  >
-                    <DashboardStocksPanel />
-                  </DashboardPanel>
-                ) : null}
+              <div className="min-w-0 min-[1000px]:[grid-area:wallet]">
+                <WalletOverview measureRef={walletStripRef} />
               </div>
-            ) : null}
-          </div>
-
-          {showAssetPairRow ? (
-            <div className="grid grid-cols-1 min-[700px]:grid-cols-2 gap-3 sm:gap-4 min-w-0 items-start">
-              <DashboardPanel
-                title="Tokens"
-                subtitle="Wallet + vaults combined"
-                scrollable={tokenCount > PANEL_VISIBLE_ROWS}
-                bodyMaxClass={LIST_SCROLL_MAX}
+              <div
+                className={`rounded-lg ${CHART_HEIGHT_CLASS} flex flex-col min-w-0 w-full min-[1000px]:[grid-area:chart]`}
               >
-                <DashboardTokensPanel />
-              </DashboardPanel>
-              <DashboardPanel
-                title="Stocks"
-                subtitle="Base network"
-                scrollable={stockCount > PANEL_VISIBLE_ROWS}
-                bodyMaxClass={LIST_SCROLL_MAX}
-              >
-                <DashboardStocksPanel />
-              </DashboardPanel>
+                <PortfolioPositionChart key={address ?? 'disconnected'} />
+              </div>
+              <DashboardSideColumn
+                className="min-[1000px]:[grid-area:side]"
+                {...sideProps}
+              />
             </div>
-          ) : null}
+          ) : showRightColumn ? (
+            <div
+              ref={viewportRef}
+              className="grid grid-cols-1 gap-3 sm:gap-4 min-w-0 items-start min-[1000px]:grid-cols-2"
+            >
+              {/* Left column stacks tightly — do not share rows with the side column. */}
+              <div className="flex flex-col gap-3 sm:gap-4 min-w-0">
+                <WalletOverview measureRef={walletStripRef} />
+                <div
+                  className={`rounded-lg ${CHART_HEIGHT_CLASS} flex flex-col min-w-0 w-full`}
+                >
+                  <PortfolioPositionChart key={address ?? 'disconnected'} />
+                </div>
+              </div>
+              <DashboardSideColumn {...sideProps} />
+            </div>
+          ) : (
+            <div ref={viewportRef} className="flex flex-col gap-3 sm:gap-4 min-w-0">
+              <WalletOverview measureRef={walletStripRef} />
+              <div
+                className={`rounded-lg ${CHART_HEIGHT_CLASS} flex flex-col min-w-0 w-full`}
+              >
+                <PortfolioPositionChart key={address ?? 'disconnected'} />
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

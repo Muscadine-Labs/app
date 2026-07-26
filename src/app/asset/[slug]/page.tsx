@@ -21,6 +21,7 @@ import { getVaultLogo, type Vault } from '@/types/vault';
 import { formatCurrency, formatAssetAmount } from '@/lib/formatter';
 import {
   getVaultRoute,
+  isCuratedVaultAddress,
   resolvePositionAssetsUsd,
   sortVaultsForDisplay,
 } from '@/lib/vault-utils';
@@ -226,7 +227,7 @@ export default function AssetPage() {
                     <p className="text-sm text-[var(--foreground-muted)]">No vault deposits</p>
                   ) : (
                     holding.vaultParts.map((part) => {
-                      const open = part.isCurated
+                      const open = isCuratedVaultAddress(part.address)
                         ? () => router.push(getVaultRoute(part.address))
                         : undefined;
                       return open ? (

@@ -91,11 +91,12 @@ export default function WalletOverview({ measureRef }: WalletOverviewProps) {
   ];
 
   return (
-    <div className="w-full rounded-lg bg-[var(--surface)] border border-[var(--border)] px-4 sm:px-5 py-3 overflow-hidden">
+    <div className="w-full rounded-lg bg-[var(--surface)] border border-[var(--border)] px-4 sm:px-5 py-3 overflow-x-auto">
       {/*
         Intrinsic width for layout measurement:
         - `w-max` + nowrap on sm+ so scrollWidth reflects the single-row strip
         - no max-w-full on sm+ (avoids collapsing measure to the half-column)
+        - overflow-x-auto (not hidden) so large $ amounts stay reachable near the wide threshold
         - max-w-full only on small screens so the page does not scroll horizontally
       */}
       <div

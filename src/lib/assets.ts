@@ -148,8 +148,21 @@ export function isStockLikeSymbol(symbol: string): boolean {
   if (u.includes('STOCK') || u.includes('EQUITY')) return true;
   if (u.includes('HOOD') && u.length <= 10) return true;
 
+  // Stable / FX denomination tokens that end in X — not equity wrappers.
+  const suffixXExcluded = new Set([
+    'USDX',
+    'EURX',
+    'GBPX',
+    'JPYX',
+    'AUDX',
+    'CADX',
+    'CHFX',
+    'PENDLEX',
+  ]);
+
   // Suffix x: AAPLx, TSLAx, SPYx
   if (u.endsWith('X') && u.length >= 4 && u.length <= 7) {
+    if (suffixXExcluded.has(u)) return false;
     const base = u.slice(0, -1);
     if (/^[A-Z]{1,5}$/.test(base)) return true;
   }

@@ -3,7 +3,13 @@ import { BASE_CHAIN_ID } from '@/lib/constants';
 
 /** User positions must be fresh — never use the Morpho GraphQL response cache. */
 export const dynamic = 'force-dynamic';
-import { fetchMorphoGraphQL } from '@/lib/api-utils';
+import {
+  fetchMorphoGraphQL,
+  isMorphoRateLimitError,
+  isTransientMorphoHttpStatus,
+  MORPHO_RATE_LIMIT_BODY,
+  readMorphoGraphQLResponse,
+} from '@/lib/api-utils';
 import {
   getAssetDecimalsForSymbol,
   morphoAmountToDecimal,
@@ -116,6 +122,27 @@ export async function GET(request: NextRequest) {
     );
 
     if (!response.ok) {
+      const { responseText, rateLimited } = await readMorphoGraphQLResponse(response);
+      if (rateLimited || isMorphoRateLimitError(response.status, responseText)) {
+        return NextResponse.json(
+          { ...MORPHO_RATE_LIMIT_BODY, positions: [] },
+          { status: 503 }
+        );
+      }
+      if (isTransientMorphoHttpStatus(response.status)) {
+        logger.warn('Morpho positions upstream temporarily unavailable', {
+          userAddress,
+          status: response.status,
+        });
+        return NextResponse.json(
+          {
+            error: 'Morpho API temporarily unavailable',
+            positions: [],
+            retryable: true,
+          },
+          { status: 503 }
+        );
+      }
       throw new Error(`Morpho API returned ${response.status}`);
     }
 
@@ -169,8 +196,12 @@ export async function GET(request: NextRequest) {
   } catch (err) {
     logger.error('Failed to fetch Morpho user positions', err);
     return NextResponse.json(
-      { error: 'Failed to fetch positions', positions: [] },
-      { status: 500 }
+      {
+        error: 'Failed to fetch positions',
+        positions: [],
+        retryable: false,
+      },
+      { status: 502 }
     );
   }
 }

@@ -26,7 +26,7 @@ const tabInactiveClass =
   'bg-[var(--surface)]/70 text-[var(--foreground-secondary)] border-[var(--border-subtle)] hover:bg-[var(--surface)] active:bg-[var(--surface-hover)]';
 
 const fieldClass =
-  'w-full min-h-11 px-3 py-2.5 pr-16 bg-[var(--surface)]/80 border border-[var(--border-subtle)] rounded-lg text-base sm:text-sm text-[var(--foreground)] placeholder-[var(--foreground-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/40 focus:border-[var(--primary)]/30';
+  'w-full min-h-11 px-3 py-2.5 bg-[var(--surface)]/80 border border-[var(--border-subtle)] rounded-lg text-base sm:text-sm text-[var(--foreground)] placeholder-[var(--foreground-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/40 focus:border-[var(--primary)]/30';
 
 export function VaultTransactModal({
   isOpen,

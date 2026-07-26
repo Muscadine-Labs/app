@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { useAccount } from 'wagmi';
 import { useBalance, useReadContract } from 'wagmi';
 import type { AlchemyTokenBalancesResponse, AlchemyTokenMetadataResponse, AlchemyTokenBalance } from '@/types/api';
@@ -429,38 +429,77 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   }, [address]);
 
   // Fetch all Morpho v2 vault positions from the API (curated + external).
+  const morphoFetchIdRef = useRef(0);
+  const lastMorphoAddressRef = useRef<string | null>(null);
+
   const fetchVaultPositions = useCallback(async (): Promise<void> => {
     if (!address) {
-      setMorphoHoldings(prev => ({
-        ...prev,
+      morphoFetchIdRef.current += 1;
+      lastMorphoAddressRef.current = null;
+      setMorphoHoldings({
         totalValueUsd: 0,
         positions: [],
         isLoading: false,
-      }));
+        error: null,
+      });
       return;
     }
 
-    setMorphoHoldings(prev => ({ ...prev, isLoading: true, error: null }));
+    const fetchId = ++morphoFetchIdRef.current;
+    const requestedAddress = address;
+    const addressChanged =
+      lastMorphoAddressRef.current?.toLowerCase() !== requestedAddress.toLowerCase();
+    lastMorphoAddressRef.current = requestedAddress;
 
-    const url = `/api/user/morpho-positions?address=${encodeURIComponent(address)}&chainId=8453&includeEmpty=true`;
-    const maxAttempts = 3;
+    setMorphoHoldings((prev) => ({
+      ...prev,
+      isLoading: true,
+      error: null,
+      // Drop prior wallet data immediately on switch; keep snapshot on same-wallet refresh.
+      ...(addressChanged ? { positions: [], totalValueUsd: 0 } : {}),
+    }));
+
+    const url = `/api/user/morpho-positions?address=${encodeURIComponent(requestedAddress)}&chainId=8453&includeEmpty=true`;
+    // Server already retries Morpho; keep client retries light and only when retryable.
+    const maxAttempts = 2;
     const retryDelayMs = 750;
+
+    const isCurrent = () =>
+      fetchId === morphoFetchIdRef.current &&
+      lastMorphoAddressRef.current?.toLowerCase() === requestedAddress.toLowerCase();
 
     try {
       let morphoResponse: Response | null = null;
       let lastFetchError: unknown;
 
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        if (!isCurrent()) return;
         try {
           morphoResponse = await fetch(url, { cache: 'no-store' });
-          break;
+          if (morphoResponse.ok || attempt === maxAttempts - 1) break;
+
+          const retryableStatus =
+            morphoResponse.status === 429 ||
+            morphoResponse.status === 502 ||
+            morphoResponse.status === 503 ||
+            morphoResponse.status === 504;
+          if (!retryableStatus) break;
+
+          // Prefer server `retryable` flag when present.
+          const peek = await morphoResponse.clone().json().catch(() => ({}));
+          if (peek && peek.retryable === false) break;
+
+          await new Promise((resolve) => setTimeout(resolve, retryDelayMs * (attempt + 1)));
         } catch (err) {
           lastFetchError = err;
+          morphoResponse = null;
           if (attempt < maxAttempts - 1) {
             await new Promise((resolve) => setTimeout(resolve, retryDelayMs * (attempt + 1)));
           }
         }
       }
+
+      if (!isCurrent()) return;
 
       if (!morphoResponse) {
         throw lastFetchError instanceof Error
@@ -469,10 +508,28 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (!morphoResponse.ok) {
-        throw new Error(`Morpho positions API returned ${morphoResponse.status}`);
+        const body = await morphoResponse.json().catch(() => ({}));
+        const message =
+          typeof body?.error === 'string'
+            ? body.error
+            : `Morpho positions temporarily unavailable (${morphoResponse.status})`;
+        logger.warn('Morpho positions fetch soft-failed', {
+          address: requestedAddress,
+          status: morphoResponse.status,
+          message,
+        });
+        // Keep last successful snapshot for this wallet (already cleared on address change).
+        setMorphoHoldings((prev) => ({
+          ...prev,
+          isLoading: false,
+          error: message,
+        }));
+        return;
       }
 
       const morphoData = await morphoResponse.json();
+      if (!isCurrent()) return;
+
       const positions: VaultPosition[] = (morphoData.positions ?? []).map(
         (p: {
           version: 'v1' | 'v2';
@@ -533,10 +590,11 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
         timestamp: new Date().toISOString(),
       });
     } catch (err) {
+      if (!isCurrent()) return;
       logger.error('Failed to fetch vault positions', err instanceof Error ? err : new Error(String(err)), {
-        address,
+        address: requestedAddress,
       });
-      setMorphoHoldings(prev => ({
+      setMorphoHoldings((prev) => ({
         ...prev,
         isLoading: false,
         error: err instanceof Error ? err.message : 'Failed to fetch vault positions',
@@ -596,15 +654,18 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       
       fetchAllData();
     } else if (!stableIsConnected) {
-      // Only clear data when explicitly disconnected (not during auth flows)
-      setMorphoHoldings(prev => ({ 
-        ...prev, 
-        totalValueUsd: 0, 
-        positions: [],
-        isLoading: false 
-      }));
-      setTokenPrices({});
-      setAlchemyTokenBalances([]);
+      // Only clear data when explicitly disconnected (not during auth flows).
+      // Defer so we don't sync-set state in the effect body (react-hooks/set-state-in-effect).
+      queueMicrotask(() => {
+        setMorphoHoldings((prev) => ({
+          ...prev,
+          totalValueUsd: 0,
+          positions: [],
+          isLoading: false,
+        }));
+        setTokenPrices({});
+        setAlchemyTokenBalances([]);
+      });
     }
     // Don't include fetchVaultPositions and fetchTokenPrices in deps to prevent infinite loops
     // eslint-disable-next-line react-hooks/exhaustive-deps

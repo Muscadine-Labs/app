@@ -12,7 +12,6 @@ import {
   getAddress,
   maxUint256,
 } from 'viem';
-import { base } from 'viem/chains';
 import { builderWriteOpts } from '@/lib/builder-code';
 import {
   BASE_CHAIN_ID,
@@ -358,9 +357,9 @@ export async function executeBundler3Multicall(
   if (calls.length === 0) {
     throw new Error('Empty Bundler3 bundle');
   }
-  if (walletClient.chain && walletClient.chain.id !== BASE_CHAIN_ID) {
+  if (!walletClient.chain || walletClient.chain.id !== BASE_CHAIN_ID) {
     throw new Error(
-      `Wrong network: Bundler3 is Base-only (chain ${BASE_CHAIN_ID}), got ${walletClient.chain.id}`
+      `Wrong network: Bundler3 is Base-only (chain ${BASE_CHAIN_ID}), got ${walletClient.chain?.id ?? 'unknown'}`
     );
   }
 
@@ -393,7 +392,7 @@ export async function executeBundler3Multicall(
     args: [calls],
     value,
     account: walletClient.account,
-    chain: walletClient.chain ?? base,
+    chain: walletClient.chain,
     ...builderWriteOpts(),
   });
 

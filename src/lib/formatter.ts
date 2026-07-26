@@ -171,10 +171,6 @@ export function formatAssetAmount(
   options: Intl.NumberFormatOptions = {}
 ): string {
   const fractionDigits = Math.min(getDisplayFractionDigits(symbol), 20);
-  const raw = typeof value === 'bigint' ? value : BigInt(value);
-  if (raw === BigInt(0)) {
-    return `0 ${symbol}`;
-  }
 
   const maxDigits =
     typeof options.maximumFractionDigits === 'number'
@@ -184,6 +180,12 @@ export function formatAssetAmount(
   // When callers force fixed trailing zeros (min === max), pad fraction.
   const minDigits =
     typeof options.minimumFractionDigits === 'number' ? options.minimumFractionDigits : 0;
+
+  const raw = typeof value === 'bigint' ? value : BigInt(value);
+  // Keep compact `0 SYMBOL` unless fixed trailing decimals are requested (chart ticks).
+  if (raw === BigInt(0) && !(minDigits > 0 && minDigits === maxDigits)) {
+    return `0 ${symbol}`;
+  }
 
   if (minDigits > 0 && minDigits === maxDigits) {
     const full = formatUnits(raw, decimals);

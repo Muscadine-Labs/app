@@ -11,6 +11,7 @@ import { useWallet } from '@/contexts/WalletContext';
 import {
   getVaultRoute,
   hasOnChainVaultShares,
+  isCuratedVaultAddress,
   resolvePositionAssetsUsd,
 } from '@/lib/vault-utils';
 import {
@@ -215,7 +216,7 @@ function VaultExplorerMobileCard({ vault, showYourPosition }: VaultExplorerRowPr
   const vaultData = getVaultData(vault.address);
   const loading = isLoading(vault.address);
   const decimals = resolveAssetDecimals(vault.symbol, vaultData?.assetDecimals);
-  const isCurated = vault.isCurated !== false;
+  const isCurated = isCuratedVaultAddress(vault.address);
   const openVault = () => {
     if (!isCurated) return;
     router.push(getVaultRoute(vault.address));
@@ -318,7 +319,7 @@ function DashboardVaultMobileCard({
   const positionRaw = positionAssets
     ? formatPositionTokenAmount(positionAssets, decimals, vault.symbol)
     : '-';
-  const isCurated = vault.isCurated !== false;
+  const isCurated = isCuratedVaultAddress(vault.address);
   const openVault = () => {
     if (!isCurated) return;
     router.push(getVaultRoute(vault.address));
@@ -344,6 +345,9 @@ function DashboardVaultMobileCard({
         <div className="min-w-0">
           <span className="text-sm font-medium text-[var(--foreground)] block">{vault.name}</span>
           <span className="text-[10px] text-[var(--foreground-muted)]">{vault.symbol}</span>
+          <span className="text-[10px] text-[var(--foreground-muted)] block">
+            {isCurated ? 'Whitelisted' : 'External'}
+          </span>
         </div>
       </div>
 
@@ -503,87 +507,27 @@ function VaultExplorerRow({ vault, showYourPosition }: VaultExplorerRowProps) {
   const vaultData = getVaultData(vault.address);
   const loading = isLoading(vault.address);
   const decimals = resolveAssetDecimals(vault.symbol, vaultData?.assetDecimals);
-  const isCurated = vault.isCurated !== false;
+  const isCurated = isCuratedVaultAddress(vault.address);
 
-  const handleClick = () => {
+  const openVault = () => {
     if (!isCurated) return;
     router.push(getVaultRoute(vault.address));
   };
 
-  if (!isCurated) {
-    return (
-      <tr className="border-b border-[var(--border)]">
-        <td className="px-4 sm:px-6 py-4 align-middle">
-          <span className="inline-flex rounded-md bg-[var(--surface-elevated)] px-2.5 py-1 text-xs font-medium text-[var(--foreground-secondary)]">
-            Base
-          </span>
-        </td>
-
-        <td className="px-4 sm:px-6 py-4 align-middle">
-          <div className="flex items-center gap-3 min-w-[180px]">
-            <VaultLogo vault={vault} />
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-[var(--foreground)] truncate">{vault.name}</span>
-                <span className="shrink-0 text-[10px] text-[var(--foreground-muted)]">External</span>
-              </div>
-            </div>
-          </div>
-        </td>
-
-        {showYourPosition && (
-          <td className="px-4 sm:px-6 py-4 align-middle text-right">
-            <PositionCell vault={vault} loading={loading} />
-          </td>
-        )}
-
-        <td className="px-4 sm:px-6 py-4 align-middle text-right">
-          <ValueCell
-            rawValue={vaultData?.totalAssets}
-            usdValue={vaultData?.totalDeposits}
-            decimals={decimals}
-            symbol={vault.symbol}
-            loading={loading}
-          />
-        </td>
-
-        <td className="px-4 sm:px-6 py-4 align-middle text-right">
-          <ValueCell
-            rawValue={resolveTotalUnderlyingLiquidityAssets(
-              vaultData?.liquidityBreakdown,
-              vaultData?.liquidityAssets ?? vaultData?.totalAssets
-            )}
-            usdValue={resolveTotalUnderlyingLiquidityUsd(
-              vaultData?.liquidityBreakdown,
-              vaultData?.currentLiquidity
-            )}
-            decimals={decimals}
-            symbol={vault.symbol}
-            loading={loading}
-          />
-        </td>
-
-        <td className="px-4 sm:px-6 py-4 align-middle text-right">
-          {loading || !vaultData ? (
-            <Skeleton width="3.5rem" height="1rem" className="ml-auto" />
-          ) : (
-            <span className="text-sm font-semibold text-[var(--primary)] tabular-nums">
-              {formatPercentage(vaultData.apy)}
-            </span>
-          )}
-        </td>
-      </tr>
-    );
-  }
-
   return (
     <tr
-      role="button"
-      tabIndex={0}
-      aria-label={`Open ${vault.name}`}
-      onClick={handleClick}
-      onKeyDown={(event) => handleRowKeyDown(event, handleClick)}
-      className="border-b border-[var(--border)] hover:bg-[var(--surface-hover)] transition-colors cursor-pointer"
+      role={isCurated ? 'button' : undefined}
+      tabIndex={isCurated ? 0 : undefined}
+      aria-label={isCurated ? `Open ${vault.name}` : undefined}
+      onClick={isCurated ? openVault : undefined}
+      onKeyDown={
+        isCurated ? (event) => handleRowKeyDown(event, openVault) : undefined
+      }
+      className={`border-b border-[var(--border)] transition-colors ${
+        isCurated
+          ? 'hover:bg-[var(--surface-hover)] cursor-pointer'
+          : 'cursor-default'
+      }`}
     >
       <td className="px-4 sm:px-6 py-4 align-middle">
         <span className="inline-flex rounded-md bg-[var(--surface-elevated)] px-2.5 py-1 text-xs font-medium text-[var(--foreground-secondary)]">
@@ -595,7 +539,16 @@ function VaultExplorerRow({ vault, showYourPosition }: VaultExplorerRowProps) {
         <div className="flex items-center gap-3 min-w-[180px]">
           <VaultLogo vault={vault} />
           <div className="min-w-0">
-            <span className="text-sm font-medium text-[var(--foreground)] truncate block">{vault.name}</span>
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="text-sm font-medium text-[var(--foreground)] truncate">
+                {vault.name}
+              </span>
+              {!isCurated ? (
+                <span className="shrink-0 text-[10px] text-[var(--foreground-muted)]">
+                  External
+                </span>
+              ) : null}
+            </div>
           </div>
         </div>
       </td>
@@ -634,9 +587,9 @@ function VaultExplorerRow({ vault, showYourPosition }: VaultExplorerRowProps) {
 
       <td className="px-4 sm:px-6 py-4 align-middle text-right">
         {loading || !vaultData ? (
-          <Skeleton width="3rem" height="1rem" className="ml-auto" />
+          <Skeleton width="3.5rem" height="1rem" className="ml-auto" />
         ) : (
-          <span className="text-sm font-semibold text-[var(--primary)]">
+          <span className="text-sm font-semibold text-[var(--primary)] tabular-nums">
             {formatPercentage(vaultData.apy)}
           </span>
         )}
@@ -742,8 +695,9 @@ export function DashboardVaultTable({
   }
 
   return (
-    <>
-      <div className="min-[800px]:hidden">
+    // Container width (not viewport): half-column dashboards stay on cards until wide enough for the table.
+    <div className="@container min-w-0">
+      <div className="@min-[640px]:hidden">
         {vaults.map((vault) => {
           const vaultData = getVaultData(vault.address) as MorphoVaultData | null;
           const loading = isLoading(vault.address);
@@ -768,7 +722,7 @@ export function DashboardVaultTable({
         })}
       </div>
 
-      <div className="hidden min-[800px]:block min-w-0">
+      <div className="hidden @min-[640px]:block min-w-0">
       <table className="w-full table-fixed">
         <colgroup>
           <col className="w-[28%]" />
@@ -800,10 +754,10 @@ export function DashboardVaultTable({
               : '-';
 
             const openVault = () => {
-              if (vault.isCurated === false) return;
+              if (!isCuratedVaultAddress(vault.address)) return;
               router.push(getVaultRoute(vault.address));
             };
-            const isCurated = vault.isCurated !== false;
+            const isCurated = isCuratedVaultAddress(vault.address);
 
             return (
               <tr
@@ -869,6 +823,6 @@ export function DashboardVaultTable({
         </tbody>
       </table>
       </div>
-    </>
+    </div>
   );
 }
