@@ -8,6 +8,7 @@ import { useScopedVaultTransaction, type VaultTransactionTab } from '@/hooks/use
 import { ETH_GAS_RESERVE } from '@/lib/constants';
 import { formatCurrency } from '@/lib/formatter';
 import { usePrices } from '@/contexts/PriceContext';
+import { ConnectButton } from '@/components/features/wallet';
 import { isCbBtcVault, isWethVault } from '@/lib/transaction-form-utils';
 
 interface VaultTransactModalProps {
@@ -16,6 +17,16 @@ interface VaultTransactModalProps {
   vaultData: MorphoVaultData;
   initialTab: VaultTransactionTab;
 }
+
+const tabBaseClass =
+  'flex-1 min-h-11 px-3 py-2.5 rounded-lg font-medium text-sm transition-colors cursor-pointer border touch-manipulation';
+const tabActiveClass =
+  'bg-[var(--primary)] text-white border-[var(--primary)]';
+const tabInactiveClass =
+  'bg-[var(--surface)]/70 text-[var(--foreground-secondary)] border-[var(--border-subtle)] hover:bg-[var(--surface)] active:bg-[var(--surface-hover)]';
+
+const fieldClass =
+  'w-full min-h-11 px-3 py-2.5 pr-16 bg-[var(--surface)]/80 border border-[var(--border-subtle)] rounded-lg text-base sm:text-sm text-[var(--foreground)] placeholder-[var(--foreground-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/40 focus:border-[var(--primary)]/30';
 
 export function VaultTransactModal({
   isOpen,
@@ -76,29 +87,36 @@ export function VaultTransactModal({
       onClose={handleClose}
       title={modalTitle}
       closeOnOverlayClick={tx.canClose}
+      layout="sheet"
+      panelClassName="max-w-md max-h-[min(92dvh,720px)] w-full bg-[var(--background)] border-[var(--border-subtle)] shadow-lg rounded-t-2xl rounded-b-none sm:rounded-xl sm:max-h-[90vh]"
+      headerClassName="px-4 py-3 sm:px-4 sm:py-3 border-[var(--border-subtle)]/80 bg-[var(--background)] shrink-0"
+      titleClassName="text-base font-semibold truncate pr-2"
+      contentClassName="px-4 py-4 sm:px-4 sm:py-4 bg-[var(--background)] pb-[max(1rem,env(safe-area-inset-bottom))] sm:pb-4"
     >
-      <div className="space-y-4">
+      <div className="space-y-3">
         <TransactionProgressBar
           steps={tx.getProgressSteps()}
           isSuccess={tx.status === 'success'}
+          compact
         />
 
         {!tx.isConnected ? (
-          <div className="py-6 text-center space-y-2">
+          <div className="py-5 text-center space-y-3">
             <p className="text-sm text-[var(--foreground-secondary)]">
               Connect your wallet to deposit or withdraw from this vault.
             </p>
+            <div className="flex justify-center">
+              <ConnectButton />
+            </div>
           </div>
         ) : tx.status === 'idle' ? (
-          <div className="space-y-4">
-            <div className="flex gap-2">
+          <div className="space-y-3">
+            <div className="flex gap-2 p-1 rounded-lg bg-[var(--surface)]/50 border border-[var(--border-subtle)]">
               <button
                 type="button"
                 onClick={() => tx.handleTabChange('deposit')}
-                className={`flex-1 px-4 py-2.5 rounded-lg font-medium text-sm transition-colors cursor-pointer ${
-                  tx.activeTab === 'deposit'
-                    ? 'bg-[var(--primary)] text-white'
-                    : 'bg-[var(--background)] text-[var(--foreground-secondary)] hover:bg-[var(--surface-elevated)]'
+                className={`${tabBaseClass} ${
+                  tx.activeTab === 'deposit' ? tabActiveClass : tabInactiveClass
                 }`}
               >
                 Deposit
@@ -106,29 +124,27 @@ export function VaultTransactModal({
               <button
                 type="button"
                 onClick={() => tx.handleTabChange('withdraw')}
-                className={`flex-1 px-4 py-2.5 rounded-lg font-medium text-sm transition-colors cursor-pointer ${
-                  tx.activeTab === 'withdraw'
-                    ? 'bg-[var(--primary)] text-white'
-                    : 'bg-[var(--background)] text-[var(--foreground-secondary)] hover:bg-[var(--surface-elevated)]'
+                className={`${tabBaseClass} ${
+                  tx.activeTab === 'withdraw' ? tabActiveClass : tabInactiveClass
                 }`}
               >
                 Withdraw
               </button>
             </div>
 
-            <p className="text-sm text-[var(--foreground-secondary)]">
+            <p className="text-xs text-[var(--foreground-muted)] leading-relaxed truncate" title={vaultData.name}>
               {tx.effectiveActiveTab === 'deposit'
                 ? `Deposit ${vaultData.symbol} into ${vaultData.name}`
                 : `Withdraw ${vaultData.symbol} from ${vaultData.name}`}
             </p>
 
             {tx.derivedAsset && (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <label className="text-sm font-medium text-[var(--foreground-secondary)]">
+              <div className="space-y-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface)]/40 p-3">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <label className="text-xs font-medium text-[var(--foreground-secondary)] shrink-0">
                     Amount ({tx.derivedAsset.symbol})
                   </label>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap justify-end">
                     {isWethVault(vaultData.address, vaultData.symbol) &&
                       tx.effectiveActiveTab === 'deposit' && (
                         <select
@@ -136,7 +152,7 @@ export function VaultTransactModal({
                           onChange={(e) =>
                             tx.setPreferredAsset(e.target.value as 'ETH' | 'WETH' | 'ALL')
                           }
-                          className="text-xs px-1.5 py-0.5 bg-[var(--background)] border border-[var(--border-subtle)] rounded text-[var(--foreground-muted)] hover:bg-[var(--surface-elevated)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)] cursor-pointer"
+                          className="min-h-9 text-xs px-2 py-1.5 bg-[var(--surface)]/80 border border-[var(--border-subtle)] rounded text-[var(--foreground-muted)] hover:bg-[var(--surface)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/40 cursor-pointer touch-manipulation"
                         >
                           <option value="ALL">All (ETH + WETH)</option>
                           <option value="ETH">ETH</option>
@@ -150,7 +166,7 @@ export function VaultTransactModal({
                           onChange={(e) =>
                             tx.setPreferredAsset(e.target.value as 'ETH' | 'WETH')
                           }
-                          className="text-xs px-1.5 py-0.5 bg-[var(--background)] border border-[var(--border-subtle)] rounded text-[var(--foreground-muted)] hover:bg-[var(--surface-elevated)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)] cursor-pointer"
+                          className="min-h-9 text-xs px-2 py-1.5 bg-[var(--surface)]/80 border border-[var(--border-subtle)] rounded text-[var(--foreground-muted)] hover:bg-[var(--surface)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/40 cursor-pointer touch-manipulation"
                         >
                           <option value="WETH">WETH</option>
                           <option value="ETH">ETH</option>
@@ -160,7 +176,7 @@ export function VaultTransactModal({
                       type="button"
                       onClick={tx.calculateMaxAmount}
                       disabled={tx.getMaxAmount === null}
-                      className="text-xs text-[var(--primary)] hover:text-[var(--primary-hover)] disabled:text-[var(--foreground-muted)] disabled:cursor-not-allowed cursor-pointer"
+                      className="min-h-9 min-w-11 px-2 text-xs text-[var(--primary)] hover:text-[var(--primary-hover)] disabled:text-[var(--foreground-muted)] disabled:cursor-not-allowed cursor-pointer touch-manipulation"
                     >
                       MAX
                     </button>
@@ -173,7 +189,7 @@ export function VaultTransactModal({
                     value={tx.amount}
                     onChange={(e) => tx.handleAmountChange(e.target.value)}
                     placeholder="0.00"
-                    className="w-full px-4 py-3 pr-20 bg-[var(--background)] border border-[var(--border-subtle)] rounded-lg text-[var(--foreground)] placeholder-[var(--foreground-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                    className={fieldClass}
                   />
                   {showUsdHint && (
                     <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
@@ -194,7 +210,7 @@ export function VaultTransactModal({
                   </p>
                 )}
                 {tx.exceedsBalance && (
-                  <div className="p-3 bg-[var(--warning-subtle)] rounded-lg border border-[var(--warning)] space-y-2">
+                  <div className="p-2.5 bg-[var(--warning-subtle)] rounded-lg border border-[var(--warning)]/60 space-y-2">
                     <p className="text-xs text-[var(--foreground)]">
                       <span className="font-medium">Warning:</span> Amount exceeds available balance.
                       This transaction will fail if you proceed.
@@ -228,12 +244,14 @@ export function VaultTransactModal({
               variant="primary"
               size="lg"
               fullWidth
+              className="min-h-11 touch-manipulation"
             >
               Continue
             </Button>
           </div>
         ) : (
           <TransactionFlow
+            embedded
             onSuccessComplete={handleSuccessComplete}
             onReturnToIdle={tx.handleResetToIdle}
           />

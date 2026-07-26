@@ -129,11 +129,19 @@ export async function readMorphoGraphQLResponse(response: Response): Promise<{
 /** POST to Morpho GraphQL with cache TTL, in-memory dev cache, retries, and abort timeout. */
 export async function fetchMorphoGraphQL(
   body: { query: string; variables?: Record<string, unknown> },
-  options?: { revalidate?: number; timeoutMs?: number; tags?: string[] }
+  options?: {
+    revalidate?: number;
+    timeoutMs?: number;
+    tags?: string[];
+    /** Bypass the 60s in-memory cache (required for user-specific reads). */
+    skipMemoryCache?: boolean;
+  }
 ): Promise<Response> {
   const cacheKey = morphoCacheKey(body);
   const now = Date.now();
-  const cached = morphoResponseCache.get(cacheKey);
+  const skipMemoryCache =
+    options?.skipMemoryCache === true || options?.revalidate === 0;
+  const cached = skipMemoryCache ? undefined : morphoResponseCache.get(cacheKey);
 
   if (cached && cached.expiresAt > now) {
     return toMorphoResponse(cached);
@@ -183,12 +191,14 @@ export async function fetchMorphoGraphQL(
     lastEntry = entry;
 
     if (response.ok) {
-      morphoResponseCache.set(cacheKey, entry);
+      if (!skipMemoryCache) {
+        morphoResponseCache.set(cacheKey, entry);
+      }
       return toMorphoResponse(entry);
     }
 
     if (isMorphoRateLimitError(response.status, responseText)) {
-      if (cached?.ok) {
+      if (!skipMemoryCache && cached?.ok) {
         return toMorphoResponse(cached);
       }
       if (attempt < MORPHO_MAX_RETRIES) {
@@ -204,7 +214,7 @@ export async function fetchMorphoGraphQL(
     break;
   }
 
-  if (cached?.ok && lastEntry && isMorphoRateLimitError(lastEntry.status, lastEntry.responseText)) {
+  if (!skipMemoryCache && cached?.ok && lastEntry && isMorphoRateLimitError(lastEntry.status, lastEntry.responseText)) {
     return toMorphoResponse(cached);
   }
 

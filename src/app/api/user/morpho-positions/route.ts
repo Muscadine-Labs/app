@@ -111,7 +111,7 @@ export async function GET(request: NextRequest) {
         query,
         variables: { address: userAddress, chainId },
       },
-      { timeoutMs: 20_000, revalidate: 0 }
+      { timeoutMs: 20_000, revalidate: 0, skipMemoryCache: true }
     );
 
     if (!response.ok) {

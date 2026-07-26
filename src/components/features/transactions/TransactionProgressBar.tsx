@@ -9,9 +9,10 @@ interface Step {
 interface TransactionProgressBarProps {
   steps: Step[];
   isSuccess: boolean;
+  compact?: boolean;
 }
 
-export function TransactionProgressBar({ steps, isSuccess }: TransactionProgressBarProps) {
+export function TransactionProgressBar({ steps, isSuccess, compact = false }: TransactionProgressBarProps) {
   if (steps.length === 0) return null;
 
   return (
@@ -19,7 +20,9 @@ export function TransactionProgressBar({ steps, isSuccess }: TransactionProgress
       <div className="flex items-center justify-between">
         {steps.map((step, index) => (
           <div key={index} className="flex flex-col items-center flex-1">
-            <span className={`text-xs font-medium ${
+            <span className={`font-medium truncate max-w-full px-0.5 ${
+              compact ? 'text-[10px] sm:text-xs' : 'text-xs'
+            } ${
               step.active || step.completed
                 ? 'text-[var(--foreground)]'
                 : 'text-[var(--foreground-secondary)]'

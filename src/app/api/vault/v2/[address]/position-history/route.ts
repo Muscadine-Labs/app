@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import type { GraphQLError } from '@/types/api';
 import { logger } from '@/lib/logger';
-import { isValidEthereumAddress } from '@/lib/vault-utils';
+import { isValidEthereumAddress, findVaultByAddress } from '@/lib/vault-utils';
+import { getAssetDecimalsForSymbol } from '@/lib/asset-decimals';
 import { isValidChainId, isValidPeriod, MIN_VALID_TIMESTAMP, PERIOD_SECONDS, INTERVAL_MAP, INTERVAL_SECONDS, finalizePositionHistory, fetchMorphoGraphQL, readMorphoGraphQLResponse, MORPHO_RATE_LIMIT_BODY } from '@/lib/api-utils';
 import { MORPHO_GRAPHQL_REVALIDATE_SECONDS } from '@/lib/constants';
 
@@ -77,6 +78,12 @@ export async function GET(
           shares
           assets
           assetsUsd
+          vault {
+            asset {
+              symbol
+              decimals
+            }
+          }
           history {
             assets(options: $options) {
               x
@@ -109,7 +116,7 @@ export async function GET(
           },
         },
       },
-      { revalidate: MORPHO_GRAPHQL_REVALIDATE_SECONDS }
+      { revalidate: MORPHO_GRAPHQL_REVALIDATE_SECONDS, skipMemoryCache: true }
     );
 
     const { responseText, rateLimited } = await readMorphoGraphQLResponse(response);
@@ -197,44 +204,14 @@ export async function GET(
     assetsUsdData.forEach((point: { x: number }) => timestamps.add(point.x));
     sharesData.forEach((point: { x: number }) => timestamps.add(point.x));
     
-    let assetDecimals = 18;
-    try {
-      const vaultQuery = `
-        query VaultAssetInfo($address: String!, $chainId: Int!) {
-          vaultV2ByAddress(address: $address, chainId: $chainId) {
-            asset {
-              symbol
-              decimals
-            }
-          }
-        }
-      `;
-      
-      const vaultResponse = await fetchMorphoGraphQL(
-        {
-          query: vaultQuery,
-          variables: {
-            address,
-            chainId,
-          },
-        },
-        { revalidate: MORPHO_GRAPHQL_REVALIDATE_SECONDS }
-      );
-      
-      if (vaultResponse.ok) {
-        const vaultData = await vaultResponse.json();
-        const vaultInfo = vaultData.data?.vaultV2ByAddress;
-        if (vaultInfo?.asset) {
-          assetDecimals = vaultInfo.asset.decimals || 18;
-        }
-      }
-    } catch (error) {
-      logger.error(
-        'Failed to fetch vault asset info',
-        error instanceof Error ? error : new Error(String(error)),
-        { address, chainId }
-      );
-    }
+    const registryVault = findVaultByAddress(address);
+    const assetSymbol =
+      registryVault?.symbol ??
+      vaultPosition.vault?.asset?.symbol ??
+      'UNKNOWN';
+    const assetDecimals =
+      vaultPosition.vault?.asset?.decimals ??
+      getAssetDecimalsForSymbol(assetSymbol);
 
     const rawHistory = Array.from(timestamps)
       .sort((a, b) => a - b)

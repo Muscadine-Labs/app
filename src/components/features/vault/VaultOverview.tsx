@@ -100,7 +100,6 @@ const MIN_TIMESTAMP = 1759795200;
 export default function VaultOverview({ vaultData }: VaultOverviewProps) {
   const [period, setPeriod] = useState<Period>('all');
   const [allHistoryData, setAllHistoryData] = useState<HistoryDataPoint[]>([]);
-  const [hourly7dData, setHourly7dData] = useState<HistoryDataPoint[]>([]);
   const [hourly30dData, setHourly30dData] = useState<HistoryDataPoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [chartType, setChartType] = useState<ChartType>('apy');
@@ -126,6 +125,12 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
 
   // Format APY
   const apyPercent = formatPercentage(vaultData.apy);
+
+  const hourly7dData = useMemo(() => {
+    if (hourly30dData.length === 0) return [];
+    const cutoff = now - PERIOD_SECONDS['7d'];
+    return hourly30dData.filter((point) => point.timestamp >= cutoff);
+  }, [hourly30dData, now]);
 
   // Filter history data based on selected period and find first non-zero value
   const historyData = useMemo(() => {
@@ -300,48 +305,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
     fetchAllHistory();
   }, [vaultData.address, vaultData.chainId, vaultData.version, showErrorToast]);
 
-  // Fetch hourly data for 7d period
-  useEffect(() => {
-    const fetch7dHourly = async () => {
-      try {
-        // Fetch 7d data with hourly intervals
-        const response = await fetch(
-          `/api/vault/${vaultData.version}/${vaultData.address}/history?chainId=${vaultData.chainId}&period=7d`
-        );
-        
-        if (!response.ok) {
-          return; // Silently fail, will fall back to daily data
-        }
-        
-        const data = await response.json();
-        
-        if (data.history && Array.isArray(data.history) && data.history.length > 0) {
-          // Ensure timestamps are unique and sorted
-          const uniqueData = data.history.filter((point: HistoryDataPoint, index: number, self: HistoryDataPoint[]) => 
-            index === self.findIndex((p) => p.timestamp === point.timestamp)
-          );
-          setHourly7dData(uniqueData);
-        } else {
-          setHourly7dData([]);
-        }
-      } catch (error) {
-        // Silently fail, will fall back to daily data
-        logger.warn(
-          'Failed to fetch 7d hourly data, falling back to daily',
-          { 
-            vaultAddress: vaultData.address, 
-            chainId: vaultData.chainId,
-            error: error instanceof Error ? error.message : String(error)
-          }
-        );
-        setHourly7dData([]);
-      }
-    };
-
-    fetch7dHourly();
-  }, [vaultData.address, vaultData.chainId, vaultData.version]);
-
-  // Fetch hourly data for 30d period
+  // Fetch hourly data for 30d period (7d is derived client-side from the same series)
   useEffect(() => {
     const fetch30dHourly = async () => {
       try {

@@ -34,6 +34,8 @@ interface TransactionConfirmationProps {
   onConfirm: () => void;
   /** When set, success completion uses this instead of navigating to /transact. */
   onSuccessComplete?: () => void;
+  /** Softer layout when rendered inside the vault transact modal. */
+  embedded?: boolean;
 }
 
 export function TransactionConfirmation({
@@ -53,6 +55,7 @@ export function TransactionConfirmation({
   onCancel,
   onConfirm,
   onSuccessComplete,
+  embedded = false,
 }: TransactionConfirmationProps) {
   const { address } = useAccount();
   const router = useRouter();
@@ -161,11 +164,14 @@ export function TransactionConfirmation({
   if (isSuccess) {
     // Success state - Payment confirmation style
     return (
-      <div className="bg-[var(--surface)] rounded-lg border border-[var(--border-subtle)] p-8">
-        {/* Title */}
-        <h2 className="text-2xl font-semibold text-[var(--foreground)] text-center mb-2">
-          Transaction confirmed
-        </h2>
+      <div className={embedded
+        ? 'space-y-4'
+        : 'bg-[var(--surface)] rounded-lg border border-[var(--border-subtle)] p-8'}>
+        {!embedded && (
+          <h2 className="text-2xl font-semibold text-[var(--foreground)] text-center mb-2">
+            Transaction confirmed
+          </h2>
+        )}
 
         {/* Transaction Details */}
         <div className="mb-6">
@@ -260,29 +266,30 @@ export function TransactionConfirmation({
           </div>
         </div>
 
-        {/* New Transaction Button */}
+        {/* New Transaction / Done */}
         <Button
           onClick={handleDone}
           variant="primary"
           size="lg"
           fullWidth
-          className="mb-4"
+          className={`min-h-11 touch-manipulation ${embedded ? '' : 'mb-4'}`}
         >
-          New Transaction
+          {embedded ? 'Done' : 'New Transaction'}
         </Button>
 
-        {/* Back to Dashboard Button */}
-        <Button
-          onClick={() => {
-            reset();
-            router.push('/');
-          }}
-          variant="secondary"
-          size="lg"
-          fullWidth
-        >
-          Back to Dashboard
-        </Button>
+        {!embedded && (
+          <Button
+            onClick={() => {
+              reset();
+              router.push('/');
+            }}
+            variant="secondary"
+            size="lg"
+            fullWidth
+          >
+            Back to Dashboard
+          </Button>
+        )}
 
       </div>
     );
@@ -290,24 +297,30 @@ export function TransactionConfirmation({
 
   // Preview/Confirm state - Original design
   return (
-    <div className="bg-[var(--surface)] rounded-lg border border-[var(--border-subtle)] p-4 md:p-6 space-y-4 md:space-y-6">
-      {/* Header */}
-      <div className="flex items-start md:items-center justify-between gap-3">
-        <div className="flex-1 min-w-0">
-          <h3 className="text-lg md:text-xl font-semibold text-[var(--foreground)]">Confirm Transaction</h3>
-          <p className="text-xs md:text-sm text-[var(--foreground-secondary)] mt-0.5 md:mt-1">
-            Review the details before confirming
-          </p>
+    <div className={embedded
+      ? 'space-y-4'
+      : 'bg-[var(--surface)] rounded-lg border border-[var(--border-subtle)] p-4 md:p-6 space-y-4 md:space-y-6'}>
+      {/* Header — hidden in embedded modal (title is in Modal chrome) */}
+      {!embedded && (
+        <div className="flex items-start md:items-center justify-between gap-3">
+          <div className="flex-1 min-w-0">
+            <h3 className="text-lg md:text-xl font-semibold text-[var(--foreground)]">Confirm Transaction</h3>
+            <p className="text-xs md:text-sm text-[var(--foreground-secondary)] mt-0.5 md:mt-1">
+              Review the details before confirming
+            </p>
+          </div>
+          <div className="px-2 py-1 md:px-3 md:py-1.5 bg-[var(--primary-subtle)] rounded-lg shrink-0">
+            <span className="text-xs md:text-sm font-medium text-[var(--primary)]">
+              {getTransactionTypeLabel()}
+            </span>
+          </div>
         </div>
-        <div className="px-2 py-1 md:px-3 md:py-1.5 bg-[var(--primary-subtle)] rounded-lg shrink-0">
-          <span className="text-xs md:text-sm font-medium text-[var(--primary)]">
-            {getTransactionTypeLabel()}
-          </span>
-        </div>
-      </div>
+      )}
 
       {/* Transaction Details Card */}
-      <div className="bg-[var(--surface-elevated)] rounded-lg p-3 md:p-5 space-y-3 md:space-y-4">
+      <div className={embedded
+        ? 'bg-[var(--surface)]/80 rounded-lg border border-[var(--border-subtle)] p-3 space-y-3'
+        : 'bg-[var(--surface-elevated)] rounded-lg p-3 md:p-5 space-y-3 md:space-y-4'}>
         {/* From Account */}
         <div className="flex items-center justify-between gap-2 md:gap-4">
           <div className="flex items-center gap-2 md:gap-3 flex-1 min-w-0">
@@ -481,13 +494,14 @@ export function TransactionConfirmation({
       )}
 
       {/* Action Buttons */}
-      <div className="flex gap-2 md:gap-3 pt-2">
+      <div className={`flex gap-2 md:gap-3 pt-2 ${embedded ? 'flex-col-reverse sm:flex-row' : ''}`}>
         {isSuccess ? (
           <Button
             onClick={onCancel}
             variant="primary"
             size="lg"
             fullWidth
+            className="min-h-11 touch-manipulation"
           >
             Done
           </Button>
@@ -499,6 +513,7 @@ export function TransactionConfirmation({
               variant="secondary"
               size="lg"
               fullWidth
+              className="min-h-11 touch-manipulation"
             >
               {isPartialFailure ? 'Start over' : 'Cancel'}
             </Button>
@@ -508,6 +523,7 @@ export function TransactionConfirmation({
               variant="primary"
               size="lg"
               fullWidth
+              className="min-h-11 touch-manipulation"
             >
               {isLoading ? 'Processing...' : isPartialFailure ? 'Try again' : 'Confirm'}
             </Button>

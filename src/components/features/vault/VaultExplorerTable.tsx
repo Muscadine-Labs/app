@@ -3,9 +3,7 @@
 import { useMemo, type KeyboardEvent, type ReactNode } from 'react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
-import { useAccount, useReadContract } from 'wagmi';
-import { BASE_CHAIN_ID } from '@/lib/constants';
-import { ERC20_BALANCE_ABI, ERC4626_ABI } from '@/lib/abis';
+import { useAccount } from 'wagmi';
 import { Vault, getVaultLogo } from '@/types/vault';
 import type { MorphoVaultData } from '@/types/vault';
 import { useVaultData } from '@/contexts/VaultDataContext';
@@ -118,38 +116,25 @@ function EarnedInterestCell({
   align?: 'start' | 'end';
 }) {
   const { address } = useAccount();
+  const { morphoHoldings } = useWallet();
   const resolvedDecimals = resolveAssetDecimals(vault.symbol, decimals);
 
-  const { data: sharesRaw } = useReadContract({
-    address: address ? (vault.address as `0x${string}`) : undefined,
-    chainId: BASE_CHAIN_ID,
-    abi: ERC20_BALANCE_ABI,
-    functionName: 'balanceOf',
-    args: address ? [address as `0x${string}`] : undefined,
-    query: { enabled: Boolean(address) },
-  });
+  const walletPosition = useMemo(
+    () =>
+      morphoHoldings.positions.find(
+        (position) => position.vault.address.toLowerCase() === vault.address.toLowerCase()
+      ) ?? null,
+    [morphoHoldings.positions, vault.address]
+  );
 
-  const hasShareBalance = sharesRaw !== undefined && sharesRaw > BigInt(0);
-
-  const { data: assetsRaw } = useReadContract({
-    address: hasShareBalance ? (vault.address as `0x${string}`) : undefined,
-    chainId: BASE_CHAIN_ID,
-    abi: ERC4626_ABI,
-    functionName: 'convertToAssets',
-    args: hasShareBalance ? [sharesRaw] : undefined,
-    query: { enabled: hasShareBalance },
-  });
-
-  const currentAssetsRaw = useMemo(() => {
-    if (assetsRaw !== undefined) return assetsRaw.toString();
-    if (sharesRaw === BigInt(0)) return '0';
-    return undefined;
-  }, [assetsRaw, sharesRaw]);
+  const hasWalletPosition = walletPosition && hasOnChainVaultShares(walletPosition);
 
   const hookData = useVaultEarnedInterest(
-    address ? vault.address : undefined,
+    address && hasWalletPosition && walletPosition?.pnlRaw === undefined
+      ? vault.address
+      : undefined,
     vault.symbol,
-    currentAssetsRaw
+    walletPosition?.assets
   );
 
   if (!address) {
@@ -159,19 +144,43 @@ function EarnedInterestCell({
   const alignClass = align === 'start' ? 'items-start' : 'items-end';
   const skeletonClass = align === 'start' ? '' : 'ml-auto';
 
-  if (hookData.isLoading) {
+  if (morphoHoldings.isLoading) {
+    return <Skeleton width="4rem" height="1rem" className={skeletonClass} />;
+  }
+
+  if (!hasWalletPosition) {
+    return (
+      <div className={`flex flex-col ${alignClass} gap-0.5`}>
+        <span className="text-sm font-medium text-[var(--foreground)] tabular-nums">
+          {formatPositionTokenAmount('0', resolvedDecimals, vault.symbol)}
+        </span>
+        <span className="text-xs text-[var(--foreground-secondary)] tabular-nums">
+          {formatPositionUsd(0)}
+        </span>
+      </div>
+    );
+  }
+
+  const earnedInterestRaw =
+    walletPosition.pnlRaw ??
+    (hookData.isLoading ? undefined : hookData.earnedInterestRaw || '0');
+  const earnedInterestUsd =
+    walletPosition.pnlUsd ??
+    (hookData.isLoading ? undefined : hookData.earnedInterestUsd);
+
+  if (earnedInterestRaw === undefined || earnedInterestUsd === undefined) {
     return <Skeleton width="4rem" height="1rem" className={skeletonClass} />;
   }
 
   const earnedRawBigInt = (() => {
     try {
-      return BigInt(hookData.earnedInterestRaw || '0');
+      return BigInt(earnedInterestRaw || '0');
     } catch {
       return BigInt(0);
     }
   })();
 
-  if (earnedRawBigInt <= BigInt(0) && hookData.earnedInterestUsd <= 0) {
+  if (earnedRawBigInt <= BigInt(0) && earnedInterestUsd <= 0) {
     return (
       <div className={`flex flex-col ${alignClass} gap-0.5`}>
         <span className="text-sm font-medium text-[var(--foreground)] tabular-nums">
@@ -187,10 +196,10 @@ function EarnedInterestCell({
   return (
     <div className={`flex flex-col ${alignClass} gap-0.5`}>
       <span className="text-sm font-medium text-[var(--foreground)] tabular-nums">
-        {formatPositionTokenAmount(hookData.earnedInterestRaw || '0', resolvedDecimals, vault.symbol)}
+        {formatPositionTokenAmount(earnedInterestRaw, resolvedDecimals, vault.symbol)}
       </span>
       <span className="text-xs text-[var(--foreground-secondary)] tabular-nums">
-        {formatPositionUsd(hookData.earnedInterestUsd)}
+        {formatPositionUsd(earnedInterestUsd)}
       </span>
     </div>
   );

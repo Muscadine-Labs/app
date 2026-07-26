@@ -441,7 +441,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
 
     setMorphoHoldings(prev => ({ ...prev, isLoading: true, error: null }));
 
-    const url = `/api/user/morpho-positions?address=${encodeURIComponent(address)}&chainId=8453`;
+    const url = `/api/user/morpho-positions?address=${encodeURIComponent(address)}&chainId=8453&includeEmpty=true`;
     const maxAttempts = 3;
     const retryDelayMs = 750;
 

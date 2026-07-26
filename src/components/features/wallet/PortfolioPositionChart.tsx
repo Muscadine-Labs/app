@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAccount } from 'wagmi';
 import { BASE_CHAIN_ID } from '@/lib/constants';
 import { calculateYAxisDomain } from '@/lib/vault-utils';
@@ -13,6 +13,7 @@ import { formatCurrency, formatChartUsdAxisValue } from '@/lib/formatter';
 import { logger } from '@/lib/logger';
 import { useUnixTimestamp } from '@/hooks/useClientOnly';
 import { useLockPageScroll } from '@/hooks/useLockPageScroll';
+import { useWallet } from '@/contexts/WalletContext';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Button } from '@/components/ui';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -40,32 +41,6 @@ interface PortfolioVault {
   symbol: string;
 }
 
-async function fetchUserPortfolioVaults(
-  userAddress: string,
-  signal?: AbortSignal
-): Promise<PortfolioVault[]> {
-  const response = await fetch(
-    `/api/user/morpho-positions?address=${userAddress}&chainId=${BASE_CHAIN_ID}&includeEmpty=true`,
-    { signal }
-  );
-
-  if (!response.ok) return [];
-
-  const data = await response.json().catch(() => ({ positions: [] }));
-  const seenAddresses = new Set<string>();
-
-  return (data.positions ?? []).flatMap((p: { vault: { address: string; symbol: string } }) => {
-    const key = p.vault.address.toLowerCase();
-    if (seenAddresses.has(key)) return [];
-    seenAddresses.add(key);
-    return [{
-      address: p.vault.address,
-      chainId: BASE_CHAIN_ID,
-      symbol: p.vault.symbol,
-    }];
-  });
-}
-
 async function fetchVaultHistory(
   vault: PortfolioVault,
   userAddress: string,
@@ -90,33 +65,34 @@ async function fetchVaultHistory(
 
 export default function PortfolioPositionChart() {
   const { address, isConnected } = useAccount();
+  const { morphoHoldings } = useWallet();
   const now = useUnixTimestamp();
   const [loading, setLoading] = useState(true);
   const [selectedTimeFrame, setSelectedTimeFrame] = useState<TimeFrame>('all');
   const [isTimeFrameMenuOpen, setIsTimeFrameMenuOpen] = useState(false);
   useLockPageScroll(isTimeFrameMenuOpen);
   const [dailyHistory, setDailyHistory] = useState<PositionHistoryPoint[]>([]);
-  const [hourly7dHistory, setHourly7dHistory] = useState<PositionHistoryPoint[]>([]);
   const [hourly30dHistory, setHourly30dHistory] = useState<PositionHistoryPoint[]>([]);
-  const portfolioVaultsCache = useRef<{ address: string; vaults: PortfolioVault[] } | null>(null);
 
-  const getPortfolioVaults = useCallback(
-    async (userAddress: string, signal: AbortSignal): Promise<PortfolioVault[]> => {
-      if (
-        portfolioVaultsCache.current?.address === userAddress.toLowerCase()
-      ) {
-        return portfolioVaultsCache.current.vaults;
-      }
+  const portfolioVaults = useMemo((): PortfolioVault[] => {
+    const seenAddresses = new Set<string>();
+    return morphoHoldings.positions.flatMap((position) => {
+      const key = position.vault.address.toLowerCase();
+      if (seenAddresses.has(key)) return [];
+      seenAddresses.add(key);
+      return [{
+        address: position.vault.address,
+        chainId: BASE_CHAIN_ID,
+        symbol: position.vault.symbol,
+      }];
+    });
+  }, [morphoHoldings.positions]);
 
-      const vaults = await fetchUserPortfolioVaults(userAddress, signal);
-      portfolioVaultsCache.current = {
-        address: userAddress.toLowerCase(),
-        vaults,
-      };
-      return vaults;
-    },
-    []
-  );
+  const hourly7dHistory = useMemo(() => {
+    if (hourly30dHistory.length === 0) return [];
+    const cutoff = now - TIME_FRAME_SECONDS['7D'];
+    return hourly30dHistory.filter((point) => point.timestamp >= cutoff);
+  }, [hourly30dHistory, now]);
 
   const fetchAggregatedHistory = useCallback(
     async (
@@ -124,18 +100,12 @@ export default function PortfolioPositionChart() {
       signal: AbortSignal,
       setter: (history: PositionHistoryPoint[]) => void
     ) => {
-      if (!address) {
+      if (!address || portfolioVaults.length === 0) {
         setter([]);
         return;
       }
 
       try {
-        const portfolioVaults = await getPortfolioVaults(address, signal);
-        if (portfolioVaults.length === 0) {
-          setter([]);
-          return;
-        }
-
         const vaultHistories = await Promise.all(
           portfolioVaults.map(async (vault) => {
             try {
@@ -163,12 +133,8 @@ export default function PortfolioPositionChart() {
         setter([]);
       }
     },
-    [address, getPortfolioVaults]
+    [address, portfolioVaults]
   );
-
-  useEffect(() => {
-    portfolioVaultsCache.current = null;
-  }, [address]);
 
   useEffect(() => {
     if (!address) {
@@ -190,24 +156,12 @@ export default function PortfolioPositionChart() {
       }
     };
 
-    loadDailyHistory();
+    void loadDailyHistory();
 
     return () => {
       cancelled = true;
       abortController.abort();
     };
-  }, [address, fetchAggregatedHistory]);
-
-  useEffect(() => {
-    if (!address) {
-      return;
-    }
-
-    const abortController = new AbortController();
-
-    fetchAggregatedHistory('7d', abortController.signal, setHourly7dHistory);
-
-    return () => abortController.abort();
   }, [address, fetchAggregatedHistory]);
 
   useEffect(() => {

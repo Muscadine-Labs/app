@@ -34,6 +34,8 @@ interface TransactionFlowProps {
   onSuccessComplete?: () => void;
   /** When set, preview cancel returns to amount step instead of leaving flow idle globally. */
   onReturnToIdle?: () => void;
+  /** Softer layout for vault transact modal. */
+  embedded?: boolean;
 }
 
 function stepTypeForLabel(label: string): 'signing' | 'approving' | 'confirming' {
@@ -58,6 +60,7 @@ export function TransactionFlow({
   onSuccess,
   onSuccessComplete,
   onReturnToIdle,
+  embedded = false,
 }: TransactionFlowProps) {
   const {
     fromAccount,
@@ -661,7 +664,7 @@ export function TransactionFlow({
     : '');
 
   return (
-    <div className="space-y-6">
+    <div className={embedded ? 'space-y-4' : 'space-y-6'}>
       {/* Progress bar is now shown at the page level */}
 
       {/* Transaction Confirmation - Show during preview, transaction flow, and success */}
@@ -681,6 +684,7 @@ export function TransactionFlow({
           errorMessage={isError && partialFailure ? error ?? undefined : undefined}
           txHash={effectiveCurrentTxHash ?? txHash}
           onSuccessComplete={onSuccessComplete}
+          embedded={embedded}
           onCancel={() => {
             if (isSigning || isApproving || isConfirming) {
               setStatus('preview');

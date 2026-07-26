@@ -452,9 +452,8 @@ export function useScopedVaultTransaction({
     reset();
     setAmount('');
     setBalanceBypassAcknowledged(false);
-    setActiveTab(initialTab);
-    applyTabAccounts(initialTab);
-  }, [reset, setAmount, initialTab, applyTabAccounts]);
+    applyTabAccounts(activeTab);
+  }, [reset, setAmount, activeTab, applyTabAccounts]);
 
   const getProgressSteps = useCallback(() => {
     const baseSteps = [

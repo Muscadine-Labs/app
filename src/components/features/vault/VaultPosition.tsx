@@ -71,12 +71,6 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
     assetsUsd: number;
     shares: number;
   }>>([]);
-  const [hourly7dPositionHistory, setHourly7dPositionHistory] = useState<Array<{
-    timestamp: number;
-    assets: number;
-    assetsUsd: number;
-    shares: number;
-  }>>([]);
   const [hourly30dPositionHistory, setHourly30dPositionHistory] = useState<Array<{
     timestamp: number;
     assets: number;
@@ -209,61 +203,13 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
     fetchPositionHistory();
   }, [vaultData, address, showErrorToast]);
 
-  // Fetch hourly data for 7D period
-  useEffect(() => {
-    const abortController = new AbortController();
-    
-    const fetch7dHourlyPosition = async () => {
-      if (!address) {
-        setHourly7dPositionHistory([]);
-        return;
-      }
+  const hourly7dPositionHistory = useMemo(() => {
+    if (hourly30dPositionHistory.length === 0) return [];
+    const cutoff = now - TIME_FRAME_SECONDS['7D'];
+    return hourly30dPositionHistory.filter((point) => point.timestamp >= cutoff);
+  }, [hourly30dPositionHistory, now]);
 
-      try {
-        // Fetch 7D data with hourly intervals
-        const response = await fetch(
-          `/api/vault/${vaultData.version}/${vaultData.address}/position-history?chainId=${vaultData.chainId}&userAddress=${address}&period=7d`,
-          { signal: abortController.signal }
-        );
-        
-        if (!response.ok) {
-          return; // Silently fail, will fall back to daily data
-        }
-        
-        const data = await response.json().catch(() => ({}));
-        
-        // Check for errors in response body
-        if (data.error) {
-          return; // Silently fail, will fall back to daily data
-        }
-        
-        // Set position history - use empty array if error or invalid response
-        if (data && typeof data === 'object' && Array.isArray(data.history)) {
-          setHourly7dPositionHistory(data.history);
-        } else {
-          setHourly7dPositionHistory([]);
-        }
-      } catch (error) {
-        if (error instanceof Error && error.name === 'AbortError') return;
-        // Silently fail, will fall back to daily data
-        logger.warn(
-          'Failed to fetch 7D hourly position data, falling back to daily',
-          { 
-            vaultAddress: vaultData.address, 
-            userAddress: address, 
-            chainId: vaultData.chainId as typeof BASE_CHAIN_ID,
-            error: error instanceof Error ? error.message : String(error)
-          }
-        );
-        setHourly7dPositionHistory([]);
-      }
-    };
-
-    fetch7dHourlyPosition();
-    return () => abortController.abort();
-  }, [vaultData.address, vaultData.chainId, vaultData.version, address]);
-
-  // Fetch hourly data for 30D period
+  // Fetch hourly data for 30D period (7D derived client-side from the same series)
   useEffect(() => {
     const abortController = new AbortController();
     
