@@ -18,6 +18,7 @@ import { logger } from '@/lib/logger';
 import { MorphoVaultData } from '@/types/vault';
 import { VaultLiquidityInfo } from './VaultLiquidityInfo';
 import { VaultApyInfo } from './VaultApyInfo';
+import { VaultAllocations } from './VaultAllocations';
 import { useToast } from '@/contexts/ToastContext';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -42,7 +43,7 @@ interface HistoryDataPoint {
   assetPriceUsd?: number;
 }
 
-type ChartType = 'apy' | 'tvl' | 'sharePrice';
+type ChartType = 'apy' | 'tvl' | 'sharePrice' | 'allocations';
 
 type Period = 'all' | '7d' | '30d' | '90d' | '1y';
 
@@ -126,11 +127,22 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
   // Format APY
   const apyPercent = formatPercentage(vaultData.apy);
 
+  const chartEndTimestamp = useMemo(() => {
+    let maxTs = 0;
+    for (const series of [allHistoryData, hourly30dData]) {
+      if (series.length > 0) {
+        const last = series[series.length - 1]?.timestamp ?? 0;
+        if (last > maxTs) maxTs = last;
+      }
+    }
+    return maxTs || now;
+  }, [allHistoryData, hourly30dData, now]);
+
   const hourly7dData = useMemo(() => {
     if (hourly30dData.length === 0) return [];
-    const cutoff = now - PERIOD_SECONDS['7d'];
+    const cutoff = chartEndTimestamp - PERIOD_SECONDS['7d'];
     return hourly30dData.filter((point) => point.timestamp >= cutoff);
-  }, [hourly30dData, now]);
+  }, [hourly30dData, chartEndTimestamp]);
 
   // Filter history data based on selected period and find first non-zero value
   const historyData = useMemo(() => {
@@ -144,7 +156,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
     let filtered = sourceData;
     
     if (period !== 'all' && sourceData.length > 0) {
-      const cutoffTimestamp = now - PERIOD_SECONDS[period];
+      const cutoffTimestamp = chartEndTimestamp - PERIOD_SECONDS[period];
       filtered = sourceData.filter(d => d.timestamp >= cutoffTimestamp);
     }
     
@@ -181,7 +193,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
     }
     
     return filtered;
-  }, [allHistoryData, hourly7dData, hourly30dData, period, chartType, valueType, now]);
+  }, [allHistoryData, hourly7dData, hourly30dData, period, chartType, valueType, chartEndTimestamp]);
 
   // Calculate Y-axis domain for APY chart
   const apyYAxisDomain = useMemo(() => {
@@ -350,8 +362,8 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
   const availablePeriods = useMemo(() => {
     if (allHistoryData.length === 0) return ['all' as Period];
 
-    const oldestTimestamp = allHistoryData[0]?.timestamp || now;
-    const dataRangeSeconds = now - oldestTimestamp;
+    const oldestTimestamp = allHistoryData[0]?.timestamp || chartEndTimestamp;
+    const dataRangeSeconds = chartEndTimestamp - oldestTimestamp;
     
     const periods: Period[] = ['all'];
     
@@ -362,7 +374,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
       periods.push('1y');
     }
     // Only show '90d' if 90 days ago is after Oct 7, 2025
-    if (dataRangeSeconds >= PERIOD_SECONDS['90d'] && (now - PERIOD_SECONDS['90d']) >= MIN_TIMESTAMP) {
+    if (dataRangeSeconds >= PERIOD_SECONDS['90d'] && (chartEndTimestamp - PERIOD_SECONDS['90d']) >= MIN_TIMESTAMP) {
       periods.push('90d');
     }
     if (dataRangeSeconds >= PERIOD_SECONDS['30d']) {
@@ -373,7 +385,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
     }
     
     return periods;
-  }, [allHistoryData, now]);
+  }, [allHistoryData, chartEndTimestamp]);
 
   // Get ticks for 7d period - show every day, prefer midnight but fallback to first data point of day
   const get7dTicks = useMemo(() => {
@@ -610,8 +622,8 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
             <div className="flex items-center gap-1.5 mb-1">
               <p className="text-xs text-[var(--foreground-secondary)]">Current Earnings Rate</p>
               <VaultApyInfo
+                grossApy={vaultData.grossApy ?? vaultData.apy}
                 netApy={vaultData.apy}
-                baseApy={vaultData.netApyWithoutRewards}
                 performanceFee={vaultData.performanceFee ?? 0}
                 managementFee={vaultData.managementFee ?? 0}
               />
@@ -715,9 +727,36 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
               <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--primary)]" />
             )}
           </button>
+          <button
+            onClick={() => setChartType('allocations')}
+            className={`shrink-0 px-4 py-2 text-sm font-medium transition-colors relative cursor-pointer touch-manipulation ${
+              chartType === 'allocations'
+                ? 'text-[var(--foreground)]'
+                : 'text-[var(--foreground-secondary)] hover:text-[var(--foreground)]'
+            }`}
+          >
+            Allocations
+            {chartType === 'allocations' && (
+              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--primary)]" />
+            )}
+          </button>
         </div>
 
-        {/* Chart */}
+        {/* Chart / Allocations panel */}
+        <div
+          className={`bg-[var(--surface-elevated)] rounded-lg border border-[var(--border-subtle)] p-2 sm:p-4 min-h-[18rem] ${
+            chartType === 'allocations' ? '' : 'hidden'
+          }`}
+          aria-hidden={chartType !== 'allocations'}
+        >
+          <VaultAllocations
+            vaultData={vaultData}
+            embedded
+            active={chartType === 'allocations'}
+          />
+        </div>
+
+        <div className={chartType === 'allocations' ? 'hidden' : ''} aria-hidden={chartType === 'allocations'}>
         {loading ? (
           <div className="bg-[var(--surface-elevated)] rounded-lg border border-[var(--border-subtle)] p-2 sm:p-4">
             {/* Controls Row */}
@@ -882,6 +921,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                       stroke="var(--primary)" 
                       strokeWidth={2}
                       dot={false}
+                      isAnimationActive={false}
                     />
                   </LineChart>
                 ) : chartType === 'sharePrice' ? (
@@ -936,6 +976,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                       stroke="var(--primary)"
                       strokeWidth={2}
                       dot={false}
+                      isAnimationActive={false}
                     />
                   </LineChart>
                 ) : (
@@ -990,6 +1031,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                           stroke="var(--primary)" 
                           fill="var(--primary-subtle)"
                           strokeWidth={2}
+                          isAnimationActive={false}
                         />
                       </AreaChart>
                 )}
@@ -1001,6 +1043,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
             No historical data available
           </div>
         )}
+        </div>
 
       </div>
     </div>

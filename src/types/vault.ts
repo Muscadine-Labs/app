@@ -33,7 +33,8 @@ export interface Vault {
     totalAssets?: string; // Total assets in native units (wei)
     totalSupply?: string; // Total supply of vault shares (in wei)
     assetDecimals?: number; // Asset decimals for formatting
-    apy?: number; // Annual Percentage Yield (net)
+    apy?: number; // Headline net APY (Morpho netApy)
+    grossApy?: number; // Gross APY before vault fees (Morpho apy)
     netApyWithoutRewards?: number; // Net APY without reward incentives
     rewardsApr?: number; // Rewards APR from incentives
     rewardSymbol?: string; // Symbol of reward token
@@ -89,6 +90,7 @@ export interface MorphoVaultData extends Vault {
     totalValueLocked: number;
     totalSupply: string; // Total supply of vault shares (in wei)
     apy: number;
+    grossApy: number;
     netApyWithoutRewards: number;
     rewardsApr: number;
     rewardSymbol: string;

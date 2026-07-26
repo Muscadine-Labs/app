@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useAccount, useReadContract } from 'wagmi';
 import { MorphoVaultData } from '@/types/vault';
 import {
@@ -81,13 +81,18 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
   const [transactModalTab, setTransactModalTab] = useState<'deposit' | 'withdraw' | null>(null);
 
   // Get shares using balanceOf
+  const vaultReadQuery = {
+    refetchInterval: false as const,
+    staleTime: 60_000,
+  };
+
   const { data: sharesRaw } = useReadContract({
     address: address ? vaultData.address as `0x${string}` : undefined,
     chainId: vaultData.chainId as typeof BASE_CHAIN_ID,
     abi: ERC20_BALANCE_ABI,
     functionName: 'balanceOf',
     args: address ? [address as `0x${string}`] : undefined,
-    query: { enabled: !!address },
+    query: { enabled: !!address, ...vaultReadQuery },
   });
 
   // Convert shares to assets using convertToAssets
@@ -97,7 +102,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
     abi: ERC4626_ABI,
     functionName: 'convertToAssets',
     args: sharesRaw !== undefined ? [sharesRaw] : undefined,
-    query: { enabled: sharesRaw !== undefined },
+    query: { enabled: sharesRaw !== undefined, ...vaultReadQuery },
   });
 
   const currentAssetsRaw = useMemo(() => {
@@ -142,15 +147,31 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
 
   useLockPageScroll(isTimeFrameMenuOpen);
 
+  const positionHistoryLoadedRef = useRef(false);
+  const positionHistoryFetchKeyRef = useRef('');
+
+  const positionHistoryFetchKey = `${vaultData.address}:${vaultData.chainId}:${address ?? ''}`;
+
+  useEffect(() => {
+    if (positionHistoryFetchKeyRef.current !== positionHistoryFetchKey) {
+      positionHistoryFetchKeyRef.current = positionHistoryFetchKey;
+      positionHistoryLoadedRef.current = false;
+    }
+  }, [positionHistoryFetchKey]);
+
   useEffect(() => {
     const fetchPositionHistory = async () => {
       if (!address) {
         setUserPositionHistory([]);
         setLoading(false);
+        positionHistoryLoadedRef.current = false;
         return;
       }
 
-      setLoading(true);
+      const isInitialLoad = !positionHistoryLoadedRef.current;
+      if (isInitialLoad) {
+        setLoading(true);
+      }
       try {
         // NOTE: Position history graphs use Graph API (via /api/vault/v2/[address]/position-history)
         // This provides historical data points for chart display
@@ -197,17 +218,31 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
         showErrorToast('Failed to load position data. Please refresh the page.', 5000);
       } finally {
         setLoading(false);
+        if (address) {
+          positionHistoryLoadedRef.current = true;
+        }
       }
     };
 
     fetchPositionHistory();
-  }, [vaultData, address, showErrorToast]);
+  }, [vaultData.address, vaultData.chainId, vaultData.version, address, showErrorToast]);
+
+  const chartEndTimestamp = useMemo(() => {
+    let maxTs = 0;
+    for (const series of [userPositionHistory, hourly30dPositionHistory]) {
+      if (series.length > 0) {
+        const last = series[series.length - 1]?.timestamp ?? 0;
+        if (last > maxTs) maxTs = last;
+      }
+    }
+    return maxTs || now;
+  }, [userPositionHistory, hourly30dPositionHistory, now]);
 
   const hourly7dPositionHistory = useMemo(() => {
     if (hourly30dPositionHistory.length === 0) return [];
-    const cutoff = now - TIME_FRAME_SECONDS['7D'];
+    const cutoff = chartEndTimestamp - TIME_FRAME_SECONDS['7D'];
     return hourly30dPositionHistory.filter((point) => point.timestamp >= cutoff);
-  }, [hourly30dPositionHistory, now]);
+  }, [hourly30dPositionHistory, chartEndTimestamp]);
 
   // Fetch hourly data for 30D period (7D derived client-side from the same series)
   useEffect(() => {
@@ -347,7 +382,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
     // Find minimum timestamp to ensure correctness regardless of sort order
     // Use reduce instead of Math.min spread to avoid potential stack overflow with large arrays
     const oldestTimestamp = fullUserDepositHistory.reduce((min, d) => Math.min(min, d.timestamp), fullUserDepositHistory[0].timestamp);
-    const dataRangeSeconds = now - oldestTimestamp;
+    const dataRangeSeconds = chartEndTimestamp - oldestTimestamp;
     
     const frames: TimeFrame[] = ['all'];
     
@@ -356,7 +391,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
       frames.push('1Y');
     }
     // Only show '90D' if 90 days ago is after Oct 7, 2025
-    if (dataRangeSeconds >= TIME_FRAME_SECONDS['90D'] && (now - TIME_FRAME_SECONDS['90D']) >= MIN_TIMESTAMP) {
+    if (dataRangeSeconds >= TIME_FRAME_SECONDS['90D'] && (chartEndTimestamp - TIME_FRAME_SECONDS['90D']) >= MIN_TIMESTAMP) {
       frames.push('90D');
     }
     if (dataRangeSeconds >= TIME_FRAME_SECONDS['30D']) {
@@ -367,7 +402,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
     }
     
     return frames;
-  }, [fullUserDepositHistory, now]);
+  }, [fullUserDepositHistory, chartEndTimestamp]);
 
   // Use GraphQL position history data directly - no calculation needed
   // This is used for displaying the chart, and switches between hourly/daily based on selectedTimeFrame
@@ -389,7 +424,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
     let data = userDepositHistory;
     
     if (selectedTimeFrame !== 'all' && userDepositHistory.length > 0) {
-      const cutoffTimestamp = now - TIME_FRAME_SECONDS[selectedTimeFrame];
+      const cutoffTimestamp = chartEndTimestamp - TIME_FRAME_SECONDS[selectedTimeFrame];
       data = userDepositHistory.filter(d => d.timestamp >= cutoffTimestamp);
     }
     
@@ -409,7 +444,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
     }
     
     return mappedData;
-  }, [userDepositHistory, selectedTimeFrame, valueType, now]);
+  }, [userDepositHistory, selectedTimeFrame, valueType, chartEndTimestamp]);
 
   const hasActivityBreakdown =
     activityFlowEvents !== null && activityFlowEvents.length > 0;
@@ -924,6 +959,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
                       fill="var(--primary-subtle)"
                       strokeWidth={2}
                       dot={false}
+                      isAnimationActive={false}
                       activeDot={{ r: 4, fill: 'var(--primary)', stroke: 'var(--primary)', strokeWidth: 2 }}
                     />
                   </AreaChart>

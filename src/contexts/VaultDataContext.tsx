@@ -192,14 +192,15 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
           }
         }
         
-        // APY data from Graph API
-        const currentNetApy = vaultInfo.state?.netApy || 0;
+        // APY: headline is Morpho netApy; grossApy for popover breakdown.
+        const headlineApy = vaultInfo.state?.netApy ?? vaultInfo.state?.apy ?? 0;
+        const grossApy =
+          (vaultInfo.state as { grossApy?: number })?.grossApy ?? headlineApy;
+        const morphoAvgNetApy = vaultInfo.state?.avgNetApy ?? headlineApy;
         const netApyWithoutRewards = vaultInfo.state?.netApyWithoutRewards || 0;
-        
-        // Calculate rewards APR from the difference between netApy and netApyWithoutRewards
-        // The rewards array might be empty if rewards are distributed indirectly
+
         const vaultRewards = vaultInfo.state?.rewards || [];
-        const totalRewardsApr = currentNetApy - netApyWithoutRewards;
+        const totalRewardsApr = Math.max(0, morphoAvgNetApy - netApyWithoutRewards);
         const primaryRewardSymbol = vaultRewards.length > 0 
           ? vaultRewards[0]?.asset?.symbol || 'MORPHO'
           : 'MORPHO'; // Default to MORPHO since most rewards are in MORPHO token
@@ -253,7 +254,8 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
           liquidityBreakdown: liquidityBreakdown ?? undefined,
           sharePrice: sharePriceInTokens, // Share price in tokens (not USD) - tokens per share
           sharePriceUsd: sharePriceUsd, // Share price in USD
-          apy: vaultInfo.state?.netApy || 0,
+          apy: headlineApy,
+          grossApy,
           netApyWithoutRewards: netApyWithoutRewards,
           rewardsApr: totalRewardsApr,
           rewardSymbol: primaryRewardSymbol,
@@ -357,7 +359,8 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
       ...basic,
       totalValueLocked: basic.totalValueLocked || 0,
       totalSupply: basic.totalSupply ?? '0',
-      apy: basic.apy || 0, // Use the correct netApy value from basic
+      apy: basic.apy || 0,
+      grossApy: basic.grossApy ?? basic.apy ?? 0,
       netApyWithoutRewards: basic.netApyWithoutRewards || 0,
       rewardsApr: basic.rewardsApr || 0,
       rewardSymbol: basic.rewardSymbol || '',
