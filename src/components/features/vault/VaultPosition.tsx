@@ -13,6 +13,7 @@ import {
   formatVaultDetailTokenAmount,
 } from '@/lib/formatter';
 import { calculateYAxisDomain } from '@/lib/vault-utils';
+import { CHART_MARGIN, getChartYAxisWidth, withLeadingChartTick } from '@/lib/chart-utils';
 import {
   buildActivityFlowEvents,
   netDepositRawAtTime,
@@ -32,6 +33,11 @@ import { useVaultEarnedInterest } from '@/hooks/useVaultEarnedInterest';
 import { useLockPageScroll } from '@/hooks/useLockPageScroll';
 import { resolveAssetDecimals } from '@/lib/asset-decimals';
 import { BASE_CHAIN_ID } from '@/lib/constants';
+
+const VAULT_READ_QUERY = {
+  refetchInterval: false as const,
+  staleTime: 60_000,
+};
 
 interface VaultPositionProps {
   vaultData: MorphoVaultData;
@@ -80,19 +86,13 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
   const [activityFlowEvents, setActivityFlowEvents] = useState<ActivityFlowEvent[] | null>(null);
   const [transactModalTab, setTransactModalTab] = useState<'deposit' | 'withdraw' | null>(null);
 
-  // Get shares using balanceOf
-  const vaultReadQuery = {
-    refetchInterval: false as const,
-    staleTime: 60_000,
-  };
-
   const { data: sharesRaw } = useReadContract({
     address: address ? vaultData.address as `0x${string}` : undefined,
     chainId: vaultData.chainId as typeof BASE_CHAIN_ID,
     abi: ERC20_BALANCE_ABI,
     functionName: 'balanceOf',
     args: address ? [address as `0x${string}`] : undefined,
-    query: { enabled: !!address, ...vaultReadQuery },
+    query: { enabled: !!address, ...VAULT_READ_QUERY },
   });
 
   // Convert shares to assets using convertToAssets
@@ -102,7 +102,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
     abi: ERC4626_ABI,
     functionName: 'convertToAssets',
     args: sharesRaw !== undefined ? [sharesRaw] : undefined,
-    query: { enabled: sharesRaw !== undefined, ...vaultReadQuery },
+    query: { enabled: sharesRaw !== undefined, ...VAULT_READ_QUERY },
   });
 
   const currentAssetsRaw = useMemo(() => {
@@ -230,9 +230,8 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
   const chartEndTimestamp = useMemo(() => {
     let maxTs = 0;
     for (const series of [userPositionHistory, hourly30dPositionHistory]) {
-      if (series.length > 0) {
-        const last = series[series.length - 1]?.timestamp ?? 0;
-        if (last > maxTs) maxTs = last;
+      for (const point of series) {
+        if (point.timestamp > maxTs) maxTs = point.timestamp;
       }
     }
     return maxTs || now;
@@ -572,7 +571,10 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
       }
     });
     
-    return ticks.length > 0 ? ticks : undefined;
+    return withLeadingChartTick(
+      ticks.length > 0 ? ticks : undefined,
+      sortedData[0]?.timestamp
+    );
   }, [selectedTimeFrame, chartData]);
   
 
@@ -865,7 +867,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
               </div>
               <div className="w-full min-w-0 h-80">
                 <ResponsiveContainer width="100%" height="100%" minHeight={320} debounce={50}>
-                  <AreaChart data={chartData}>
+                  <AreaChart data={chartData} margin={CHART_MARGIN}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" />
                     <XAxis 
                       dataKey="timestamp" 
@@ -874,9 +876,12 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
                       style={{ fontSize: '12px' }}
                       interval="preserveStartEnd"
                       ticks={getChartTicks}
+                      padding={{ left: 0, right: 0 }}
                     />
                     <YAxis
-                      width={valueType === 'usd' ? 120 : 128}
+                      width={getChartYAxisWidth(valueType === 'usd' ? 'usd' : 'tokenWide')}
+                      orientation="left"
+                      tickMargin={8}
                       domain={yAxisDomain}
                       tickFormatter={(value) => {
                         if (value === undefined || typeof value !== 'number') return '';

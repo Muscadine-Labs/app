@@ -37,6 +37,7 @@ interface VaultPosition {
   shares: string;
   assets?: string;
   assetsUsd?: number;
+  assetDecimals?: number;
   pnl?: number;
   pnlUsd?: number;
   pnlRaw?: string;
@@ -486,6 +487,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
           shares: string;
           assets: string;
           assetsUsd: number;
+          assetDecimals?: number;
           pnl?: number;
           pnlUsd?: number;
           pnlRaw?: string;
@@ -505,6 +507,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
             shares: p.shares,
             assets: p.assets,
             assetsUsd: p.assetsUsd,
+            assetDecimals: p.assetDecimals,
             pnl: p.pnl,
             pnlUsd: p.pnlUsd,
             pnlRaw: p.pnlRaw,

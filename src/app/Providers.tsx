@@ -14,7 +14,6 @@ import { WalletProvider } from '../contexts/WalletContext'
 import { TransactionProvider } from '../contexts/TransactionContext'
 import { ToastProvider } from '../contexts/ToastContext'
 import { ThemeProvider } from '../contexts/ThemeContext'
-import { VaultVersionProvider } from '../contexts/VaultVersionContext'
 import { AdvisoryAgreementProvider } from '../contexts/AdvisoryAgreementContext'
 import { ErrorBoundary } from '../components/common/ErrorBoundary'
 import { AdvisoryAgreementModal } from '../components/features/wallet/AdvisoryAgreementModal'
@@ -60,18 +59,16 @@ export function Providers({ children, initialState }: Props) {
             >
               <ThemeProvider>
                 <AdvisoryAgreementProvider>
-                  <VaultVersionProvider>
-                    <ToastProvider>
-                      <WalletProvider>
-                        <VaultDataProvider>
-                          <TransactionProvider>
-                            <AdvisoryAgreementModal />
-                            {children}
-                          </TransactionProvider>
-                        </VaultDataProvider>
-                      </WalletProvider>
-                    </ToastProvider>
-                  </VaultVersionProvider>
+                  <ToastProvider>
+                    <WalletProvider>
+                      <VaultDataProvider>
+                        <TransactionProvider>
+                          <AdvisoryAgreementModal />
+                          {children}
+                        </TransactionProvider>
+                      </VaultDataProvider>
+                    </WalletProvider>
+                  </ToastProvider>
                 </AdvisoryAgreementProvider>
               </ThemeProvider>
             </RainbowKitProvider>

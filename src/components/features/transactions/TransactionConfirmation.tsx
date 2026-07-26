@@ -13,7 +13,6 @@ import { TransactionProgressBar } from './TransactionProgressBar';
 import { useToast } from '@/contexts/ToastContext';
 import { useVaultData } from '@/contexts/VaultDataContext';
 import { useWallet } from '@/contexts/WalletContext';
-import { useVaultVersion } from '@/contexts/VaultVersionContext';
 import { logger } from '@/lib/logger';
 
 interface TransactionConfirmationProps {
@@ -63,7 +62,6 @@ export function TransactionConfirmation({
   const { error: showErrorToast, showToast } = useToast();
   const { fetchVaultData } = useVaultData();
   const { refreshBalances } = useWallet();
-  const { isDevMode } = useVaultVersion();
 
   const handleDone = async () => {
     if (isSuccess) {
@@ -131,8 +129,7 @@ export function TransactionConfirmation({
     fromAccount.type === 'wallet' &&
     toAccount.type === 'vault' &&
     isWethVault((toAccount as VaultAccount).address, assetSymbol) &&
-    (preferredAsset === 'ETH' || preferredAsset === 'ALL' || preferredAsset === undefined) &&
-    !isDevMode;
+    preferredAsset === 'ETH';
 
   // Get current date for transaction details
   const getCurrentDate = () => {
@@ -443,9 +440,30 @@ export function TransactionConfirmation({
             </svg>
           </div>
           <p className="text-xs md:text-sm text-[var(--foreground)]">
-            <span className="font-medium">Note:</span> Depositing ETH will wrap it to WETH before
-            depositing to the vault. {ETH_GAS_RESERVE} ETH is intentionally left in your wallet for
-            network gas fees.
+            <span className="font-medium">Note:</span> Depositing ETH uses Morpho Bundler3 to wrap
+            to WETH and deposit in one confirmation. {ETH_GAS_RESERVE} ETH is intentionally left in
+            your wallet for network gas fees.
+          </p>
+        </div>
+      )}
+
+      {/* Note for WETH vault withdrawals that unwrap to native ETH */}
+      {transactionType === 'withdraw' &&
+        assetSymbol === 'WETH' &&
+        fromAccount.type === 'vault' &&
+        toAccount.type === 'wallet' &&
+        isWethVault((fromAccount as VaultAccount).address, assetSymbol) &&
+        preferredAsset === 'ETH' && (
+        <div className="flex items-start gap-2 md:gap-3 p-3 md:p-4 bg-[var(--info-subtle)] rounded-lg border border-[var(--info)]">
+          <div className="w-4 h-4 md:w-5 md:h-5 rounded-full bg-[var(--info)] flex items-center justify-center shrink-0 mt-0.5">
+            <svg className="w-2.5 h-2.5 md:w-3 md:h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <p className="text-xs md:text-sm text-[var(--foreground)]">
+            <span className="font-medium">Note:</span> Withdrawing to ETH uses Morpho Bundler3 to
+            exit the vault and unwrap WETH in one confirmation (share approval may be required
+            first). Force withdraw is separate: vault exit, then a Bundler3 unwrap.
           </p>
         </div>
       )}

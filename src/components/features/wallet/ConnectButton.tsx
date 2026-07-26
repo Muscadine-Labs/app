@@ -12,10 +12,14 @@ export default function ConnectButtonComponent() {
     const authenticationStatusRef = useRef<string | undefined>(undefined);
     const mountedRef = useRef<boolean>(false);
 
-    // Auto-open wallet connect modal after accepting agreement
+    // Auto-open wallet connect after advisory modal closes (defer to avoid WC modal reset race).
     useEffect(() => {
-        if (shouldOpenWalletConnect && isAccepted && openConnectModalRef.current) {
-            const ready = mountedRef.current && authenticationStatusRef.current !== 'loading';
+        if (!shouldOpenWalletConnect || !isAccepted) return;
+
+        const timer = window.setTimeout(() => {
+            if (!openConnectModalRef.current || !mountedRef.current) return;
+
+            const ready = authenticationStatusRef.current !== 'loading';
             const connected =
                 ready &&
                 accountRef.current &&
@@ -27,7 +31,9 @@ export default function ConnectButtonComponent() {
                 clearWalletConnectFlag();
                 openConnectModalRef.current();
             }
-        }
+        }, 400);
+
+        return () => window.clearTimeout(timer);
     }, [shouldOpenWalletConnect, isAccepted, clearWalletConnectFlag]);
 
     return (

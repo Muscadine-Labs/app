@@ -86,9 +86,10 @@ export function VaultTransactModal({
       isOpen={isOpen}
       onClose={handleClose}
       title={modalTitle}
+      showCloseButton={tx.canClose}
       closeOnOverlayClick={tx.canClose}
       layout="sheet"
-      panelClassName="max-w-md max-h-[min(92dvh,720px)] w-full bg-[var(--background)] border-[var(--border-subtle)] shadow-lg rounded-t-2xl rounded-b-none sm:rounded-xl sm:max-h-[90vh]"
+      panelClassName="max-w-md max-h-[min(92dvh,720px)] bg-[var(--background)] border-[var(--border-subtle)] sm:max-w-md sm:max-h-[90vh]"
       headerClassName="px-4 py-3 sm:px-4 sm:py-3 border-[var(--border-subtle)]/80 bg-[var(--background)] shrink-0"
       titleClassName="text-base font-semibold truncate pr-2"
       contentClassName="px-4 py-4 sm:px-4 sm:py-4 bg-[var(--background)] pb-[max(1rem,env(safe-area-inset-bottom))] sm:pb-4"
@@ -116,7 +117,7 @@ export function VaultTransactModal({
                 type="button"
                 onClick={() => tx.handleTabChange('deposit')}
                 className={`${tabBaseClass} ${
-                  tx.activeTab === 'deposit' ? tabActiveClass : tabInactiveClass
+                  tx.effectiveActiveTab === 'deposit' ? tabActiveClass : tabInactiveClass
                 }`}
               >
                 Deposit
@@ -125,7 +126,7 @@ export function VaultTransactModal({
                 type="button"
                 onClick={() => tx.handleTabChange('withdraw')}
                 className={`${tabBaseClass} ${
-                  tx.activeTab === 'withdraw' ? tabActiveClass : tabInactiveClass
+                  tx.effectiveActiveTab === 'withdraw' ? tabActiveClass : tabInactiveClass
                 }`}
               >
                 Withdraw
@@ -175,14 +176,14 @@ export function VaultTransactModal({
                     <button
                       type="button"
                       onClick={tx.calculateMaxAmount}
-                      disabled={tx.getMaxAmount === null || tx.isWithdrawMaxLoading}
+                      disabled={tx.maxAmount === null || tx.isWithdrawMaxLoading}
                       className="min-h-9 min-w-11 px-2 text-xs text-[var(--primary)] hover:text-[var(--primary-hover)] disabled:text-[var(--foreground-muted)] disabled:cursor-not-allowed cursor-pointer touch-manipulation"
                     >
                       MAX
                     </button>
                   </div>
                 </div>
-                <div className="relative">
+                <div>
                   <input
                     type="text"
                     inputMode="decimal"
@@ -192,19 +193,17 @@ export function VaultTransactModal({
                     className={fieldClass}
                   />
                   {showUsdHint && (
-                    <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
-                      <span className="text-xs text-[var(--foreground-muted)]">
-                        ≈ {showUsdHint}
-                      </span>
-                    </div>
+                    <p className="mt-1 text-xs text-[var(--foreground-muted)] text-right">
+                      ≈ {showUsdHint}
+                    </p>
                   )}
                 </div>
                 <p className="text-xs text-[var(--foreground-muted)]">
                   {tx.effectiveActiveTab === 'deposit'
-                    ? tx.getWalletBalanceText
-                    : tx.getVaultBalanceText}
+                    ? tx.walletBalanceText
+                    : tx.vaultBalanceText}
                 </p>
-                {tx.isWethVaultEthDeposit && !tx.isDevMode && (
+                {tx.isWethVaultEthDeposit && (
                   <p className="text-xs text-[var(--foreground-muted)]">
                     {ETH_GAS_RESERVE} ETH is intentionally left in your wallet for network gas fees.
                   </p>
@@ -215,17 +214,6 @@ export function VaultTransactModal({
                       <span className="font-medium">Warning:</span> Amount exceeds available balance.
                       This transaction will fail if you proceed.
                     </p>
-                    {tx.isDevMode && (
-                      <label className="flex items-start gap-2 cursor-pointer text-xs text-[var(--foreground)]">
-                        <input
-                          type="checkbox"
-                          checked={tx.balanceBypassAcknowledged}
-                          onChange={(e) => tx.setBalanceBypassAcknowledged(e.target.checked)}
-                          className="mt-0.5 rounded border-[var(--border-subtle)]"
-                        />
-                        <span>Proceed anyway (Dev mode — for testing)</span>
-                      </label>
-                    )}
                   </div>
                 )}
               </div>

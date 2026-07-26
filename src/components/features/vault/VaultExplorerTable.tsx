@@ -117,7 +117,6 @@ function EarnedInterestCell({
 }) {
   const { address } = useAccount();
   const { morphoHoldings } = useWallet();
-  const resolvedDecimals = resolveAssetDecimals(vault.symbol, decimals);
 
   const walletPosition = useMemo(
     () =>
@@ -125,6 +124,11 @@ function EarnedInterestCell({
         (position) => position.vault.address.toLowerCase() === vault.address.toLowerCase()
       ) ?? null,
     [morphoHoldings.positions, vault.address]
+  );
+
+  const resolvedDecimals = resolveAssetDecimals(
+    vault.symbol,
+    decimals ?? walletPosition?.assetDecimals
   );
 
   const hasWalletPosition = walletPosition && hasOnChainVaultShares(walletPosition);
@@ -211,6 +215,7 @@ function VaultExplorerMobileCard({ vault, showYourPosition }: VaultExplorerRowPr
   const vaultData = getVaultData(vault.address);
   const loading = isLoading(vault.address);
   const decimals = resolveAssetDecimals(vault.symbol, vaultData?.assetDecimals);
+  const isCurated = vault.isCurated !== false;
   const openVault = () => router.push(getVaultRoute(vault.address));
 
   return (
@@ -229,6 +234,11 @@ function VaultExplorerMobileCard({ vault, showYourPosition }: VaultExplorerRowPr
             <span className="inline-flex rounded-md bg-[var(--surface-elevated)] px-2 py-0.5 text-[10px] font-medium text-[var(--foreground-secondary)]">
               Base
             </span>
+            {!isCurated ? (
+              <span className="inline-flex rounded-md bg-[var(--surface-elevated)] px-2 py-0.5 text-[10px] font-medium text-[var(--foreground-muted)]">
+                External
+              </span>
+            ) : null}
           </div>
         </div>
         <div className="shrink-0 text-right">
@@ -317,9 +327,9 @@ function DashboardVaultMobileCard({
         <div className="min-w-0">
           <span className="text-sm font-medium text-[var(--foreground)] block">{vault.name}</span>
           <span className="text-[10px] text-[var(--foreground-muted)]">{vault.symbol}</span>
-          {!isCurated && (
-            <span className="text-[10px] text-[var(--foreground-muted)] block">External vault</span>
-          )}
+          <span className="text-[10px] text-[var(--foreground-muted)] block">
+            {isCurated ? 'Whitelisted' : 'External vault'}
+          </span>
         </div>
       </div>
 
@@ -422,12 +432,16 @@ function PositionCell({
   const decimals = resolveAssetDecimals(vault.symbol, vaultData?.assetDecimals);
   const positionUsd = position
     ? resolvePositionAssetsUsd(position, {
-        assetDecimals: decimals,
+        assetDecimals: position.assetDecimals ?? decimals,
         symbol: vault.symbol,
       })
     : 0;
   const positionRaw = position?.assets
-    ? formatPositionTokenAmount(position.assets, decimals, vault.symbol)
+    ? formatPositionTokenAmount(
+        position.assets,
+        position.assetDecimals ?? decimals,
+        vault.symbol
+      )
     : '-';
 
   const alignClass = align === 'start' ? 'items-start' : 'items-end';
@@ -475,6 +489,7 @@ function VaultExplorerRow({ vault, showYourPosition }: VaultExplorerRowProps) {
   const vaultData = getVaultData(vault.address);
   const loading = isLoading(vault.address);
   const decimals = resolveAssetDecimals(vault.symbol, vaultData?.assetDecimals);
+  const isCurated = vault.isCurated !== false;
 
   const handleClick = () => {
     router.push(getVaultRoute(vault.address));
@@ -501,6 +516,9 @@ function VaultExplorerRow({ vault, showYourPosition }: VaultExplorerRowProps) {
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <span className="text-sm font-medium text-[var(--foreground)] truncate">{vault.name}</span>
+              {!isCurated ? (
+                <span className="shrink-0 text-[10px] text-[var(--foreground-muted)]">External</span>
+              ) : null}
             </div>
           </div>
         </div>
@@ -735,9 +753,9 @@ export function DashboardVaultTable({
                     <div className="min-w-0">
                       <span className="text-sm font-medium text-[var(--foreground)] truncate block">{vault.name}</span>
                       <span className="text-[10px] text-[var(--foreground-muted)]">{vault.symbol}</span>
-                      {!isCurated && (
-                        <span className="text-[10px] text-[var(--foreground-muted)] block">External vault</span>
-                      )}
+                      <span className="text-[10px] text-[var(--foreground-muted)] block">
+                        {isCurated ? 'Whitelisted' : 'External vault'}
+                      </span>
                     </div>
                   </div>
                 </td>

@@ -6,7 +6,6 @@ import { formatUnits } from 'viem';
 import { useTransactionState } from '@/contexts/TransactionContext';
 import { TOKEN_ADDRESSES_LOWER, useWallet } from '@/contexts/WalletContext';
 import { useVaultData } from '@/contexts/VaultDataContext';
-import { useVaultVersion } from '@/contexts/VaultVersionContext';
 import { ETH_GAS_RESERVE, BASE_CHAIN_ID } from '@/lib/constants';
 import {
   formatAssetAmountForMax,
@@ -79,7 +78,6 @@ export function useScopedVaultTransaction({
   const { isConnected } = useAccount();
   const { tokenBalances, ethBalance, morphoHoldings, refreshBalances } = useWallet();
   const { fetchVaultData } = useVaultData();
-  const { isDevMode } = useVaultVersion();
   const {
     fromAccount,
     toAccount,
@@ -96,7 +94,6 @@ export function useScopedVaultTransaction({
   } = useTransactionState();
 
   const [activeTab, setActiveTab] = useState<VaultTransactionTab>(initialTab);
-  const [balanceBypassAcknowledged, setBalanceBypassAcknowledged] = useState(false);
   const initializedRef = useRef(false);
 
   const vaultPosition = useMemo(
@@ -108,6 +105,15 @@ export function useScopedVaultTransaction({
   );
 
   const vaultShareBalance = vaultPosition?.shares ?? null;
+
+  const vaultShareBalanceBn = useMemo((): bigint | null => {
+    if (!vaultShareBalance) return null;
+    try {
+      return BigInt(vaultShareBalance);
+    } catch {
+      return null;
+    }
+  }, [vaultShareBalance]);
 
   const vaultAccount = useMemo(
     () => buildVaultAccount(vaultAddress, vaultName, vaultSymbol, vaultShareBalance ?? undefined),
@@ -170,7 +176,6 @@ export function useScopedVaultTransaction({
     reset();
     setActiveTab(initialTab);
     setAmount('');
-    setBalanceBypassAcknowledged(false);
     applyTabAccounts(initialTab);
 
     if (isConnected) {
@@ -200,7 +205,6 @@ export function useScopedVaultTransaction({
       }
       setActiveTab(tab);
       setAmount('');
-      setBalanceBypassAcknowledged(false);
       applyTabAccounts(tab);
     },
     [
@@ -215,40 +219,39 @@ export function useScopedVaultTransaction({
 
   const { data: exactAssetAmount, isPending: isExactAssetAmountPending } = useReadContract({
     address:
-      effectiveActiveTab === 'withdraw' && vaultShareBalance
+      effectiveActiveTab === 'withdraw' && vaultShareBalanceBn !== null
         ? (vaultAddress as `0x${string}`)
         : undefined,
     chainId: BASE_CHAIN_ID,
     abi: ERC4626_ABI,
     functionName: 'convertToAssets',
-    args: vaultShareBalance ? [BigInt(vaultShareBalance)] : undefined,
+    args: vaultShareBalanceBn !== null ? [vaultShareBalanceBn] : undefined,
     query: {
       enabled:
         isOpen &&
         effectiveActiveTab === 'withdraw' &&
-        !!vaultShareBalance &&
-        BigInt(vaultShareBalance) > BigInt(0),
+        vaultShareBalanceBn !== null &&
+        vaultShareBalanceBn > BigInt(0),
     },
   });
 
   const isWithdrawMaxLoading = useMemo(() => {
     if (effectiveActiveTab !== 'withdraw') return false;
-    if (!vaultShareBalance || BigInt(vaultShareBalance) === BigInt(0)) return false;
+    if (vaultShareBalanceBn === null || vaultShareBalanceBn === BigInt(0)) return false;
     return exactAssetAmount === undefined && isExactAssetAmountPending;
   }, [
     effectiveActiveTab,
-    vaultShareBalance,
+    vaultShareBalanceBn,
     exactAssetAmount,
     isExactAssetAmountPending,
   ]);
 
   const getWrappableEthBalance = useCallback(() => {
     const ethBal = parseFloat(ethBalance || '0');
-    if (isDevMode) return ethBal;
     return Math.max(0, ethBal - ETH_GAS_RESERVE);
-  }, [ethBalance, isDevMode]);
+  }, [ethBalance]);
 
-  const getCombinedEthWethBalance = useMemo(() => {
+  const combinedEthWethBalance = useMemo(() => {
     const wethBal = getTokenBalanceAmount('WETH', tokenBalances);
     return wethBal + getWrappableEthBalance();
   }, [tokenBalances, getWrappableEthBalance]);
@@ -262,7 +265,7 @@ export function useScopedVaultTransaction({
     );
   }, [effectiveActiveTab, vaultAddress, vaultSymbol, preferredAsset]);
 
-  const getWalletBalanceText = useMemo(() => {
+  const walletBalanceText = useMemo(() => {
     if (!derivedAsset) return '';
 
     if (
@@ -270,7 +273,7 @@ export function useScopedVaultTransaction({
       isWethVault(vaultAddress, vaultSymbol) &&
       (derivedAsset.symbol === 'WETH' || derivedAsset.symbol === 'ETH')
     ) {
-      const combinedBal = getCombinedEthWethBalance;
+      const combinedBal = combinedEthWethBalance;
       const ethBal = parseFloat(ethBalance || '0');
       const wethBal = getTokenBalanceAmount('WETH', tokenBalances);
 
@@ -307,21 +310,21 @@ export function useScopedVaultTransaction({
     vaultSymbol,
     ethBalance,
     tokenBalances,
-    getCombinedEthWethBalance,
+    combinedEthWethBalance,
     getWrappableEthBalance,
   ]);
 
-  const getVaultBalanceText = useMemo(() => {
+  const vaultBalanceText = useMemo(() => {
     if (!derivedAsset || effectiveActiveTab !== 'withdraw') return '';
 
     const assetDecimals = getAssetDecimalsForSymbol(vaultSymbol);
 
-    if (!vaultShareBalance) {
+    if (vaultShareBalanceBn === null) {
       if (morphoHoldings.isLoading) return 'Loading...';
       return `Available: 0.00 ${derivedAsset.symbol}`;
     }
 
-    if (BigInt(vaultShareBalance) === BigInt(0)) {
+    if (vaultShareBalanceBn === BigInt(0)) {
       return `Available: 0.00 ${derivedAsset.symbol}`;
     }
 
@@ -335,12 +338,12 @@ export function useScopedVaultTransaction({
     derivedAsset,
     effectiveActiveTab,
     vaultSymbol,
-    vaultShareBalance,
+    vaultShareBalanceBn,
     exactAssetAmount,
     morphoHoldings.isLoading,
   ]);
 
-  const getMaxAmount = useMemo((): number | null => {
+  const maxAmount = useMemo((): number | null => {
     if (!derivedAsset) return null;
 
     if (effectiveActiveTab === 'deposit') {
@@ -350,7 +353,7 @@ export function useScopedVaultTransaction({
         if (assetPreference === 'WETH') {
           return getTokenBalanceAmount('WETH', tokenBalances);
         }
-        return getCombinedEthWethBalance;
+        return combinedEthWethBalance;
       }
 
       if (derivedAsset.symbol === 'ETH') return getWrappableEthBalance();
@@ -362,7 +365,7 @@ export function useScopedVaultTransaction({
     }
 
     const assetDecimals = getAssetDecimalsForSymbol(vaultSymbol);
-    if (!vaultShareBalance || BigInt(vaultShareBalance) === BigInt(0)) return 0;
+    if (vaultShareBalanceBn === null || vaultShareBalanceBn === BigInt(0)) return 0;
     if (exactAssetAmount !== undefined) {
       return parseFloat(formatUnits(exactAssetAmount, assetDecimals));
     }
@@ -375,16 +378,16 @@ export function useScopedVaultTransaction({
     vaultSymbol,
     preferredAsset,
     tokenBalances,
-    vaultShareBalance,
+    vaultShareBalanceBn,
     exactAssetAmount,
     isExactAssetAmountPending,
-    getCombinedEthWethBalance,
+    combinedEthWethBalance,
     getWrappableEthBalance,
   ]);
 
   const calculateMaxAmount = useCallback(() => {
-    const maxAmount = getMaxAmount;
-    if (maxAmount === null || maxAmount === 0) {
+    const max = maxAmount;
+    if (max === null || max === 0) {
       setAmount('0');
       return;
     }
@@ -397,7 +400,7 @@ export function useScopedVaultTransaction({
         const assetPreference = preferredAsset || 'ALL';
         if (assetPreference === 'ETH') {
           setAmount(
-            maxAmount > 0 ? formatAssetAmountForMax(maxAmount, 'ETH', decimals) : '0'
+            max > 0 ? formatAssetAmountForMax(max, 'ETH', decimals) : '0'
           );
           return;
         }
@@ -410,10 +413,13 @@ export function useScopedVaultTransaction({
           );
           return;
         }
+        // ALL: combined ETH (after gas reserve) + WETH
+        setAmount(max > 0 ? formatAssetAmountForMax(max, symbol, decimals) : '0');
+        return;
       }
 
       if (symbol === 'ETH') {
-        setAmount(maxAmount > 0 ? formatAssetAmountForMax(maxAmount, symbol) : '0');
+        setAmount(max > 0 ? formatAssetAmountForMax(max, symbol) : '0');
         return;
       }
 
@@ -433,9 +439,9 @@ export function useScopedVaultTransaction({
     }
 
     const decimals = getAssetDecimalsForSymbol(vaultSymbol);
-    setAmount(formatAssetAmountForMax(maxAmount, derivedAsset?.symbol || vaultSymbol, decimals));
+    setAmount(formatAssetAmountForMax(max, derivedAsset?.symbol || vaultSymbol, decimals));
   }, [
-    getMaxAmount,
+    maxAmount,
     effectiveActiveTab,
     derivedAsset,
     vaultSymbol,
@@ -461,13 +467,12 @@ export function useScopedVaultTransaction({
     if (!amount || !derivedAsset) return false;
     const enteredAmount = parseFloat(amount);
     if (isNaN(enteredAmount) || enteredAmount <= 0) return false;
-    const maxAmount = getMaxAmount;
-    if (maxAmount === null) return false;
-    return enteredAmount > maxAmount;
-  }, [amount, derivedAsset, getMaxAmount]);
+    const max = maxAmount;
+    if (max === null) return false;
+    return enteredAmount > max;
+  }, [amount, derivedAsset, maxAmount]);
 
-  const blockContinueForBalance =
-    exceedsBalance && !(isDevMode && balanceBypassAcknowledged);
+  const blockContinueForBalance = exceedsBalance;
 
   const handleStartTransaction = useCallback(() => {
     if (fromAccount && toAccount && derivedAsset) {
@@ -478,7 +483,6 @@ export function useScopedVaultTransaction({
   const handleResetToIdle = useCallback(() => {
     reset();
     setAmount('');
-    setBalanceBypassAcknowledged(false);
     applyTabAccounts(activeTab);
   }, [reset, setAmount, activeTab, applyTabAccounts]);
 
@@ -520,14 +524,12 @@ export function useScopedVaultTransaction({
     amount,
     handleAmountChange,
     calculateMaxAmount,
-    getMaxAmount,
-    getWalletBalanceText,
-    getVaultBalanceText,
+    maxAmount,
+    walletBalanceText,
+    vaultBalanceText,
     handleStartTransaction,
     exceedsBalance,
     blockContinueForBalance,
-    balanceBypassAcknowledged,
-    setBalanceBypassAcknowledged,
     preferredAsset,
     setPreferredAsset,
     isWethVaultEthDeposit,
@@ -538,7 +540,6 @@ export function useScopedVaultTransaction({
     getProgressSteps,
     handleResetToIdle,
     canClose,
-    isDevMode,
     isWithdrawMaxLoading,
     vaultAddress,
     vaultSymbol,

@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import type { GraphQLResponse, Transaction } from '@/types/api';
 import {
-  getAssetDecimalsForSymbol,
   morphoAmountToDecimal,
   morphoAmountToRaw,
   normalizeMorphoShares,
+  resolveAssetDecimals,
+  resolveMorphoAssetSymbol,
 } from '@/lib/asset-decimals';
 import { isValidEthereumAddress, findVaultByAddress } from '@/lib/vault-utils';
 import { isValidChainId, fetchMorphoGraphQL } from '@/lib/api-utils';
@@ -124,13 +125,15 @@ export async function GET(
 
     const position = positionJson.data?.vaultV2PositionByAddress;
     const registryVault = findVaultByAddress(vaultAddress);
-    const assetSymbol =
-      registryVault?.symbol ??
-      position?.vault?.asset?.symbol ??
-      'UNKNOWN';
-    const assetDecimals =
-      position?.vault?.asset?.decimals ??
-      getAssetDecimalsForSymbol(assetSymbol);
+    const assetSymbol = resolveMorphoAssetSymbol({
+      registrySymbol: registryVault?.symbol,
+      assetSymbol: position?.vault?.asset?.symbol,
+      assetDecimals: position?.vault?.asset?.decimals,
+    });
+    const assetDecimals = resolveAssetDecimals(
+      assetSymbol,
+      position?.vault?.asset?.decimals
+    );
 
     const sharesRaw = position ? normalizeMorphoShares(position.shares) : '0';
     const hasShares = (() => {
@@ -251,6 +254,20 @@ export async function GET(
         activityData,
         resolvedDecimals
       );
+    }
+
+    if (hasPosition) {
+      const currentAssetsDecimal = Number(currentAssetsRaw) / 10 ** resolvedDecimals;
+      return NextResponse.json({
+        earnedInterest: 0,
+        earnedInterestUsd: 0,
+        earnedInterestRaw: '0',
+        assetDecimals: resolvedDecimals,
+        source: 'none',
+        hasDeposited: true,
+        currentAssets: currentAssetsDecimal,
+        currentAssetsUsd: position?.assetsUsd ?? 0,
+      });
     }
 
     return zeroEarnedInterestResponse(resolvedDecimals, 'none');

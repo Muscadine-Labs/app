@@ -127,6 +127,7 @@ export default function WalletOverview() {
                 address: position.vault.address,
                 name: position.vault.name,
                 symbol: position.vault.symbol,
+                isCurated: position.vault.isCurated !== false,
                 usdValue,
             };
         })
@@ -353,9 +354,14 @@ export default function WalletOverview() {
                             sortedVaultPositions.map((position) => (
                                 <div key={position.address} className="flex justify-between items-center gap-4">
                                     <div className="flex flex-col min-w-0">
-                                        <span className="text-sm font-medium text-[var(--foreground)] truncate">
-                                            {position.name}
-                                        </span>
+                                        <div className="flex items-center gap-1.5 min-w-0">
+                                            <span className="text-sm font-medium text-[var(--foreground)] truncate">
+                                                {position.name}
+                                            </span>
+                                            <span className="shrink-0 text-[10px] text-[var(--foreground-muted)]">
+                                                {position.isCurated ? 'Whitelisted' : 'External'}
+                                            </span>
+                                        </div>
                                         <span className="text-xs text-[var(--foreground-secondary)]">
                                             {position.symbol}
                                         </span>

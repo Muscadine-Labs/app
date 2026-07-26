@@ -8,7 +8,6 @@ import { ConnectButton } from "../features/wallet";
 import { Icon } from "../ui/Icon";
 import { Button } from "../ui/Button";
 import { useTheme } from "@/contexts/ThemeContext";
-import { useVaultVersion } from "@/contexts/VaultVersionContext";
 
 interface NavBarProps {
     isRightSidebarCollapsed?: boolean;
@@ -27,7 +26,6 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
     const hamburgerButtonRef = useRef<HTMLButtonElement>(null);
     
     // Settings state with defaults
-    const { preference, setPreference } = useVaultVersion();
     const { theme, setTheme } = useTheme();
 
     const isActive = useCallback((item: NavItem): boolean => {
@@ -324,39 +322,6 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                         onMouseEnter={() => setIsSettingsOpen(true)}
                                         onMouseLeave={() => setIsSettingsOpen(false)}
                                     >
-                                    {/* Vault scope: V2 by default; optional developer mode */}
-                                    <div className="px-4 mb-4">
-                                        <div className="flex items-center justify-between gap-3">
-                                            <p className="text-sm text-[var(--foreground)]">
-                                                Developer mode
-                                            </p>
-                                            <button
-                                                type="button"
-                                                role="switch"
-                                                aria-checked={preference === 'all'}
-                                                aria-label="Developer mode"
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    setPreference(preference === 'all' ? 'v2' : 'all');
-                                                }}
-                                                className={`relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors cursor-pointer touch-manipulation ${
-                                                    preference === 'all'
-                                                        ? 'bg-[var(--primary)]'
-                                                        : 'bg-[var(--border)]'
-                                                }`}
-                                            >
-                                                <span
-                                                    className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${
-                                                        preference === 'all' ? 'translate-x-5' : 'translate-x-0'
-                                                    }`}
-                                                />
-                                            </button>
-                                        </div>
-                                    </div>
-
-                                    {/* Divider */}
-                                    <div className="border-t border-[var(--border)] mb-4"></div>
-
                                     {/* Theme Section */}
                                     <div className="px-4">
                                         <div className="flex items-center justify-between gap-1">

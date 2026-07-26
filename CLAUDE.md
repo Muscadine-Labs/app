@@ -78,8 +78,7 @@ Never commit real keys. `.env.example` documents placeholders.
 | Chain | Base only (`8453`) |
 | Server data | Next.js Route Handlers → Morpho GraphQL |
 | Client GraphQL | Apollo Client → `https://api.morpho.org/graphql` |
-| V1 txs | `@morpho-org/bundler-sdk-viem` + simulation |
-| V2 txs | **Direct ERC-4626 + ERC-20 ABIs** via viem (`transactionUtilsV2.ts`) |
+| V2 txs | Direct ERC-4626 via viem (`transactionUtilsV2.ts`); multi-step WETH/ETH via Morpho **Bundler3** (`bundler3.ts`) |
 | Charts | Recharts |
 | Analytics | `@vercel/analytics` |
 | Base Account SDK | `@base-org/account` |
@@ -93,7 +92,7 @@ Never commit real keys. `.env.example` documents placeholders.
 │                         Browser (client)                         │
 │  RainbowKit / wagmi ──► viem PublicClient + WalletClient         │
 │                                                                  │
-│  TransactionFlow ──► transactionUtilsV2 (ERC-4626 ABI)             │
+│  TransactionFlow ──► transactionUtilsV2 (+ Bundler3 for WETH/ETH) │
 │  WalletContext ──► /api/user/morpho-positions                    │
 └───────────────────────────┬─────────────────────────────────────┘
                             │
@@ -127,7 +126,7 @@ Always resolve version with `getVaultVersion(address)` / `findVaultByAddress()` 
 
 **Vault registry fields:** `symbol` (underlying asset), `vaultSymbol` (share token label), `strategy` (`prime` | `frontier`).
 
-**Dev mode (`VaultVersionContext`, `preference === 'all'`):** Transact **over-balance bypass** only. Explorer filters default to **All** (network, strategy, asset) for everyone — not dev-gated. **No v1/v2 version filter** (v1 removed).
+Explorer filters default to **All** (network, strategy, asset). **No v1/v2 version filter** (v1 removed). There is no developer/over-balance bypass mode.
 
 **Dashboard:** Shows Morpho **v2** positions via `/api/user/morpho-positions`; non-curated vaults are read-only on dashboard. Portfolio chart aggregates v2 position-history only.
 
@@ -135,9 +134,9 @@ Always resolve version with `getVaultVersion(address)` / `findVaultByAddress()` 
 
 ## V2 transactions (only write path)
 
-All vault writes use **`src/lib/transactionUtilsV2.ts`** (direct ERC-4626 + viem). v1 bundler / `useVaultTransactions` removed.
+All vault writes go through **`src/lib/transactionUtilsV2.ts`**. Simple ERC-4626 ops are direct viem calls. Multi-step WETH↔ETH flows use Morpho **Bundler3** + **GeneralAdapter1** (`src/lib/bundler3.ts`).
 
-**Routing:** `TransactionFlow.tsx` → `depositToVaultV2` / `withdrawFromVaultV2` / `redeemFromVaultV2` only.
+**Routing:** `TransactionFlow.tsx` → `depositToVaultV2` / `withdrawFromVaultV2` / `redeemFromVaultV2` / `forceWithdrawFromVaultV2` (when amount > instant liquidity).
 
 ### ERC-4626 reads and UI sources (v2)
 
@@ -159,31 +158,51 @@ Share tokens use **18 decimals**; underlying assets use registry decimals (USDC 
 
 ### `src/lib/transactionUtilsV2.ts`
 
-Header comment: bundler does not support v2; use direct contract calls.
+Direct ERC-4626 for single-step ops; Morpho Bundler3 for multi-step WETH/ETH.
 
 **Exports:**
 
 | Function | Behavior |
 |----------|----------|
-| `depositToVaultV2` | ERC-20 `approve` (if needed) → optional WETH `deposit()` wrap → vault `deposit(assets, onBehalf)` |
-| `withdrawFromVaultV2` | `previewWithdraw` for shares → vault `withdraw(assets, receiver, owner)` → optional WETH unwrap to ETH |
-| `redeemFromVaultV2` | Full share balance → vault `redeem(shares, receiver, owner)` → optional unwrap |
-| `approveToken` | Standalone approval helper |
+| `depositToVaultV2` | Direct ERC-4626 deposit; WETH vault + ETH wrap uses Bundler3 (`fund adapter` → `wrapNative` → optional WETH `transferFrom` → `erc4626Deposit`) |
+| `withdrawFromVaultV2` | Direct `withdraw`; → ETH uses Bundler3 (`erc4626Withdraw` to adapter → `unwrapNative`) |
+| `redeemFromVaultV2` | Direct `redeem`; → ETH uses Bundler3 (`erc4626Redeem` to adapter → `unwrapNative`) |
+| `forceWithdrawFromVaultV2` | Vault `multicall` force-deallocate + withdraw; optional Bundler3 unwrap follow-up |
+| `resumeUnwrapWalletWethV2` | Resume Bundler3 unwrap after force→ETH unwrap failure (amount from prior exit receipt logs only) |
 
 **ABIs (in-file):**
 
 - `ERC20_ABI` — `approve`, `allowance`, `balanceOf`, `decimals`
-- `ERC4626_ABI` — `asset`, `deposit`, `withdraw`, `redeem`, `previewWithdraw`, `previewRedeem`, `convertToShares`, `convertToAssets`, …
-- `WETH_ABI` — `deposit` (payable wrap), `withdraw` (unwrap)
+- `ERC4626_ABI` — `asset`, `deposit`, `withdraw`, `redeem`, `previewWithdraw`, `convertToAssets`
+
+### Morpho Bundler3 (`src/lib/bundler3.ts`)
+
+| Constant | Address (Base) |
+|----------|----------------|
+| `BUNDLER3_ADDRESS` | `0x6BFd8137e702540E7A42B74178A4a49Ba43920C4` |
+| `GENERAL_ADAPTER_ADDRESS` | `0xb98c948CFA24072e58935BC004a8A7b376AE746A` |
+
+**Rules:**
+
+- ETH fund step must be **empty calldata + value** (adapter `receive()`). `wrapNative` is **non-payable** — never attach value to the wrap call.
+- Deposit with wrap: `fund → wrapNative → optional erc20TransferFrom(WETH) → erc4626Deposit`.
+- Withdraw/redeem → ETH: approve vault **shares** to GeneralAdapter → `erc4626Withdraw|Redeem` (receiver=adapter) → `unwrapNative(max, user)`.
+- Resume unwrap: only when the failed step label includes `unwrap`; never fall back to full wallet WETH `balanceOf`.
 
 **WETH Prime vault** (`BASE_WETH_ADDRESS` in `constants.ts`):
 
-- `preferredAsset: 'ETH' | 'WETH' | 'ALL'` on deposit (wrap ETH, use WETH only, or combine with gas reserve `0.0001 ETH`)
-- Withdraw: `preferredAsset` `'ETH' | 'WETH'` (not `'ALL'`) — unwrap step when ETH selected
+- Deposit `preferredAsset`: `'ETH' | 'WETH' | 'ALL'` (wrap ETH, use WETH only, or combine). Gas reserve `ETH_GAS_RESERVE` (`0.0001 ETH`) left in wallet when wrapping.
+- Withdraw `preferredAsset`: `'ETH' | 'WETH'` (not `'ALL'`) — Bundler3 unwrap when ETH selected.
 
-**Approvals:** Spender is the **vault address** (ERC-4626 pulls from user). USDC-style reset-to-zero may run before new approval when needed.
+**Force withdraw** (`src/lib/force-withdraw-v2.ts`): when requested assets exceed instant liquidity, plan `forceDeallocate` × N + `withdraw` or **`redeem` (MAX)** in vault `multicall`. Warning modal shows estimated penalty, risks, **Force withdraw**, and **Open vault on Morpho**. ETH unwrap (if selected) is a **second** Bundler3 tx after the vault exit. If underlying markets lack free cash, force plan is unavailable — user must reduce amount to instant liquidity, wait, or use Morpho.
 
-**Progress:** Uses `TransactionProgressCallback` — `approving` for approvals, `confirming` for main tx (same UX rules as v1: do not treat approval hash as final success).
+**Approvals:**
+
+- Direct deposit/withdraw: spender is the **vault**.
+- Bundler3 wrap/deposit with wallet WETH, or withdraw→ETH: spender is **GeneralAdapter1** (WETH or vault shares).
+- USDC-style reset-to-zero may run before a new approval when needed.
+
+**Progress:** `TransactionProgressCallback` — `approving` for approvals, `confirming` for main/Bundler3 tx (do not treat approval hash as final success).
 
 **Routing:** `TransactionFlow.tsx` calls v2 helpers only (`getVaultVersion` always returns `'v2'`).
 
@@ -194,9 +213,11 @@ Header comment: bundler does not support v2; use direct contract calls.
 
 ### Transaction orchestration — `TransactionFlow.tsx`
 
-v2-only: `depositToVaultV2` / `withdrawFromVaultV2` / `redeemFromVaultV2` (redeem when amount ≈ max via `shouldUseWithdrawAll`).
+v2-only: `depositToVaultV2` / `withdrawFromVaultV2` / `redeemFromVaultV2` / `forceWithdrawFromVaultV2`. Redeem when amount ≈ max via `shouldUseWithdrawAll` (unless a force plan is active).
 
 **Max withdraw detection:** Compares entered amount to `convertToAssets(fullShares)` within 0.1% → uses redeem path.
+
+**Liquidity warning:** Before withdraw, if amount > instant liquidity, show `WithdrawLiquidityWarningModal` (force path or Morpho link).
 
 ---
 
@@ -280,7 +301,7 @@ If `complete` routes return **HTTP 400**, validate queries against `https://api.
 | `/api/user/morpho-positions` | User Morpho v2 positions |
 | `/api/vault/v2/...` | V2 Morpho GraphQL proxies |
 
-**NavBar:** Dashboard → `/`, Vaults → `/vaults`, Transact → `/transact`. Settings: **Developer mode** toggle (`preference` `v2` ↔ `all`) — transact test bypass only.
+**NavBar:** Dashboard → `/`, Vaults → `/vaults`, Transact → `/transact`. Settings: theme (light/dark) only.
 
 **App title:** metadata in `layout.tsx` uses **Muscadine Vaults** (not “Muscadine Earn”).
 
@@ -298,7 +319,7 @@ Three-row layout:
 | Bottom left | `PortfolioPositionChart` | Combined USD portfolio history (Recharts) |
 | Bottom right | `DashboardVaultTable` | **v2** vaults where user has non-zero position (registry + external) |
 
-**Important:** Dashboard ignores `VaultVersionContext`. Portfolio chart includes **v2** positions from the API; **Your Vaults** is **v2-only**.
+**Important:** Portfolio chart includes **v2** positions from the API; **Your Vaults** is **v2-only**.
 
 - **Your Vaults** lists v2 deposits only (`position.version === 'v2'`), sorted by USD. External (non-curated) vaults are shown but **not clickable**.
 - **Layout:** Chart + Your Vaults use **`min-[1000px]:grid-cols-2`** (side-by-side from ~1000px width; stacked below). `DashboardVaultTable` uses a **compact** `table-fixed` layout at `min-[1000px]+`; card layout below that.
@@ -338,14 +359,13 @@ Chart tabs (order): **APY** → **Total Deposits** → **Share Price**. **Total 
 
 Provider tree (`src/app/Providers.tsx`):
 
-`ErrorBoundary` → `ApolloProvider` → `WagmiProvider` → `QueryClient` → `RainbowKit` → `ThemeProvider` → `AdvisoryAgreementProvider` → `VaultVersionProvider` → `ToastProvider` → `WalletProvider` → `VaultDataProvider` → `TransactionProvider`
+`ErrorBoundary` → `ApolloProvider` → `WagmiProvider` → `QueryClient` → `RainbowKit` → `ThemeProvider` → `AdvisoryAgreementProvider` → `ToastProvider` → `WalletProvider` → `VaultDataProvider` → `TransactionProvider`
 
 | Context | File | Role |
 |---------|------|------|
 | `WalletContext` | `contexts/WalletContext.tsx` | Alchemy liquid balances; Morpho positions via `/api/user/morpho-positions`; refresh after txs |
 | `VaultDataContext` | `contexts/VaultDataContext.tsx` | Cached vault metadata from `/api/vault/.../complete` |
 | `TransactionContext` | `contexts/TransactionContext.tsx` | Transact page: from/to accounts, amount, status, `preferredAsset` |
-| `VaultVersionContext` | `contexts/VaultVersionContext.tsx` | `preference` (v2 \| Dev/`all`), `isDevMode` — transact bypass only; **not dashboard** |
 | `PriceContext` | `contexts/PriceContext.tsx` | Asset USD prices |
 | `ToastContext` | `contexts/ToastContext.tsx` | Toasts |
 | `ThemeContext` | `contexts/ThemeContext.tsx` | Light/dark |
@@ -406,7 +426,8 @@ src/
   lib/
     portfolio-utils.ts    # ★ aggregatePortfolioHistory (dashboard)
     api-utils.ts          # Period/interval helpers; strip incomplete Morpho timeseries tails
-    transactionUtilsV2.ts # ★ V2 on-chain (ERC-4626 ABI)
+    transactionUtilsV2.ts # ★ V2 on-chain (ERC-4626 + Bundler3 for WETH/ETH)
+    bundler3.ts # Morpho Bundler3 helpers (wrap/unwrap + ERC-4626)
     transactionUtils.ts   # Errors, shared tx helpers
     vaults.ts             # ★ Vault registry (v2 Prime + Frontier)
     vault-utils.ts        # Routes, sortVaultsForDisplay, resolvePositionAssetsUsd, isCuratedVaultAddress
@@ -435,7 +456,7 @@ src/
 - Approval txs use `approving`; only the main vault op should set `confirming` with the hash users care about.
 - After success, balances refresh via `refreshBalancesWithPolling` in `TransactionFlow`.
 
-**Transact page** (`app/transact/page.tsx`): Deposit/Withdraw tabs, account pickers, amount, MAX, WETH asset preference, deep links. Registry vaults from `VAULTS` + `sortVaultsForDisplay`. **Dev mode** (`preference === 'all'`): **over-balance bypass** checkbox when amount exceeds wallet balance.
+**Transact page** (`app/transact/page.tsx`): Deposit/Withdraw tabs, account pickers, amount, MAX, WETH asset preference, deep links. Registry vaults from `VAULTS` + `sortVaultsForDisplay`. Amounts that exceed available balance block Continue.
 
 **Transact tabs:** Tab highlight uses `activeTab` (user selection). `effectiveActiveTab` infers deposit vs withdraw from From/To when both accounts are set (WETH prefs, max amount). `handleTabChange` resets accounts per tab; do not no-op on `tab === activeTab` alone — use `accountsMatchTransactionTab()` so mismatched From/To does not block clicks.
 
@@ -478,7 +499,7 @@ Optional later: [Base Notifications API](https://docs.base.org/apps/technical-gu
 
 - `BASE_CHAIN_ID = 8453`
 - `BASE_WETH_ADDRESS` — Base canonical WETH
-- `GENERAL_ADAPTER_ADDRESS` — v1 bundler flows
+- `GENERAL_ADAPTER_ADDRESS` — Morpho GeneralAdapter1 on Base (Bundler3 wrap/unwrap + ERC-4626)
 - Cache TTLs: vault client + Morpho in-memory **60s**; prices 10m; activity 1m
 - Morpho GraphQL: `MORPHO_GRAPHQL_URL`, `MORPHO_GRAPHQL_REVALIDATE_SECONDS`, fetch timeout/retries, preload batch size — all Morpho calls go through `fetchMorphoGraphQL()` in `api-utils.ts`
 
@@ -518,7 +539,7 @@ rm -rf .next .turbo && npm run dev
 
 ### Changing v2 transaction behavior
 
-Edit **`src/lib/transactionUtilsV2.ts` only** (unless changing routing/UX in `TransactionFlow.tsx`). Test approve → deposit and withdraw/redeem on Base with small amounts.
+Edit **`src/lib/transactionUtilsV2.ts`** and/or **`src/lib/bundler3.ts`** for WETH/ETH multi-step flows (and `TransactionFlow.tsx` for routing/UX). Test approve → deposit and withdraw/redeem on Base with small amounts; for ETH paths confirm Bundler3 multicall.
 
 ---
 
@@ -561,10 +582,10 @@ Do not bump without checking compatibility:
 1. **Multi-chain vaults** — Extend beyond Base to **Ethereum** and **Hyperliquid**: multi-chain `VAULTS` entries, RPC/wagmi chains, Morpho GraphQL `chainId` on API routes, explorer Network filter (today only Base is real; “All” is forward-compatible).
 ### Technical (optional)
 
-3. **`@morpho-org/morpho-sdk` for v2** — Bundler3 deposits with `maxSharePrice` slippage; `forceWithdraw` / `forceRedeem` when GraphQL `liquidity` is low.
+3. **`@morpho-org/morpho-sdk` for v2** — richer Bundler3 slippage (`maxSharePrice`); official force-exit bundles when Base addresses exist.
 4. **`supportSignature: true`** — Permit/Permit2 to skip extra approval txs.
 5. **V2 vault-to-vault transfers** — Not implemented; would need withdraw + deposit coordination.
-6. **Enable v2 in bundler** — If Morpho adds v2 to `bundler-sdk-viem`, could unify paths (currently explicitly avoided).
+6. **Force redeem** — Force path currently uses `withdraw(assets)` only; MAX + penalty can leave dust shares.
 
 **Morpho doc indexes for LLMs:**
 
@@ -583,13 +604,14 @@ Do not bump without checking compatibility:
 | Position table formatting | `formatter.ts` (`formatPositionUsd`, `formatPositionTokenAmount`) |
 | Vault explorer page | `src/app/vaults/page.tsx`, `VaultExplorer*.tsx` |
 | V2 deposit/withdraw/redeem | `src/lib/transactionUtilsV2.ts` |
+| Bundler3 WETH/ETH helpers | `src/lib/bundler3.ts` |
+| Force withdraw plan | `src/lib/force-withdraw-v2.ts` |
 | Transaction orchestration | `src/components/features/transactions/TransactionFlow.tsx` |
 | Vault addresses | `src/lib/vaults.ts` |
 | Vault sort / routing | `src/lib/vault-utils.ts` (`sortVaultsForDisplay`, `getVaultRoute`) |
 | Earned interest API | `src/app/api/vault/v2/[address]/earned-interest/route.ts` |
 | Morpho positions API | `src/app/api/user/morpho-positions/route.ts` |
 | Advisory agreement modal | `src/components/features/wallet/AdvisoryAgreementModal.tsx` |
-| Dev mode (transact bypass) | `VaultVersionContext.tsx`, `NavBar.tsx` Settings toggle |
 | Morpho GraphQL / fetch helper | `src/lib/api-utils.ts` (`fetchMorphoGraphQL`) |
 | V2 vault API data | `src/app/api/vault/v2/[address]/complete/route.ts` |
 | Transact state | `src/contexts/TransactionContext.tsx` |

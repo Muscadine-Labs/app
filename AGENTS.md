@@ -18,17 +18,11 @@ Instructions for AI agents working in this repo. Full architecture docs live in 
 - **wagmi must stay on 2.x** (RainbowKit 2 requirement). **eslint stays on 9.x**. Pin **`qr@0.5.5`** in `package.json` overrides (WalletConnect QR `border=0` crash with `qr@0.6.0`).
 - **Base only** (chain id 8453). **v1 MetaMorpho removed** — registry and writes are v2 Prime/Frontier only.
 - **Builder code** `bc_mwkqu9rd` on all vault txs via `src/lib/builder-code.ts`.
-- **v2 writes:** direct ERC-4626 ABIs in `src/lib/transactionUtilsV2.ts` (no Morpho bundler SDK in repo).
+- **v2 writes:** direct ERC-4626 ABIs in `src/lib/transactionUtilsV2.ts`; multi-step WETH/ETH via Morpho Bundler3 helpers in `src/lib/bundler3.ts` (no Morpho npm bundler SDK).
 - Registry: `src/lib/vaults.ts` — fields include `strategy` (`prime` | `frontier`), `vaultSymbol` (e.g. `mpUSDC`, `mfUSDC`).
 - Use `findVaultByAddress` / `isCuratedVaultAddress` from `src/lib/vault-utils.ts` — never infer vault by asset symbol alone.
 - Use `logger` from `src/lib/logger.ts`, not `console.log`.
-
-## Dev mode vs standard
-
-| Mode | Storage (`preference`) | Effect |
-|------|------------------------|--------|
-| **Standard** | `v2` | Normal product surface. Explorer filters default to **All** (network, strategy, asset). |
-| **Developer** | `all` (UI: Dev) | Same explorer defaults as standard; **transact over-balance bypass** only. No v1/v2 toggles (v1 removed). |
+- **No developer / over-balance bypass mode** — `VaultVersionContext` removed. Explorer filters default to All for everyone; transact blocks amounts over balance.
 
 ## Dashboard & positions
 
@@ -37,6 +31,13 @@ Instructions for AI agents working in this repo. Full architecture docs live in 
 - **External vaults** (not in `vaults.ts`): shown on dashboard totals, **not clickable** (no detail/transact pages).
 - **Portfolio chart:** v2 positions via `/api/user/morpho-positions` + `/api/vault/v2/.../position-history` (`aggregatePortfolioHistory` in `portfolio-utils.ts`).
 - **Earned interest:** `/api/vault/v2/.../earned-interest` + `useVaultEarnedInterest`; shows **0** (not `-`) when user never deposited. Use `resolveAssetDecimals` / `getAssetDecimalsForSymbol`.
+
+## Transaction gotchas (WETH / Bundler3)
+
+- Wrap ETH via Bundler3: fund adapter with empty calldata + `value`, then `wrapNative` with `value: 0` (`wrapNative` is non-payable).
+- Withdraw → ETH: approve **shares** to GeneralAdapter, then one Bundler3 multicall (exit to adapter → `unwrapNative`).
+- Resume unwrap only when the failed step label includes `unwrap`; never unwrap full wallet WETH from an approval receipt.
+- Force withdraw is vault `multicall` (not Bundler3); ETH unwrap is a follow-up Bundler3 tx.
 
 ## Known gotchas
 

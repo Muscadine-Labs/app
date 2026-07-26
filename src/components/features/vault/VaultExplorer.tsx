@@ -1,13 +1,16 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { useAccount } from 'wagmi';
 import { VAULTS } from '@/lib/vaults';
 import { BASE_CHAIN_ID } from '@/lib/constants';
 import { Vault } from '@/types/vault';
-import { sortVaultsForDisplay } from '@/lib/vault-utils';
+import { buildExplorerVaultCandidates, sortVaultsForDisplay } from '@/lib/vault-utils';
 import { useWallet } from '@/contexts/WalletContext';
 import { useVaultData } from '@/contexts/VaultDataContext';
 import { useIsClient } from '@/hooks/useClientOnly';
+import { useVaultListPreloader } from '@/hooks/useVaultDataFetch';
+import { Skeleton } from '@/components/ui/Skeleton';
 import VaultExplorerFilters, {
   VaultExplorerFilterState,
   getDefaultExplorerFilters,
@@ -27,17 +30,10 @@ function VaultExplorerContent({
     ...getDefaultExplorerFilters(),
     ...initialFilters,
   }));
+  const { isConnected } = useAccount();
   const { morphoHoldings } = useWallet();
   const { getVaultData } = useVaultData();
   const isMounted = useIsClient();
-
-  const depositedAddresses = useMemo(
-    () =>
-      new Set(
-        morphoHoldings.positions.map((position) => position.vault.address.toLowerCase())
-      ),
-    [morphoHoldings.positions]
-  );
 
   const filteredVaults = useMemo(() => {
     const registryVaults: Vault[] = Object.values(VAULTS).map((vault) => ({
@@ -51,11 +47,24 @@ function VaultExplorerContent({
       isCurated: true,
     }));
 
-    const filtered = registryVaults.filter((vault) => {
+    if (filters.walletFilter === 'inWallet' && !isConnected) {
+      return [];
+    }
+
+    const candidates = buildExplorerVaultCandidates(
+      registryVaults,
+      morphoHoldings.positions,
+      filters.walletFilter
+    );
+
+    const filtered = candidates.filter((vault) => {
       if (filters.network === 'base' && vault.chainId !== BASE_CHAIN_ID) return false;
       if (filters.asset !== 'all' && vault.symbol !== filters.asset) return false;
-      if (filters.strategy !== 'all' && vault.strategy !== filters.strategy) return false;
-      if (filters.inWalletOnly && !depositedAddresses.has(vault.address.toLowerCase())) {
+      if (
+        filters.strategy !== 'all' &&
+        vault.isCurated !== false &&
+        vault.strategy !== filters.strategy
+      ) {
         return false;
       }
       return true;
@@ -70,7 +79,31 @@ function VaultExplorerContent({
       morphoHoldings.positions,
       (address) => getVaultData(address)?.totalDeposits ?? 0
     );
-  }, [filters, depositedAddresses, isMounted, getVaultData, morphoHoldings.positions]);
+  }, [
+    filters,
+    isConnected,
+    isMounted,
+    getVaultData,
+    morphoHoldings.positions,
+  ]);
+
+  useVaultListPreloader(filteredVaults);
+
+  const emptyMessage = useMemo(() => {
+    if (filters.walletFilter === 'inWallet' && !isConnected) {
+      return 'Connect your wallet to see vaults you are deposited in.';
+    }
+    if (filters.walletFilter === 'inWallet') {
+      return 'No deposited vaults match the selected filters.';
+    }
+    if (filters.walletFilter === 'inWalletAndWhitelisted') {
+      return 'No vaults match the selected filters.';
+    }
+    return 'No vaults match the selected filters.';
+  }, [filters.walletFilter, isConnected]);
+
+  const walletFilterLoading =
+    filters.walletFilter === 'inWallet' && isConnected && morphoHoldings.isLoading;
 
   return (
     <div className="flex flex-col h-full w-full min-h-0">
@@ -78,7 +111,13 @@ function VaultExplorerContent({
         <VaultExplorerFilters filters={filters} onFiltersChange={setFilters} />
       )}
       <div className="flex-1 min-h-0 overflow-y-auto">
-        <VaultExplorerTable vaults={filteredVaults} />
+        {walletFilterLoading ? (
+          <div className="px-4 sm:px-6 py-8">
+            <Skeleton width="100%" height="12rem" />
+          </div>
+        ) : (
+          <VaultExplorerTable vaults={filteredVaults} emptyMessage={emptyMessage} />
+        )}
       </div>
     </div>
   );

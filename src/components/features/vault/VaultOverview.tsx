@@ -14,6 +14,7 @@ import {
   formatVaultDetailTokenAmount,
 } from '@/lib/formatter';
 import { calculateYAxisDomain } from '@/lib/vault-utils';
+import { CHART_MARGIN, getChartYAxisWidth, withLeadingChartTick } from '@/lib/chart-utils';
 import { logger } from '@/lib/logger';
 import { MorphoVaultData } from '@/types/vault';
 import { VaultLiquidityInfo } from './VaultLiquidityInfo';
@@ -47,7 +48,7 @@ type ChartType = 'apy' | 'tvl' | 'sharePrice' | 'allocations';
 
 type Period = 'all' | '7d' | '30d' | '90d' | '1y';
 
-const VAULT_CHART_MARGIN = { top: 8, right: 16, bottom: 4, left: 4 };
+const VAULT_CHART_MARGIN = CHART_MARGIN;
 
 function formatTvlYAxisTick(
   value: number,
@@ -65,7 +66,7 @@ function formatTvlYAxisTick(
 }
 
 function getTvlYAxisWidth(valueType: 'usd' | 'token'): number {
-  return valueType === 'usd' ? 120 : 128;
+  return getChartYAxisWidth(valueType === 'usd' ? 'usd' : 'tokenWide');
 }
 
 function formatSharePriceYAxisTick(
@@ -84,7 +85,7 @@ function formatSharePriceYAxisTick(
 }
 
 function getSharePriceYAxisWidth(valueType: 'usd' | 'token'): number {
-  return valueType === 'usd' ? 96 : 104;
+  return getChartYAxisWidth(valueType === 'usd' ? 'usd' : 'tokenWide');
 }
 
 const PERIOD_SECONDS: Record<Period, number> = {
@@ -577,10 +578,13 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
       }
     });
     
-    // Sort all ticks by timestamp
+    // Sort all ticks by timestamp; always anchor to first data point on "All"
     ticks.sort((a, b) => a - b);
-    
-    return ticks.length > 0 ? ticks : undefined;
+
+    return withLeadingChartTick(
+      ticks.length > 0 ? ticks : undefined,
+      firstTimestamp
+    );
   }, [period, historyData]);
 
   // Format date for tooltip - always shows accurate date/time
@@ -877,7 +881,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                 </div>
               )}
             </div>
-            <div className="w-full min-w-0 h-64 pl-1 pr-0.5">
+            <div className="w-full min-w-0 h-64">
               <ResponsiveContainer width="100%" height="100%" minHeight={256} debounce={50}>
                 {chartType === 'apy' ? (
                   <LineChart data={historyData} margin={VAULT_CHART_MARGIN}>
@@ -888,10 +892,12 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                       stroke="var(--foreground-secondary)"
                       style={{ fontSize: '12px' }}
                       ticks={period === '7d' ? get7dTicks : period === '30d' ? get30dTicks : period === '90d' ? get90dTicks : period === 'all' ? getAllTicks : undefined}
+                      padding={{ left: 0, right: 0 }}
                     />
                     <YAxis 
-                      width={52}
-                      tickMargin={6}
+                      width={getChartYAxisWidth('apy')}
+                      orientation="left"
+                      tickMargin={8}
                       domain={apyYAxisDomain}
                       tickFormatter={(value) => {
                         if (value === undefined || typeof value !== 'number') return '';
@@ -933,10 +939,12 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                       stroke="var(--foreground-secondary)"
                       style={{ fontSize: '12px' }}
                       ticks={period === '7d' ? get7dTicks : period === '30d' ? get30dTicks : period === '90d' ? get90dTicks : period === 'all' ? getAllTicks : undefined}
+                      padding={{ left: 0, right: 0 }}
                     />
                     <YAxis
                       width={getSharePriceYAxisWidth(valueType)}
-                      tickMargin={6}
+                      orientation="left"
+                      tickMargin={8}
                       domain={sharePriceYAxisDomain}
                       tickFormatter={(value) => {
                         if (value === undefined || typeof value !== 'number') return '';
@@ -982,16 +990,18 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                 ) : (
                   <AreaChart data={tvlChartData} margin={VAULT_CHART_MARGIN}>
                         <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" />
-                        <XAxis 
-                          dataKey="timestamp" 
+                        <XAxis
+                          dataKey="timestamp"
                           tickFormatter={formatDate}
                           stroke="var(--foreground-secondary)"
                           style={{ fontSize: '12px' }}
                           ticks={period === '7d' ? get7dTicks : period === '30d' ? get30dTicks : period === '90d' ? get90dTicks : period === 'all' ? getAllTicks : undefined}
+                          padding={{ left: 0, right: 0 }}
                         />
-                        <YAxis 
+                        <YAxis
                           width={getTvlYAxisWidth(valueType)}
-                          tickMargin={6}
+                          orientation="left"
+                          tickMargin={8}
                           domain={tvlYAxisDomain}
                           tickFormatter={(value) => {
                             if (value === undefined || typeof value !== 'number') return '';

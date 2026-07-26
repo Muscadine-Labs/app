@@ -2,6 +2,7 @@ import { fetchMorphoGraphQL, readMorphoGraphQLResponse } from '@/lib/api-utils';
 import {
   formatMorphoMarketName,
   getMorphoMarketUrl,
+  type MorphoMarketRateType,
 } from '@/lib/morpho-market-url';
 import { resolveAssetDecimals } from '@/lib/asset-decimals';
 import { MORPHO_GRAPHQL_REVALIDATE_SECONDS } from '@/lib/constants';
@@ -27,6 +28,10 @@ export interface VaultMarketAllocation {
   tokenDecimals: number;
   loanSymbol?: string;
   collateralSymbol?: string;
+  /** Morpho Blue variable vs fixed rate market. */
+  rateType?: MorphoMarketRateType;
+  /** LLTV raw from Morpho (1e18 scale). */
+  lltv?: string | number | null;
 }
 
 export interface VaultAllocationData {
@@ -55,6 +60,7 @@ const VAULT_ALLOCATIONS_QUERY = `
               items {
                 market {
                   marketId
+                  lltv
                   loanAsset {
                     symbol
                     decimals
@@ -87,6 +93,7 @@ type AdapterItem = {
     items?: Array<{
       market?: {
         marketId?: string;
+        lltv?: number | string;
         loanAsset?: { symbol?: string; decimals?: number };
         collateralAsset?: { symbol?: string };
         state?: {
@@ -126,7 +133,10 @@ function morphoRawAmount(value: number | string | null | undefined): string {
     }
   }
   if (!Number.isFinite(value) || value <= 0) return '0';
-  return BigInt(Math.round(value)).toString();
+  if (!Number.isSafeInteger(value)) {
+    return morphoRawAmount(value.toLocaleString('fullwide', { useGrouping: false }));
+  }
+  return BigInt(value).toString();
 }
 
 function addRawAmounts(a: string, b: string): string {
@@ -135,6 +145,14 @@ function addRawAmounts(a: string, b: string): string {
   } catch {
     return a || '0';
   }
+}
+
+/** MorphoMarketV1Adapter positions are Blue variable-rate markets. */
+function resolveMorphoAdapterRateType(
+  adapterTypename: string | undefined
+): MorphoMarketRateType {
+  if (adapterTypename?.toLowerCase().includes('fixed')) return 'fixed';
+  return 'variable';
 }
 
 /** Weighted net supply APY across vault positions + idle (matches Morpho UI). */
@@ -228,6 +246,8 @@ export function parseVaultV2AllocationsFromGraphQL(
         apy,
         loanSymbol,
         collateralSymbol,
+        rateType: resolveMorphoAdapterRateType(adapter.__typename),
+        lltv: market.lltv ?? null,
       });
     }
   }
@@ -270,7 +290,7 @@ export function parseVaultV2AllocationsFromGraphQL(
 export async function fetchVaultV2AllocationData(
   vaultAddress: string,
   chainId: number
-): Promise<VaultAllocationData & { error?: string }> {
+): Promise<VaultAllocationData & { error?: string; rateLimited?: boolean }> {
   try {
     const response = await fetchMorphoGraphQL(
       {
@@ -287,7 +307,12 @@ export async function fetchVaultV2AllocationData(
 
     if (!response.ok) {
       if (rateLimited) {
-        return { allocations: [], weightedNetApy: null, error: 'Morpho API rate limit exceeded' };
+        return {
+          allocations: [],
+          weightedNetApy: null,
+          error: 'Morpho API rate limit exceeded',
+          rateLimited: true,
+        };
       }
       return { allocations: [], weightedNetApy: null, error: `Morpho API error: ${response.status}` };
     }
@@ -324,13 +349,4 @@ export async function fetchVaultV2AllocationData(
       error: err instanceof Error ? err.message : 'Failed to load market allocations',
     };
   }
-}
-
-/** @deprecated Use fetchVaultV2AllocationData */
-export async function fetchVaultV2MarketAllocations(
-  vaultAddress: string,
-  chainId: number
-): Promise<{ allocations: VaultMarketAllocation[]; error?: string }> {
-  const result = await fetchVaultV2AllocationData(vaultAddress, chainId);
-  return { allocations: result.allocations, error: result.error };
 }

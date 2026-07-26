@@ -9,6 +9,7 @@ import {
   morphoAmountToDecimal,
   morphoAmountToRaw,
   normalizeMorphoShares,
+  resolveMorphoAssetSymbol,
 } from '@/lib/asset-decimals';
 import { isValidEthereumAddress, findVaultByAddress } from '@/lib/vault-utils';
 import { logger } from '@/lib/logger';
@@ -140,18 +141,22 @@ export async function GET(request: NextRequest) {
         }
       })
       .map((p) => {
-        const assetSymbol =
-          findVaultByAddress(p.vault.address)?.symbol ??
-          p.vault.asset?.symbol ??
-          p.vault.symbol ??
-          'UNKNOWN';
-        const assetDecimals =
-          p.vault.asset?.decimals ?? getAssetDecimalsForSymbol(assetSymbol);
+        const registryVault = findVaultByAddress(p.vault.address);
+        const assetDecimalsFromApi = p.vault.asset?.decimals ?? null;
+        const assetSymbol = resolveMorphoAssetSymbol({
+          registrySymbol: registryVault?.symbol,
+          assetSymbol: p.vault.asset?.symbol,
+          vaultSymbol: p.vault.symbol,
+          assetDecimals: assetDecimalsFromApi,
+          vaultName: p.vault.name,
+        });
+        const resolvedDecimals =
+          assetDecimalsFromApi ?? getAssetDecimalsForSymbol(assetSymbol);
         return mapPosition(
           p.vault.address,
           p.vault.name,
           assetSymbol,
-          assetDecimals,
+          resolvedDecimals,
           p.shares,
           p.assets,
           p.assetsUsd,

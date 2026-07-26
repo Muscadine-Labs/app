@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAccount } from 'wagmi';
 import { BASE_CHAIN_ID } from '@/lib/constants';
 import { calculateYAxisDomain } from '@/lib/vault-utils';
+import { CHART_MARGIN, getChartYAxisWidth, withLeadingChartTick } from '@/lib/chart-utils';
 import {
   aggregatePortfolioHistory,
   mapPortfolioHistoryToChartData,
@@ -77,6 +78,8 @@ export default function PortfolioPositionChart() {
   const portfolioVaults = useMemo((): PortfolioVault[] => {
     const seenAddresses = new Set<string>();
     return morphoHoldings.positions.flatMap((position) => {
+      // v2 only; include zero-share rows so fully withdrawn vaults still contribute history.
+      if (position.version !== 'v2') return [];
       const key = position.vault.address.toLowerCase();
       if (seenAddresses.has(key)) return [];
       seenAddresses.add(key);
@@ -137,7 +140,7 @@ export default function PortfolioPositionChart() {
   );
 
   useEffect(() => {
-    if (!address) {
+    if (!address || morphoHoldings.isLoading) {
       return;
     }
 
@@ -162,7 +165,7 @@ export default function PortfolioPositionChart() {
       cancelled = true;
       abortController.abort();
     };
-  }, [address, fetchAggregatedHistory]);
+  }, [address, fetchAggregatedHistory, morphoHoldings.isLoading]);
 
   useEffect(() => {
     if (!address) {
@@ -292,7 +295,10 @@ export default function PortfolioPositionChart() {
       }
     });
 
-    return ticks.length > 0 ? ticks : undefined;
+    return withLeadingChartTick(
+      ticks.length > 0 ? ticks : undefined,
+      sortedData[0]?.timestamp
+    );
   }, [selectedTimeFrame, filteredChartData]);
 
   return (
@@ -309,7 +315,7 @@ export default function PortfolioPositionChart() {
           <div className="h-[220px] sm:h-full sm:min-h-[280px] flex items-center justify-center bg-[var(--surface-elevated)] rounded-lg px-4">
             <p className="text-sm text-[var(--foreground-muted)]">Connect wallet to view portfolio history</p>
           </div>
-        ) : loading ? (
+        ) : loading || morphoHoldings.isLoading ? (
           <div className="bg-[var(--surface-elevated)] rounded-lg p-3 sm:p-4 h-[220px] sm:h-full sm:min-h-[280px]">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
@@ -391,7 +397,7 @@ export default function PortfolioPositionChart() {
 
             <div className="w-full min-w-0 h-[240px]">
               <ResponsiveContainer width="100%" height="100%" minHeight={240} debounce={50}>
-                <AreaChart data={filteredChartData}>
+                <AreaChart data={filteredChartData} margin={CHART_MARGIN}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" />
                   <XAxis
                     dataKey="timestamp"
@@ -400,9 +406,12 @@ export default function PortfolioPositionChart() {
                     style={{ fontSize: '12px' }}
                     interval="preserveStartEnd"
                     ticks={getChartTicks}
+                    padding={{ left: 0, right: 0 }}
                   />
                   <YAxis
-                    width={120}
+                    width={getChartYAxisWidth('usd')}
+                    orientation="left"
+                    tickMargin={8}
                     domain={yAxisDomain}
                     tickFormatter={(value) => {
                       if (value === undefined || typeof value !== 'number') return '';

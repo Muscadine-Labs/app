@@ -5,6 +5,9 @@
 // Chain configuration
 export const BASE_CHAIN_ID = 8453 as const;
 export const BASE_WETH_ADDRESS = '0x4200000000000000000000000000000000000006' as const;
+/** Morpho Bundler3 on Base — atomic multi-step vault/WETH flows. */
+export const BUNDLER3_ADDRESS = '0x6BFd8137e702540E7A42B74178A4a49Ba43920C4' as const;
+/** Morpho GeneralAdapter1 on Base (wrap/unwrap + ERC-4626 via Bundler3). */
 export const GENERAL_ADAPTER_ADDRESS = '0xb98c948CFA24072e58935BC004a8A7b376AE746A' as const;
 
 // Cache durations (in milliseconds)
@@ -12,11 +15,8 @@ export const CACHE_DURATION_PRICES = 10 * 60 * 1000; // 10 minutes
 export const CACHE_DURATION_ACTIVITY = 60 * 1000; // 1 minute
 
 // Transaction configuration
-export const MAX_WITHDRAW_QUEUE_ITEMS = 30; // Maximum items to fetch from withdraw queue
 /** ETH kept in wallet when wrapping for WETH vault deposits (matches transactionUtilsV2). */
 export const ETH_GAS_RESERVE = 0.0001;
-/** Extra pause before WETH unwrap so wallet/RPC balance catches up after vault withdraw. */
-export const UNWRAP_SETTLE_DELAY_MS = 2000;
 /** Delay before follow-up balance refresh after tx (Morpho indexer lag). */
 export const POST_TX_BALANCE_REFRESH_DELAY_MS = 5000;
 

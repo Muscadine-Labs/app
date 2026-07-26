@@ -278,6 +278,29 @@ body {
   background-color: var(--background);
 }
 
+/* RainbowKit modals above app chrome (NavBar z-50, toasts, vault modals) */
+[data-rk] {
+  --rk-z-index: 100000;
+}
+
+[data-rk] [role="dialog"],
+[data-rk] [role="dialog"] ~ div,
+[data-rk] [data-rk="overlay"] {
+  z-index: 100000 !important;
+}
+
+/* WalletConnect / Reown AppKit QR modal above RainbowKit when connecting via WC */
+w3m-modal,
+appkit-modal {
+  z-index: 100001 !important;
+}
+
+/* Wallet list rows must stay clickable (do not inherit pointer-events: none) */
+[data-rk] [role="dialog"] button[data-testid^="rk-wallet-option"] {
+  pointer-events: auto !important;
+  cursor: pointer !important;
+}
+
 /* RainbowKit ConnectButton styling to match app buttons */
 [data-rk] button {
   font-size: 0.875rem !important; /* text-sm = 14px */

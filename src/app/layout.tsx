@@ -8,8 +8,11 @@ import { Providers } from './Providers'
 import { config } from '@/config/wagmi'
 import { PriceProvider } from '@/contexts/PriceContext'
 import { Analytics } from '@vercel/analytics/react'
+import { ClientHydrated } from '@/components/common/ClientHydrated'
 import { getAppUrl } from '@/lib/app-url'
 import { BASE_APP_ID } from '@/lib/base-app'
+
+const appUrl = getAppUrl()
 
 const figtree = Figtree({
   subsets: ['latin'],
@@ -37,16 +40,32 @@ const tinos = Tinos({
   variable: '--font-tinos',
 })
 
-const appUrl = getAppUrl()
-
 export const metadata: Metadata = {
   metadataBase: new URL(appUrl),
   title: 'Muscadine Vaults',
-  description: 'Powered by Muscadine Labs',
+  description: 'Deposit into curated Morpho vaults on Base. Track portfolio, APY, and allocations.',
+  applicationName: 'Muscadine Vaults',
   icons: {
     icon: '/favicon.png',
     shortcut: '/favicon.png',
     apple: '/favicon.png',
+  },
+  alternates: {
+    canonical: appUrl,
+  },
+  openGraph: {
+    type: 'website',
+    url: appUrl,
+    siteName: 'Muscadine Vaults',
+    title: 'Muscadine Vaults',
+    description: 'Curated Morpho vaults on Base — deposit, withdraw, and track your portfolio.',
+    images: [{ url: '/favicon.png', width: 512, height: 512, alt: 'Muscadine Vaults' }],
+  },
+  twitter: {
+    card: 'summary',
+    title: 'Muscadine Vaults',
+    description: 'Curated Morpho vaults on Base.',
+    images: ['/favicon.png'],
   },
   other: {
     'base:app_id': BASE_APP_ID,
@@ -66,7 +85,9 @@ export default async function RootLayout({
       <body className={`${figtree.className} ${funnelDisplay.variable} ${outfit.variable} ${tinos.variable}`}>
           <Providers initialState={initialState}>
               <PriceProvider>
-                <AppLayout>{children}</AppLayout>
+                <ClientHydrated>
+                  <AppLayout>{children}</AppLayout>
+                </ClientHydrated>
               </PriceProvider>
           </Providers>
           <Analytics />

@@ -26,11 +26,21 @@ export async function GET(
     }
 
     const chainId = parseInt(chainIdParam, 10);
-    const { allocations, weightedNetApy, error } = await fetchVaultV2AllocationData(address, chainId);
+    const { allocations, weightedNetApy, error, rateLimited } =
+      await fetchVaultV2AllocationData(address, chainId);
 
-    if (error?.includes('rate limit')) {
-      return NextResponse.json({ ...MORPHO_RATE_LIMIT_BODY, allocations: [], weightedNetApy: null }, { status: 503 });
+    if (rateLimited) {
+      return NextResponse.json(
+        { ...MORPHO_RATE_LIMIT_BODY, allocations: [], weightedNetApy: null },
+        { status: 503, headers: { 'Cache-Control': 'no-store' } }
+      );
     }
+
+    const cacheHeaders = error
+      ? { 'Cache-Control': 'no-store' }
+      : {
+          'Cache-Control': `public, s-maxage=${MORPHO_GRAPHQL_REVALIDATE_SECONDS}, stale-while-revalidate=${MORPHO_GRAPHQL_REVALIDATE_SECONDS * 2}`,
+        };
 
     return NextResponse.json(
       {
@@ -40,11 +50,7 @@ export async function GET(
         cached: false,
         timestamp: Date.now(),
       },
-      {
-        headers: {
-          'Cache-Control': `public, s-maxage=${MORPHO_GRAPHQL_REVALIDATE_SECONDS}, stale-while-revalidate=${MORPHO_GRAPHQL_REVALIDATE_SECONDS * 2}`,
-        },
-      }
+      { headers: cacheHeaders }
     );
   } catch (error) {
     logger.error(
