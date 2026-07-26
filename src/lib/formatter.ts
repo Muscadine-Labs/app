@@ -1,4 +1,5 @@
 import { formatUnits, parseUnits, type Address } from 'viem';
+import { getAssetDecimalsForSymbol } from '@/lib/asset-decimals';
 
 /**
  * A flexible, locale-aware number formatter.
@@ -107,11 +108,61 @@ export function formatSmartCurrency(
 }
 
 /**
- * Formats asset amounts with appropriate precision based on token type.
- * @param value - The asset amount (in wei or smallest unit).
- * @param decimals - The token's decimals.
- * @param symbol - The token symbol.
- * @returns A formatted asset amount string (e.g., "1.5 WETH", "0.25 cbBTC").
+ * Canonical UI display fraction digits (not transactions).
+ * USDC 6 · cbBTC / ETH / WETH 8 — full chain decimals only for txs.
+ */
+export function getDisplayFractionDigits(symbol: string): number {
+  const normalized = symbol.toUpperCase();
+  if (normalized === 'USDC') return 6;
+  if (
+    normalized === 'ETH' ||
+    normalized === 'WETH' ||
+    normalized === 'CBBTC' ||
+    normalized === 'CBTC' ||
+    normalized === 'BTC'
+  ) {
+    return 8;
+  }
+  return getAssetDecimalsForSymbol(symbol);
+}
+
+/** @deprecated Prefer getDisplayFractionDigits — same native decimals. */
+export function getPositionDisplayFractionDigits(symbol: string): number {
+  return getDisplayFractionDigits(symbol);
+}
+
+/** @deprecated Prefer getDisplayFractionDigits — same native decimals. */
+export function getVaultV2TokenFractionDigits(symbol: string): number {
+  return getDisplayFractionDigits(symbol);
+}
+
+/** Vault detail My Position / earned interest — native decimals. */
+export function getVaultDetailFractionDigits(symbol: string): number {
+  return getDisplayFractionDigits(symbol);
+}
+
+/**
+ * Formats a bigint token amount as a decimal string without floating-point loss.
+ * Trims to maxFractionDigits and strips trailing zeros.
+ */
+export function formatUnitsForDisplay(
+  value: bigint,
+  decimals: number,
+  maxFractionDigits: number
+): string {
+  const full = formatUnits(value, decimals);
+  const negative = full.startsWith('-');
+  const body = negative ? full.slice(1) : full;
+  const [ints, fracs = ''] = body.split('.');
+  const clipped = fracs.slice(0, Math.max(0, Math.min(maxFractionDigits, 20))).replace(/0+$/, '');
+  const intFormatted = ints.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  const result = clipped.length > 0 ? `${intFormatted}.${clipped}` : intFormatted;
+  return negative ? `-${result}` : result;
+}
+
+/**
+ * Formats asset amounts with native token precision (UI display).
+ * Uses string/bigint path — Number loses precision past ~15 significant digits.
  */
 export function formatAssetAmount(
   value: bigint | string,
@@ -119,63 +170,42 @@ export function formatAssetAmount(
   symbol: string,
   options: Intl.NumberFormatOptions = {}
 ): string {
-  const decimalValue = formatUnits(BigInt(value), decimals);
-  const numberValue = Number(decimalValue);
-  
-  if (isNaN(numberValue)) return `0 ${symbol}`;
-  
-  // Set appropriate precision based on token type (fallback when callers omit options)
-  const normalized = symbol.toUpperCase();
-  const defaultMaxFractionDigits =
-    normalized === 'WETH'
-      ? 6
-      : normalized === 'CBBTC' || normalized === 'CBTC' || normalized === 'BTC'
-        ? 6
-        : 2;
-  const defaultOptions: Intl.NumberFormatOptions = {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: defaultMaxFractionDigits,
-    ...options,
-  };
-  
-  const formattedAmount = formatNumber(numberValue, defaultOptions);
-  return `${formattedAmount} ${symbol}`;
-}
-
-/** Fraction digits for dashboard / vault explorer tables (USDC: 2, WETH/cbBTC: 6). */
-export function getPositionDisplayFractionDigits(symbol: string): number {
-  const normalized = symbol.toUpperCase();
-  if (normalized === 'USDC') return 2;
-  if (normalized === 'WETH' || normalized === 'CBBTC' || normalized === 'CBTC' || normalized === 'BTC') {
-    return 6;
+  const fractionDigits = Math.min(getDisplayFractionDigits(symbol), 20);
+  const raw = typeof value === 'bigint' ? value : BigInt(value);
+  if (raw === BigInt(0)) {
+    return `0 ${symbol}`;
   }
-  return 2;
-}
 
-/** Fixed fraction digits for /vault/v2 token amounts (USDC: 6, WETH/cbBTC: 8). */
-export function getVaultV2TokenFractionDigits(symbol: string): number {
-  const normalized = symbol.toUpperCase();
-  if (normalized === 'USDC') return 6;
-  if (normalized === 'WETH' || normalized === 'CBBTC' || normalized === 'CBTC' || normalized === 'BTC') {
-    return 8;
+  const maxDigits =
+    typeof options.maximumFractionDigits === 'number'
+      ? Math.min(options.maximumFractionDigits, 20)
+      : fractionDigits;
+
+  // When callers force fixed trailing zeros (min === max), pad fraction.
+  const minDigits =
+    typeof options.minimumFractionDigits === 'number' ? options.minimumFractionDigits : 0;
+
+  if (minDigits > 0 && minDigits === maxDigits) {
+    const full = formatUnits(raw, decimals);
+    const [ints, fracs = ''] = full.replace(/^-/, '').split('.');
+    const padded = `${fracs}${'0'.repeat(maxDigits)}`.slice(0, maxDigits);
+    const intFormatted = ints.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    const sign = full.startsWith('-') ? '-' : '';
+    return `${sign}${intFormatted}.${padded} ${symbol}`;
   }
-  return 2;
+
+  return `${formatUnitsForDisplay(raw, decimals, maxDigits)} ${symbol}`;
 }
 
-/** Fraction digits for vault detail My Position hero (fixed trailing zeros). */
-export function getVaultDetailFractionDigits(symbol: string): number {
-  return getVaultV2TokenFractionDigits(symbol);
-}
-
-/** Full-precision position / earned-interest token amount for tables (USDC: 2, WETH/cbBTC: 6). */
+/** Position / table token amount from raw chain units (native decimals). */
 export function formatPositionTokenAmount(
   rawValue: string | undefined,
   decimals: number,
   symbol: string
 ): string {
-  const fractionDigits = getPositionDisplayFractionDigits(symbol);
+  const fractionDigits = Math.min(getDisplayFractionDigits(symbol), 20);
   const zeroLabel = `${formatNumber(0, {
-    minimumFractionDigits: fractionDigits,
+    minimumFractionDigits: 0,
     maximumFractionDigits: fractionDigits,
   })} ${symbol}`;
 
@@ -185,7 +215,7 @@ export function formatPositionTokenAmount(
     const raw = BigInt(rawValue);
     if (raw === BigInt(0)) return zeroLabel;
     return formatAssetAmount(raw, decimals, symbol, {
-      minimumFractionDigits: fractionDigits,
+      minimumFractionDigits: 0,
       maximumFractionDigits: fractionDigits,
     });
   } catch {
@@ -193,9 +223,20 @@ export function formatPositionTokenAmount(
   }
 }
 
-/** Fixed fraction digits for vault detail chart token toggles (position, TVL). */
+/** Chart token toggles / axes — compact (not full 18) for readable ticks. */
 export function getVaultChartTokenFractionDigits(symbol: string): number {
-  return getVaultV2TokenFractionDigits(symbol);
+  const normalized = symbol.toUpperCase();
+  if (normalized === 'USDC') return 2;
+  if (
+    normalized === 'WETH' ||
+    normalized === 'ETH' ||
+    normalized === 'CBBTC' ||
+    normalized === 'CBTC' ||
+    normalized === 'BTC'
+  ) {
+    return 6;
+  }
+  return 2;
 }
 
 /** viem parseUnits rejects scientific notation; chart values are already decimal numbers. */
@@ -205,25 +246,11 @@ export function chartTokenAmountToRaw(value: number, assetDecimals: number): big
   return parseUnits(decimalString, assetDecimals);
 }
 
-/** Fixed fraction digits for chart Y-axis USD ticks. */
-const CHART_AXIS_USD_FRACTION_DIGITS = 2;
-
 /** Fixed fraction digits for chart Y-axis token ticks (USDC and default). */
 const CHART_AXIS_STABLE_FRACTION_DIGITS = 2;
 
 /** Fixed fraction digits for chart Y-axis WETH / cbBTC token ticks. */
 const CHART_AXIS_WETH_CBBTC_FRACTION_DIGITS = 6;
-
-/** Fraction digits for chart Y-axis USD ticks. */
-export function getChartUsdAxisFractionDigits(): {
-  minimumFractionDigits: number;
-  maximumFractionDigits: number;
-} {
-  return {
-    minimumFractionDigits: CHART_AXIS_USD_FRACTION_DIGITS,
-    maximumFractionDigits: CHART_AXIS_USD_FRACTION_DIGITS,
-  };
-}
 
 /** Fraction digits for chart Y-axis token ticks. */
 export function getChartTokenAxisFractionDigits(symbol: string): {
@@ -233,6 +260,7 @@ export function getChartTokenAxisFractionDigits(symbol: string): {
   const normalized = symbol.toUpperCase();
   const digits =
     normalized === 'WETH' ||
+    normalized === 'ETH' ||
     normalized === 'CBBTC' ||
     normalized === 'CBTC' ||
     normalized === 'BTC'
@@ -263,19 +291,32 @@ export function formatSharePriceAxisTokenValue(
   return formatted.replace(` ${symbol}`, '').trim();
 }
 
-/** Full USD label for chart Y-axis ticks (not abbreviated). */
+/**
+ * Compact USD label for chart Y-axis ticks ($85, $1.2K, $2.5M)
+ * so labels stay short and do not clip in the axis gutter.
+ */
 export function formatChartUsdAxisValue(value: number): string {
   const numberValue = Number(value);
   if (!Number.isFinite(numberValue)) return '';
 
-  const { minimumFractionDigits, maximumFractionDigits } = getChartUsdAxisFractionDigits();
+  const abs = Math.abs(numberValue);
+  if (abs === 0) return '$0';
 
-  return formatNumber(numberValue, {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits,
-    maximumFractionDigits,
-  });
+  if (abs < 1000) {
+    if (abs >= 100) return `$${Math.round(numberValue)}`;
+    if (abs >= 10) return `$${numberValue.toFixed(1)}`;
+    return `$${numberValue.toFixed(2)}`;
+  }
+  if (abs < 1_000_000) {
+    const k = numberValue / 1000;
+    return `$${k >= 100 ? k.toFixed(0) : k.toFixed(1)}K`;
+  }
+  if (abs < 1_000_000_000) {
+    const m = numberValue / 1_000_000;
+    return `$${m >= 100 ? m.toFixed(0) : m.toFixed(1)}M`;
+  }
+  const b = numberValue / 1_000_000_000;
+  return `$${b >= 100 ? b.toFixed(0) : b.toFixed(1)}B`;
 }
 
 /** Full token label for chart Y-axis ticks (no symbol suffix). */
@@ -350,13 +391,13 @@ export function formatVaultChartTokenAxisTick(
   return formatChartTokenAxisValue(value, assetDecimals, symbol);
 }
 
-/** Vault detail page: deposits + earned interest (fixed trailing zeros per asset). */
+/** Vault detail page: deposits + earned interest (native decimals, fixed trailing zeros). */
 export function formatVaultDetailTokenAmount(
   rawValue: string | undefined,
   decimals: number,
   symbol: string
 ): string {
-  const fractionDigits = getVaultDetailFractionDigits(symbol);
+  const fractionDigits = Math.min(getVaultDetailFractionDigits(symbol), 20);
   const zeroLabel = `${formatNumber(0, {
     minimumFractionDigits: fractionDigits,
     maximumFractionDigits: fractionDigits,
@@ -418,8 +459,8 @@ export function formatAssetBalance(
   assetDecimals?: number,
   includeSymbol: boolean = true
 ): string {
-  // Use the asset's actual decimals, defaulting to 18 if not provided
-  const maxPrecision = assetDecimals ?? 18;
+  // Transaction / available balance UI: full token decimals
+  const maxPrecision = assetDecimals ?? getAssetDecimalsForSymbol(symbol);
   
   // For string inputs, try to work with the string directly for better precision
   // Only parse to number when necessary
@@ -533,12 +574,11 @@ export function formatAssetAmountForMax(
   assetDecimals?: number
 ): string {
   if (amount <= 0) return '0';
-  
-  // For input fields, preserve full precision based on asset decimals
-  // Use the asset's actual decimals, defaulting to 18 if not provided
-  const precision = assetDecimals ?? 18;
+
+  // Transaction / MAX input: always full token decimals
+  const precision = assetDecimals ?? getAssetDecimalsForSymbol(symbol);
   const formatted = amount.toFixed(precision);
-  
+
   // Remove trailing zeros and unnecessary decimal point
   return formatted.replace(/\.?0+$/, '') || '0';
 }

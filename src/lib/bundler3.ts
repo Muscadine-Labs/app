@@ -15,6 +15,7 @@ import {
 import { base } from 'viem/chains';
 import { builderWriteOpts } from '@/lib/builder-code';
 import {
+  BASE_CHAIN_ID,
   BASE_WETH_ADDRESS,
   BUNDLER3_ADDRESS,
   GENERAL_ADAPTER_ADDRESS,
@@ -22,10 +23,39 @@ import {
 import { logger } from '@/lib/logger';
 import type { TransactionProgressCallback } from '@/types/transactions';
 
-/** No deposit slippage guard (matches prior direct ERC-4626 deposits). */
-const BUNDLER_MAX_SHARE_PRICE_E27 = maxUint256;
-/** No withdraw slippage floor. */
-const BUNDLER_MIN_SHARE_PRICE_E27 = BigInt(0);
+/** Default Bundler3 share-price slippage (0.5%). */
+export const BUNDLER_SLIPPAGE_BPS = BigInt(50);
+
+const SHARE_PRICE_SCALE_E27 = BigInt(10) ** BigInt(27);
+
+/**
+ * Morpho adapter maxSharePriceE27: max assets paid per share, scaled by 1e27.
+ * Quote from convertToShares(assets) → assets/shares, then apply upside tolerance.
+ */
+export function maxSharePriceE27FromQuote(
+  assets: bigint,
+  shares: bigint,
+  slippageBps: bigint = BUNDLER_SLIPPAGE_BPS
+): bigint {
+  if (shares === BigInt(0) || assets === BigInt(0)) return maxUint256;
+  // Morpho checks assets.rDivUp(shares) <= maxSharePriceE27 (ceil division).
+  const price = (assets * SHARE_PRICE_SCALE_E27) / shares;
+  return price + (price * slippageBps) / BigInt(10_000) + BigInt(1);
+}
+
+/**
+ * Morpho adapter minSharePriceE27: min assets received per share, scaled by 1e27.
+ */
+export function minSharePriceE27FromQuote(
+  assets: bigint,
+  shares: bigint,
+  slippageBps: bigint = BUNDLER_SLIPPAGE_BPS
+): bigint {
+  if (shares === BigInt(0) || assets === BigInt(0)) return BigInt(0);
+  const price = (assets * SHARE_PRICE_SCALE_E27) / shares;
+  const slip = (price * slippageBps) / BigInt(10_000);
+  return price > slip ? price - slip : BigInt(0);
+}
 
 export type Bundler3Call = {
   to: Address;
@@ -194,13 +224,14 @@ function buildErc20TransferFromCall(
 function buildErc4626DepositCall(
   vault: Address,
   assets: bigint,
-  receiver: Address
+  receiver: Address,
+  maxSharePriceE27: bigint
 ): Bundler3Call {
   return adapterCall(
     encodeFunctionData({
       abi: GENERAL_ADAPTER_ABI,
       functionName: 'erc4626Deposit',
-      args: [vault, assets, BUNDLER_MAX_SHARE_PRICE_E27, receiver],
+      args: [vault, assets, maxSharePriceE27, receiver],
     })
   );
 }
@@ -209,13 +240,14 @@ function buildErc4626WithdrawCall(
   vault: Address,
   assets: bigint,
   receiver: Address,
-  owner: Address
+  owner: Address,
+  minSharePriceE27: bigint
 ): Bundler3Call {
   return adapterCall(
     encodeFunctionData({
       abi: GENERAL_ADAPTER_ABI,
       functionName: 'erc4626Withdraw',
-      args: [vault, assets, BUNDLER_MIN_SHARE_PRICE_E27, receiver, owner],
+      args: [vault, assets, minSharePriceE27, receiver, owner],
     })
   );
 }
@@ -224,13 +256,14 @@ function buildErc4626RedeemCall(
   vault: Address,
   shares: bigint,
   receiver: Address,
-  owner: Address
+  owner: Address,
+  minSharePriceE27: bigint
 ): Bundler3Call {
   return adapterCall(
     encodeFunctionData({
       abi: GENERAL_ADAPTER_ABI,
       functionName: 'erc4626Redeem',
-      args: [vault, shares, BUNDLER_MIN_SHARE_PRICE_E27, receiver, owner],
+      args: [vault, shares, minSharePriceE27, receiver, owner],
     })
   );
 }
@@ -242,8 +275,17 @@ export function buildWethVaultNativeDepositBundle(params: {
   ethToWrap: bigint;
   wethFromWallet: bigint;
   totalAssets: bigint;
+  /** From convertToShares(totalAssets) + slippage; defaults to maxUint256 if omitted. */
+  maxSharePriceE27?: bigint;
 }): Bundler3Call[] {
-  const { vault, user, ethToWrap, wethFromWallet, totalAssets } = params;
+  const {
+    vault,
+    user,
+    ethToWrap,
+    wethFromWallet,
+    totalAssets,
+    maxSharePriceE27 = maxUint256,
+  } = params;
   const calls: Bundler3Call[] = [];
 
   if (ethToWrap > BigInt(0)) {
@@ -256,7 +298,7 @@ export function buildWethVaultNativeDepositBundle(params: {
       buildErc20TransferFromCall(BASE_WETH_ADDRESS, GENERAL_ADAPTER_ADDRESS, wethFromWallet)
     );
   }
-  calls.push(buildErc4626DepositCall(vault, totalAssets, user));
+  calls.push(buildErc4626DepositCall(vault, totalAssets, user, maxSharePriceE27));
   return calls;
 }
 
@@ -266,14 +308,22 @@ export function buildWethVaultWithdrawToEthBundle(params: {
   user: Address;
   mode: 'withdraw' | 'redeem';
   assetsOrShares: bigint;
+  /** From assets/shares quote + slippage; defaults to 0 if omitted. */
+  minSharePriceE27?: bigint;
 }): Bundler3Call[] {
-  const { vault, user, mode, assetsOrShares } = params;
+  const {
+    vault,
+    user,
+    mode,
+    assetsOrShares,
+    minSharePriceE27 = BigInt(0),
+  } = params;
   const toAdapter = GENERAL_ADAPTER_ADDRESS;
 
   const exitCall =
     mode === 'withdraw'
-      ? buildErc4626WithdrawCall(vault, assetsOrShares, toAdapter, user)
-      : buildErc4626RedeemCall(vault, assetsOrShares, toAdapter, user);
+      ? buildErc4626WithdrawCall(vault, assetsOrShares, toAdapter, user, minSharePriceE27)
+      : buildErc4626RedeemCall(vault, assetsOrShares, toAdapter, user, minSharePriceE27);
 
   return [
     exitCall,
@@ -307,6 +357,11 @@ export async function executeBundler3Multicall(
   }
   if (calls.length === 0) {
     throw new Error('Empty Bundler3 bundle');
+  }
+  if (walletClient.chain && walletClient.chain.id !== BASE_CHAIN_ID) {
+    throw new Error(
+      `Wrong network: Bundler3 is Base-only (chain ${BASE_CHAIN_ID}), got ${walletClient.chain.id}`
+    );
   }
 
   const stepIndex = options?.stepIndex ?? 0;

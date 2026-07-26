@@ -63,8 +63,8 @@ function formatCompactTokenAmount(rawValue: string | undefined, decimals: number
   } else {
     const fractionDigits = getPositionDisplayFractionDigits(symbol);
     formatted = formatNumber(value, {
-      minimumFractionDigits: fractionDigits,
-      maximumFractionDigits: fractionDigits,
+      minimumFractionDigits: 0,
+      maximumFractionDigits: Math.min(fractionDigits, 20),
     });
   }
 
@@ -216,20 +216,29 @@ function VaultExplorerMobileCard({ vault, showYourPosition }: VaultExplorerRowPr
   const loading = isLoading(vault.address);
   const decimals = resolveAssetDecimals(vault.symbol, vaultData?.assetDecimals);
   const isCurated = vault.isCurated !== false;
-  const openVault = () => router.push(getVaultRoute(vault.address));
+  const openVault = () => {
+    if (!isCurated) return;
+    router.push(getVaultRoute(vault.address));
+  };
+  const wrapperProps = isCurated
+    ? {
+        role: 'button' as const,
+        tabIndex: 0,
+        onClick: openVault,
+        onKeyDown: (event: KeyboardEvent) => handleRowKeyDown(event, openVault),
+        className:
+          'w-full text-left px-4 py-4 border-b border-[var(--border)] hover:bg-[var(--surface-hover)] active:bg-[var(--surface-hover)] transition-colors touch-manipulation cursor-pointer',
+      }
+    : {
+        className: 'w-full text-left px-4 py-4 border-b border-[var(--border)]',
+      };
 
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      onClick={openVault}
-      onKeyDown={(event) => handleRowKeyDown(event, openVault)}
-      className="w-full text-left px-4 py-4 border-b border-[var(--border)] hover:bg-[var(--surface-hover)] active:bg-[var(--surface-hover)] transition-colors touch-manipulation cursor-pointer"
-    >
+    <div {...wrapperProps}>
       <div className="flex items-start gap-3 mb-3">
         <VaultLogo vault={vault} />
         <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-medium text-[var(--foreground)]">{vault.name}</span>
             <span className="inline-flex rounded-md bg-[var(--surface-elevated)] px-2 py-0.5 text-[10px] font-medium text-[var(--foreground-secondary)]">
               Base
@@ -310,15 +319,23 @@ function DashboardVaultMobileCard({
     ? formatPositionTokenAmount(positionAssets, decimals, vault.symbol)
     : '-';
   const isCurated = vault.isCurated !== false;
-  const openVault = () => router.push(getVaultRoute(vault.address));
-  const wrapperProps = {
-    role: 'button' as const,
-    tabIndex: 0,
-    onClick: openVault,
-    onKeyDown: (event: KeyboardEvent) => handleRowKeyDown(event, openVault),
-    className:
-      'w-full text-left px-4 py-4 border-b border-[var(--border)] hover:bg-[var(--surface-hover)] active:bg-[var(--surface-hover)] transition-colors touch-manipulation cursor-pointer',
+  const openVault = () => {
+    if (!isCurated) return;
+    router.push(getVaultRoute(vault.address));
   };
+  const wrapperProps = isCurated
+    ? {
+        role: 'button' as const,
+        tabIndex: 0,
+        onClick: openVault,
+        onKeyDown: (event: KeyboardEvent) => handleRowKeyDown(event, openVault),
+        className:
+          'w-full text-left px-4 py-4 border-b border-[var(--border)] hover:bg-[var(--surface-hover)] active:bg-[var(--surface-hover)] transition-colors touch-manipulation cursor-pointer',
+      }
+    : {
+        className:
+          'w-full text-left px-4 py-4 border-b border-[var(--border)]',
+      };
 
   return (
     <div {...wrapperProps}>
@@ -327,9 +344,6 @@ function DashboardVaultMobileCard({
         <div className="min-w-0">
           <span className="text-sm font-medium text-[var(--foreground)] block">{vault.name}</span>
           <span className="text-[10px] text-[var(--foreground-muted)]">{vault.symbol}</span>
-          <span className="text-[10px] text-[var(--foreground-muted)] block">
-            {isCurated ? 'Whitelisted' : 'External vault'}
-          </span>
         </div>
       </div>
 
@@ -492,8 +506,75 @@ function VaultExplorerRow({ vault, showYourPosition }: VaultExplorerRowProps) {
   const isCurated = vault.isCurated !== false;
 
   const handleClick = () => {
+    if (!isCurated) return;
     router.push(getVaultRoute(vault.address));
   };
+
+  if (!isCurated) {
+    return (
+      <tr className="border-b border-[var(--border)]">
+        <td className="px-4 sm:px-6 py-4 align-middle">
+          <span className="inline-flex rounded-md bg-[var(--surface-elevated)] px-2.5 py-1 text-xs font-medium text-[var(--foreground-secondary)]">
+            Base
+          </span>
+        </td>
+
+        <td className="px-4 sm:px-6 py-4 align-middle">
+          <div className="flex items-center gap-3 min-w-[180px]">
+            <VaultLogo vault={vault} />
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-[var(--foreground)] truncate">{vault.name}</span>
+                <span className="shrink-0 text-[10px] text-[var(--foreground-muted)]">External</span>
+              </div>
+            </div>
+          </div>
+        </td>
+
+        {showYourPosition && (
+          <td className="px-4 sm:px-6 py-4 align-middle text-right">
+            <PositionCell vault={vault} loading={loading} />
+          </td>
+        )}
+
+        <td className="px-4 sm:px-6 py-4 align-middle text-right">
+          <ValueCell
+            rawValue={vaultData?.totalAssets}
+            usdValue={vaultData?.totalDeposits}
+            decimals={decimals}
+            symbol={vault.symbol}
+            loading={loading}
+          />
+        </td>
+
+        <td className="px-4 sm:px-6 py-4 align-middle text-right">
+          <ValueCell
+            rawValue={resolveTotalUnderlyingLiquidityAssets(
+              vaultData?.liquidityBreakdown,
+              vaultData?.liquidityAssets ?? vaultData?.totalAssets
+            )}
+            usdValue={resolveTotalUnderlyingLiquidityUsd(
+              vaultData?.liquidityBreakdown,
+              vaultData?.currentLiquidity
+            )}
+            decimals={decimals}
+            symbol={vault.symbol}
+            loading={loading}
+          />
+        </td>
+
+        <td className="px-4 sm:px-6 py-4 align-middle text-right">
+          {loading || !vaultData ? (
+            <Skeleton width="3.5rem" height="1rem" className="ml-auto" />
+          ) : (
+            <span className="text-sm font-semibold text-[var(--primary)] tabular-nums">
+              {formatPercentage(vaultData.apy)}
+            </span>
+          )}
+        </td>
+      </tr>
+    );
+  }
 
   return (
     <tr
@@ -514,12 +595,7 @@ function VaultExplorerRow({ vault, showYourPosition }: VaultExplorerRowProps) {
         <div className="flex items-center gap-3 min-w-[180px]">
           <VaultLogo vault={vault} />
           <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-[var(--foreground)] truncate">{vault.name}</span>
-              {!isCurated ? (
-                <span className="shrink-0 text-[10px] text-[var(--foreground-muted)]">External</span>
-              ) : null}
-            </div>
+            <span className="text-sm font-medium text-[var(--foreground)] truncate block">{vault.name}</span>
           </div>
         </div>
       </td>
@@ -637,13 +713,11 @@ export default function VaultExplorerTable({
 interface DashboardVaultTableProps {
   vaults: Vault[];
   emptyMessage?: string;
-  showBrowseLink?: boolean;
 }
 
 export function DashboardVaultTable({
   vaults,
   emptyMessage = 'No vault deposits yet.',
-  showBrowseLink = false,
 }: DashboardVaultTableProps) {
   const router = useRouter();
   const isMounted = useIsClient();
@@ -663,22 +737,13 @@ export function DashboardVaultTable({
     return (
       <div className="px-4 py-12 text-center">
         <p className="text-sm text-[var(--foreground-muted)]">{emptyMessage}</p>
-        {showBrowseLink && (
-          <button
-            type="button"
-            onClick={() => router.push('/vaults')}
-            className="mt-3 text-sm text-[var(--primary)] hover:underline cursor-pointer"
-          >
-            Browse available vaults
-          </button>
-        )}
       </div>
     );
   }
 
   return (
     <>
-      <div className="min-[1000px]:hidden">
+      <div className="min-[800px]:hidden">
         {vaults.map((vault) => {
           const vaultData = getVaultData(vault.address) as MorphoVaultData | null;
           const loading = isLoading(vault.address);
@@ -703,7 +768,7 @@ export function DashboardVaultTable({
         })}
       </div>
 
-      <div className="hidden min-[1000px]:block min-w-0">
+      <div className="hidden min-[800px]:block min-w-0">
       <table className="w-full table-fixed">
         <colgroup>
           <col className="w-[28%]" />
@@ -734,18 +799,29 @@ export function DashboardVaultTable({
               ? formatPositionTokenAmount(position.assets, decimals, vault.symbol)
               : '-';
 
-            const openVault = () => router.push(getVaultRoute(vault.address));
+            const openVault = () => {
+              if (vault.isCurated === false) return;
+              router.push(getVaultRoute(vault.address));
+            };
             const isCurated = vault.isCurated !== false;
 
             return (
               <tr
                 key={vault.address}
-                role="button"
-                tabIndex={0}
-                aria-label={`Open ${vault.name}`}
-                onClick={openVault}
-                onKeyDown={(event) => handleRowKeyDown(event, openVault)}
-                className="border-b border-[var(--border)] hover:bg-[var(--surface-hover)] transition-colors cursor-pointer"
+                role={isCurated ? 'button' : undefined}
+                tabIndex={isCurated ? 0 : undefined}
+                aria-label={isCurated ? `Open ${vault.name}` : undefined}
+                onClick={isCurated ? openVault : undefined}
+                onKeyDown={
+                  isCurated
+                    ? (event) => handleRowKeyDown(event, openVault)
+                    : undefined
+                }
+                className={`border-b border-[var(--border)] transition-colors ${
+                  isCurated
+                    ? 'hover:bg-[var(--surface-hover)] cursor-pointer'
+                    : 'cursor-default'
+                }`}
               >
                 <td className="px-2 py-3 align-middle">
                   <div className="flex items-center gap-2 min-w-0">
@@ -753,9 +829,6 @@ export function DashboardVaultTable({
                     <div className="min-w-0">
                       <span className="text-sm font-medium text-[var(--foreground)] truncate block">{vault.name}</span>
                       <span className="text-[10px] text-[var(--foreground-muted)]">{vault.symbol}</span>
-                      <span className="text-[10px] text-[var(--foreground-muted)] block">
-                        {isCurated ? 'Whitelisted' : 'External vault'}
-                      </span>
                     </div>
                   </div>
                 </td>

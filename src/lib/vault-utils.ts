@@ -228,25 +228,14 @@ export function buildExplorerVaultCandidates(
   return dedupeVaultsByAddress([...registryVaults, ...externalVaults]);
 }
 
-/** Registry vault or external stub — used by vault detail pages. */
-export function resolveVaultForPage(
-  address: string,
-  walletPosition?: WalletMorphoPosition
-): Vault | null {
+/** Whitelisted registry vault only — external Morpho positions have no detail page. */
+export function resolveVaultForPage(address: string): Vault | null {
   if (!address || !isValidEthereumAddress(address)) return null;
 
   const registryVault = findVaultByAddress(address);
   if (registryVault?.version === 'v2') return registryVault;
 
-  return createExternalVaultStub(address, {
-    name: walletPosition?.vault.name,
-    symbol: resolveMorphoAssetSymbol({
-      assetSymbol: walletPosition?.vault.symbol,
-      assetDecimals: walletPosition?.assetDecimals,
-      vaultName: walletPosition?.vault.name,
-    }),
-    chainId: BASE_CHAIN_ID,
-  });
+  return null;
 }
 
 /** Vault write/read product surface is v2 only. */

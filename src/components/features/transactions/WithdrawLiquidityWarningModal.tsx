@@ -43,7 +43,9 @@ export function WithdrawLiquidityWarningModal({
       isOpen={isOpen}
       onClose={onClose}
       title="Forced withdrawal required"
+      showCloseButton={!isPreparingForce}
       closeOnOverlayClick={!isPreparingForce}
+      closeOnEscape={!isPreparingForce}
     >
       <div className="space-y-4">
         <p className="text-sm text-[var(--foreground)] leading-relaxed">

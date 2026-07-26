@@ -302,34 +302,34 @@ export default function PortfolioPositionChart() {
   }, [selectedTimeFrame, filteredChartData]);
 
   return (
-    <div className="flex flex-col rounded-lg bg-[var(--surface)] h-full min-h-[280px] sm:min-h-[320px] w-full overflow-hidden">
-      <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-[var(--border)]">
+    <div className="flex flex-col rounded-lg bg-[var(--surface)] h-full w-full overflow-hidden">
+      <div className="px-3 sm:px-4 py-2 sm:py-2.5 border-b border-[var(--border)] shrink-0">
         <h2 className="text-sm sm:text-md text-[var(--foreground)]">Portfolio Value</h2>
-        <p className="text-xs sm:text-sm text-[var(--foreground-secondary)] mt-0.5 sm:mt-1">
+        <p className="text-xs text-[var(--foreground-secondary)] mt-0.5">
           Combined USD value across your vault deposits
         </p>
       </div>
 
-      <div className="flex-1 p-2 sm:p-4 min-h-0">
+      <div className="flex-1 p-2 sm:p-3 min-h-0">
         {!isConnected ? (
-          <div className="h-[220px] sm:h-full sm:min-h-[280px] flex items-center justify-center bg-[var(--surface-elevated)] rounded-lg px-4">
+          <div className="h-full min-h-[160px] flex items-center justify-center bg-[var(--surface-elevated)] rounded-lg px-4">
             <p className="text-sm text-[var(--foreground-muted)]">Connect wallet to view portfolio history</p>
           </div>
         ) : loading || morphoHoldings.isLoading ? (
-          <div className="bg-[var(--surface-elevated)] rounded-lg p-3 sm:p-4 h-[220px] sm:h-full sm:min-h-[280px]">
-            <div className="flex items-center justify-between mb-4">
+          <div className="bg-[var(--surface-elevated)] rounded-lg p-3 h-full min-h-[160px] flex flex-col">
+            <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
                 <Skeleton width="3rem" height="2rem" />
                 <Skeleton width="3rem" height="2rem" />
               </div>
             </div>
-            <div className="h-48 sm:h-64">
+            <div className="flex-1 min-h-0">
               <Skeleton width="100%" height="100%" />
             </div>
           </div>
         ) : fullChartHistory.length > 0 ? (
-          <div className="bg-[var(--surface-elevated)] rounded-lg p-2 sm:p-4 flex flex-col min-h-[280px]">
-            <div className="flex items-center justify-between mb-4">
+          <div className="bg-[var(--surface-elevated)] rounded-lg p-2 sm:p-3 flex flex-col h-full min-h-0">
+            <div className="flex items-center justify-between mb-2 shrink-0">
               <div className="relative">
                 <div className="hidden md:flex items-center gap-2">
                   {availableTimeFrames.map((timeFrame) => (
@@ -395,8 +395,8 @@ export default function PortfolioPositionChart() {
               </div>
             </div>
 
-            <div className="w-full min-w-0 h-[240px]">
-              <ResponsiveContainer width="100%" height="100%" minHeight={240} debounce={50}>
+            <div className="w-full min-w-0 flex-1 min-h-[160px]">
+              <ResponsiveContainer width="100%" height="100%" minHeight={160} debounce={50}>
                 <AreaChart data={filteredChartData} margin={CHART_MARGIN}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" />
                   <XAxis
@@ -449,7 +449,7 @@ export default function PortfolioPositionChart() {
             </div>
           </div>
         ) : (
-          <div className="h-[220px] sm:h-full sm:min-h-[280px] flex items-center justify-center bg-[var(--surface-elevated)] rounded-lg px-4 text-center">
+          <div className="h-full min-h-[160px] flex items-center justify-center bg-[var(--surface-elevated)] rounded-lg px-4 text-center">
             <p className="text-sm text-[var(--foreground-muted)]">
               No deposit history available yet. Make your first deposit to see your portfolio over time.
             </p>

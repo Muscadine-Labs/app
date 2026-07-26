@@ -6,7 +6,8 @@ export function getChartYAxisWidth(kind: 'apy' | 'usd' | 'token' | 'tokenWide'):
     case 'apy':
       return 56;
     case 'usd':
-      return 72;
+      // Compact ticks ($85 / $1.2K / $2.5M) — keep gutter tight
+      return 48;
     case 'tokenWide':
       return 88;
     case 'token':

@@ -125,7 +125,7 @@ const WALLET_FILTER_OPTIONS: Array<{
     label: 'In wallet',
     description: 'Your deposits only',
   },
-  { value: 'all', label: 'All vaults', description: 'Whitelisted registry' },
+  { value: 'all', label: 'Whitelisted', description: 'Whitelisted registry' },
 ];
 
 function WalletIcon({ className }: { className?: string }) {

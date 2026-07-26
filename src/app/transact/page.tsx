@@ -584,16 +584,23 @@ export default function TransactionsPage() {
   // Check if entered amount exceeds available balance
   const exceedsBalance = useMemo(() => {
     if (!amount || !fromAccount || !derivedAsset) return false;
-    
-    const enteredAmount = parseFloat(amount);
-    if (isNaN(enteredAmount) || enteredAmount <= 0) return false;
-    
+
+    const enteredAmount = Number.parseFloat(amount);
+    if (!Number.isFinite(enteredAmount) || enteredAmount <= 0) return false;
+
     const maxAmount = getMaxAmount;
     // Allow checking even if maxAmount is 0 (no balance)
-    if (maxAmount === null) return false;
-    
-    return enteredAmount > maxAmount;
+    if (maxAmount === null || !Number.isFinite(maxAmount)) return false;
+
+    // Tolerate float noise when MAX uses exact bigint formatting vs float maxAmount.
+    const tolerance = Math.max(Math.abs(maxAmount) * 1e-9, 1e-12);
+    return enteredAmount > maxAmount + tolerance;
   }, [amount, fromAccount, derivedAsset, getMaxAmount]);
+
+  const hasValidAmount = useMemo(() => {
+    const parsed = Number.parseFloat(amount);
+    return Number.isFinite(parsed) && parsed > 0;
+  }, [amount]);
 
   const blockContinueForBalance = exceedsBalance;
 
@@ -603,7 +610,7 @@ export default function TransactionsPage() {
   );
 
   const handleStartTransaction = () => {
-    if (fromAccount && toAccount && derivedAsset) {
+    if (fromAccount && toAccount && derivedAsset && hasValidAmount && !exceedsBalance) {
       setStatus('preview');
     }
   };
@@ -1033,8 +1040,7 @@ export default function TransactionsPage() {
               !fromAccount || 
               !toAccount || 
               !derivedAsset || 
-              !amount || 
-              parseFloat(amount) <= 0 ||
+              !hasValidAmount ||
               blockContinueForBalance ||
               (fromAccount.type === 'wallet' && toAccount.type === 'wallet') || // Prevent wallet-to-wallet
               (fromAccount.type === 'vault' && toAccount.type === 'vault') // Prevent vault-to-vault

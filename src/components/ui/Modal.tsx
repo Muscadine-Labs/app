@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useId, useRef } from 'react';
 import { CloseIcon } from './Icon';
 import { useLockPageScroll } from '@/hooks/useLockPageScroll';
 
@@ -17,6 +17,8 @@ export interface ModalProps {
   children: React.ReactNode;
   showCloseButton?: boolean;
   closeOnOverlayClick?: boolean;
+  /** When false, Escape does not call onClose (e.g. mid-transaction). Default true. */
+  closeOnEscape?: boolean;
   /** Appended to default panel classes (e.g. max-w-md for width override). */
   panelClassName?: string;
   headerClassName?: string;
@@ -33,6 +35,7 @@ export function Modal({
   children,
   showCloseButton = true,
   closeOnOverlayClick = false,
+  closeOnEscape = true,
   panelClassName,
   headerClassName,
   titleClassName,
@@ -40,12 +43,13 @@ export function Modal({
   layout = 'center',
 }: ModalProps) {
   useLockPageScroll(isOpen);
+  const titleId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
 
   // Handle escape key
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || !closeOnEscape) return;
 
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -55,7 +59,7 @@ export function Modal({
 
     window.addEventListener('keydown', handleEscape);
     return () => window.removeEventListener('keydown', handleEscape);
-  }, [isOpen, onClose]);
+  }, [isOpen, closeOnEscape, onClose]);
 
   // Focus trap + restore focus on close
   useEffect(() => {
@@ -134,7 +138,7 @@ export function Modal({
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
-        aria-labelledby={title ? 'modal-title' : undefined}
+        aria-labelledby={title ? titleId : undefined}
       >
         {/* Header */}
         {(title || showCloseButton) && (
@@ -143,7 +147,7 @@ export function Modal({
           >
             {title && (
               <h2
-                id="modal-title"
+                id={titleId}
                 className={`text-lg sm:text-xl font-semibold text-[var(--foreground)] ${titleClassName ?? ''}`}
               >
                 {title}

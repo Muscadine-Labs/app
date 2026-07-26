@@ -147,7 +147,7 @@ All vault writes go through **`src/lib/transactionUtilsV2.ts`**. Simple ERC-4626
 | **Position history (charts)** | `vaultV2PositionByAddress` → `history` via `/api/vault/v2/.../position-history` |
 | **Earned interest** | Morpho `pnl` or activity-based fallback via `/api/vault/v2/.../earned-interest` |
 | **Vault TVL / APY** | `vaultV2ByAddress` via `/api/vault/v2/.../complete` and `history` |
-| **Headline APY** | `avgNetApyExcludingRewards` (fallback `avgNetApy`) |
+| **Headline APY** | Morpho `netApy` (current allocation-weighted; fallbacks `apy` / `avgNetApy` / `avgNetApyExcludingRewards`) |
 | **Liquidity in UI** | GraphQL `liquidity` / `liquidityUsd`, not `totalAssets` |
 
 Share tokens use **18 decimals**; underlying assets use registry decimals (USDC **6**, cbBTC **8**, WETH **18**).
@@ -176,6 +176,8 @@ Direct ERC-4626 for single-step ops; Morpho Bundler3 for multi-step WETH/ETH.
 - `ERC4626_ABI` — `asset`, `deposit`, `withdraw`, `redeem`, `previewWithdraw`, `convertToAssets`
 
 ### Morpho Bundler3 (`src/lib/bundler3.ts`)
+
+Base Bundler3 + GeneralAdapter1. Deposit/withdraw/redeem adapter calls use share-price bounds from on-chain quotes (`convertToShares` / assets↔shares) with **0.5%** slippage (`BUNDLER_SLIPPAGE_BPS`).
 
 | Constant | Address (Base) |
 |----------|----------------|
@@ -215,7 +217,7 @@ Direct ERC-4626 for single-step ops; Morpho Bundler3 for multi-step WETH/ETH.
 
 v2-only: `depositToVaultV2` / `withdrawFromVaultV2` / `redeemFromVaultV2` / `forceWithdrawFromVaultV2`. Redeem when amount ≈ max via `shouldUseWithdrawAll` (unless a force plan is active).
 
-**Max withdraw detection:** Compares entered amount to `convertToAssets(fullShares)` within 0.1% → uses redeem path.
+**Max withdraw detection:** Compares entered amount to `convertToAssets(fullShares)` with a tight tolerance (~1 unit at ≤8 dp, or 0.001% of max) → uses redeem path / force redeem.
 
 **Liquidity warning:** Before withdraw, if amount > instant liquidity, show `WithdrawLiquidityWarningModal` (force path or Morpho link).
 
@@ -230,7 +232,7 @@ v2-only: `depositToVaultV2` / `withdrawFromVaultV2` / `redeemFromVaultV2` / `for
 
 Query root: `vaultV2ByAddress(address, chainId)`.
 
-Notable fields: `asset`, `totalAssets`, `totalSupply`, `liquidity`, `liquidityUsd`, `idleAssetsUsd`, `avgNetApy`, `avgNetApyExcludingRewards`, `maxApy`, `adapters`, `rewards`, `warnings`, etc. Response is normalized toward v1-shaped JSON (`vaultByAddress` shape) for shared UI. Headline APY maps from **`avgNetApyExcludingRewards`** (not deprecated `avgApy`).
+Notable fields: `asset`, `totalAssets`, `totalSupply`, `liquidity`, `liquidityUsd`, `idleAssetsUsd`, `avgNetApy`, `avgNetApyExcludingRewards`, `maxApy`, `adapters`, `rewards`, `warnings`, etc. Response is normalized toward v1-shaped JSON (`vaultByAddress` shape) for shared UI. Headline APY maps from Morpho **`netApy`** (with fallbacks), matching the Morpho deposit widget.
 
 ### V2 history route (`src/app/api/vault/v2/[address]/history/route.ts`)
 
@@ -293,7 +295,8 @@ If `complete` routes return **HTTP 400**, validate queries against `https://api.
 
 | Path | Description |
 |------|-------------|
-| `/` | **Dashboard** — wallet-focused: `WalletOverview`, `PortfolioPositionChart`, `DashboardVaultTable` (deposited vaults only) |
+| `/` | **Dashboard** — compact `WalletOverview` strip, portfolio chart (~⅖), Tokens + Your Vaults panels |
+| `/asset/[slug]` | Asset detail — combined wallet+vault holdings, price, related curated vaults (`usdc`, `cbbtc`, `eth`) |
 | `/vaults` | **Vault explorer** — filter bar + table of registry vaults |
 | `/transact` | Deposit/withdraw flow (`TransactionContext` + `TransactionFlow`) |
 | `/vault/v2/[address]` | V2 vault detail |
@@ -311,24 +314,28 @@ If `complete` routes return **HTTP 400**, validate queries against `https://api.
 
 ### Dashboard (`/` — `src/app/page.tsx`)
 
-Three-row layout:
+Adaptive layout (content-sized panels; empty sections omitted):
 
 | Area | Component | Behavior |
 |------|-----------|----------|
-| Top | `WalletOverview` | Total / liquid / Morpho USD; dropdown breakdowns |
-| Bottom left | `PortfolioPositionChart` | Combined USD portfolio history (Recharts) |
-| Bottom right | `DashboardVaultTable` | **v2** vaults where user has non-zero position (registry + external) |
+| Wallet | `WalletOverview` | Full $ amounts; strip width measured live |
+| Chart | `PortfolioPositionChart` | Under wallet; ~300–380px height |
+| Right | Vaults → Tokens / Stocks | Vaults when held; else Tokens/Stocks fill the right |
+| Lower | Tokens \| Stocks | Only when both exist (peer row from `min-[700px]`) |
 
-**Important:** Portfolio chart includes **v2** positions from the API; **Your Vaults** is **v2-only**.
+**Responsive wallet / vaults (`useWalletStripNeedsFullWidth`):** On desktop (`min-[1000px]`), compares wallet strip intrinsic width to half the dashboard. If it fits → vaults align with wallet; if too wide (big $ / narrow window) → wallet spans full width and vaults drop to align with the chart. Mobile always stacks (wallet → chart → side). Hysteresis avoids flicker on resize.
 
-- **Your Vaults** lists v2 deposits only (`position.version === 'v2'`), sorted by USD. External (non-curated) vaults are shown but **not clickable**.
-- **Layout:** Chart + Your Vaults use **`min-[1000px]:grid-cols-2`** (side-by-side from ~1000px width; stacked below). `DashboardVaultTable` uses a **compact** `table-fixed` layout at `min-[1000px]+`; card layout below that.
+**Important:** Portfolio chart includes **v2** positions from the API; **Your Vaults** is **v2-only**. Token rows combine liquid + vault exposure for that asset (ETH includes native ETH + WETH + WETH vaults); the asset page breaks this down.
+
+- **Your Vaults** lists v2 deposits only (`position.version === 'v2'`), sorted by USD. External (non-curated) vaults are shown but **not clickable** (no `/vault/v2/...` detail page). Hidden when empty.
+- **Layout:** Desktop grid areas switch between `wallet|side / chart|side` and `wallet|wallet / chart|side`. Tokens + Stocks share a peer row below when both exist.
+- **Asset pages** (`/asset/usdc`, `/asset/btc`, `/asset/eth`): price, holdings breakdown (wallet vs vaults), curated + held Morpho vaults. Only **whitelisted** vault rows navigate; external stay list-only. BTC includes optional wrappers (LBTC, kBTC, …) **only when in wallet**. Stocks panel lists tokenized equities only when held. Helpers in `src/lib/assets.ts` (`/asset/cbbtc` redirects to `/asset/btc`).
 - **Portfolio chart** (`PortfolioPositionChart.tsx`):
   1. Discovers vaults via `/api/user/morpho-positions?includeEmpty=true`.
   2. **`aggregatePortfolioHistory()`** in `portfolio-utils.ts` — forward-fill and sum USD.
-  - **Current holdings** in `WalletOverview` / Your Vaults from **`WalletContext`** (`/api/user/morpho-positions`).
+  - **Current holdings** in `WalletOverview` / Tokens / Your Vaults from **`WalletContext`** (`/api/user/morpho-positions`).
 - Preloads vault API data for deposited vaults via `useVaultListPreloader`.
-- **Position display:** `formatPositionUsd` / `formatPositionTokenAmount` in `formatter.ts` (full values, no K/M/B; USDC 2 decimals, WETH/cbBTC 4).
+- **Position display:** `formatPositionUsd` / `formatPositionTokenAmount` in `formatter.ts` — USDC **6**, cbBTC/ETH/WETH **8**. Transactions use full chain decimals via `formatBigIntForInput` / `formatAssetAmountForMax`. Chart axes stay compact (2/6).
 
 ### Vault explorer (`/vaults` — `src/app/vaults/page.tsx`)
 
@@ -408,11 +415,12 @@ Same Risk Framework link appears in **NavBar** Muscadine dropdown (Protocol sect
 src/
   app/
     page.tsx              # Dashboard
+    asset/[slug]/page.tsx # Asset detail (wallet+vault breakdown)
     vaults/page.tsx       # Vault explorer
   components/
     features/
       vault/              # VaultExplorer*, VaultOverview, VaultPosition, VaultHistory, …
-      wallet/             # WalletOverview, PortfolioPositionChart, ConnectButton, …
+      wallet/             # WalletOverview, DashboardTokensPanel, PortfolioPositionChart, ConnectButton, …
       transactions/       # TransactionFlow, AccountSelector, confirmation UI
       learn/              # LearnContent
     layout/               # AppLayout, NavBar, RightSidebar
@@ -424,6 +432,7 @@ src/
   contexts/               # See table above
   hooks/
   lib/
+    assets.ts             # ★ Asset registry (USDC/cbBTC/ETH), combined wallet+vault holdings
     portfolio-utils.ts    # ★ aggregatePortfolioHistory (dashboard)
     api-utils.ts          # Period/interval helpers; strip incomplete Morpho timeseries tails
     transactionUtilsV2.ts # ★ V2 on-chain (ERC-4626 + Bundler3 for WETH/ETH)
@@ -599,6 +608,7 @@ Do not bump without checking compatibility:
 | Task | Where to look |
 |------|----------------|
 | Dashboard layout | `src/app/page.tsx` |
+| Asset pages (wallet+vault) | `src/app/asset/[slug]/page.tsx`, `src/lib/assets.ts` |
 | Portfolio history chart | `PortfolioPositionChart.tsx`, `portfolio-utils.ts` (`aggregatePortfolioHistory`) |
 | Morpho timeseries tail fix | `api-utils.ts` (`stripIncomplete*`, `finalizePositionHistory`), used in vault `history` + `position-history` routes |
 | Position table formatting | `formatter.ts` (`formatPositionUsd`, `formatPositionTokenAmount`) |

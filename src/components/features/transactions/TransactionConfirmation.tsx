@@ -129,7 +129,7 @@ export function TransactionConfirmation({
     fromAccount.type === 'wallet' &&
     toAccount.type === 'vault' &&
     isWethVault((toAccount as VaultAccount).address, assetSymbol) &&
-    preferredAsset === 'ETH';
+    (preferredAsset === 'ETH' || preferredAsset === 'ALL' || preferredAsset === undefined);
 
   // Get current date for transaction details
   const getCurrentDate = () => {

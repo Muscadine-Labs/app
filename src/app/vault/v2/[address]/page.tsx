@@ -2,9 +2,12 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import { resolveVaultForPage, isValidEthereumAddress } from '@/lib/vault-utils';
+import {
+  isCuratedVaultAddress,
+  isValidEthereumAddress,
+  resolveVaultForPage,
+} from '@/lib/vault-utils';
 import { useVaultDataFetch } from '@/hooks/useVaultDataFetch';
-import { useWallet } from '@/contexts/WalletContext';
 import VaultHero from '@/components/features/vault/VaultHero';
 import VaultOverview from '@/components/features/vault/VaultOverview';
 import VaultTabs from '@/components/features/vault/VaultTabs';
@@ -17,7 +20,6 @@ export default function VaultV2Page() {
   const router = useRouter();
   const address = (params?.address as string) || '';
   const [activeTab, setActiveTab] = useState<string>('position');
-  const { morphoHoldings } = useWallet();
 
   const handleTabChange = (tab: string) => {
     if (tab === 'safety') {
@@ -27,26 +29,15 @@ export default function VaultV2Page() {
     }
   };
 
-  const walletPosition = useMemo(
-    () =>
-      morphoHoldings.positions.find(
-        (pos) => pos.vault.address.toLowerCase() === address.toLowerCase()
-      ),
-    [morphoHoldings.positions, address]
-  );
+  // Detail pages are whitelisted (registry) vaults only — external positions stay list-only.
+  const vault = useMemo(() => resolveVaultForPage(address), [address]);
 
-  const vault = useMemo(
-    () => resolveVaultForPage(address, walletPosition),
-    [address, walletPosition]
-  );
   const { vaultData, isLoading, hasError, refetch, errorMessage } = useVaultDataFetch(vault);
 
   useEffect(() => {
-    if (address && !isValidEthereumAddress(address)) {
-      const timer = setTimeout(() => {
-        router.push('/');
-      }, 100);
-      return () => clearTimeout(timer);
+    if (!address) return;
+    if (!isValidEthereumAddress(address) || !isCuratedVaultAddress(address)) {
+      router.replace('/');
     }
   }, [address, router]);
 

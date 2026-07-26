@@ -41,11 +41,11 @@ export type ForceWithdrawPlan = {
   requestedAssets: bigint;
   instantLiquidityAssets: bigint;
   assetsToDeallocate: bigint;
-  /** Assets user should receive after penalty haircut on the illiquid shortfall. */
+  /** Assets user receives on withdraw exit (equals requested when liquidity covers). Penalty is share burn. */
   expectedAssetsOut: bigint;
   /** Total penalty burned as shares (asset-equivalent), summed across steps. */
   estimatedPenaltyAssets: bigint;
-  /** Max penalty rate across adapters touched (WAD). */
+  /** Max penalty rate across adapters actually used in this plan (WAD). */
   maxPenaltyWad: bigint;
   deallocations: ForceDeallocationStep[];
   /** `redeem` on MAX exits (no share dust); otherwise `withdraw(assets)`. */
@@ -197,10 +197,6 @@ const MORPHO_BLUE_ABI = [
 const MARKET_PARAMS_ABI = parseAbiParameters(
   'address loanToken, address collateralToken, address oracle, address irm, uint256 lltv'
 );
-
-function mulDivDown(a: bigint, b: bigint, d: bigint): bigint {
-  return (a * b) / d;
-}
 
 function mulDivUp(a: bigint, b: bigint, d: bigint): bigint {
   return (a * b + d - BigInt(1)) / d;
@@ -362,8 +358,13 @@ async function loadMarketLiquiditySlots(
     }
   }
 
-  // Prefer deepest markets first (matches exit-bundle greediness).
-  slots.sort((a, b) => (a.available === b.available ? 0 : a.available > b.available ? -1 : 1));
+  // Prefer lower penalty first, then deepest liquidity.
+  slots.sort((a, b) => {
+    if (a.penaltyWad !== b.penaltyWad) {
+      return a.penaltyWad < b.penaltyWad ? -1 : 1;
+    }
+    return a.available === b.available ? 0 : a.available > b.available ? -1 : 1;
+  });
   return slots;
 }
 
@@ -409,7 +410,8 @@ function buildMulticallArgs(
 }
 
 /**
- * Plan a force withdraw: deallocate the illiquid shortfall (penalty-adjusted), then withdraw or redeem.
+ * Plan a force withdraw: deallocate the illiquid shortfall into idle, then withdraw or redeem.
+ * Penalty burns shares (does not reduce withdrawn assets). Prefers lower-penalty markets first.
  * Returns null when force exit cannot cover the shortfall from liquid markets.
  *
  * @param options.useRedeemExit — MAX exits: redeem remaining shares after forceDeallocate (avoids dust).
@@ -441,26 +443,13 @@ export async function planForceWithdrawV2(
     return null;
   }
 
-  // Use the max penalty among candidate adapters when sizing the dealloc (conservative).
-  let maxPenaltyWad = BigInt(0);
-  for (const slot of slots) {
-    if (slot.penaltyWad > maxPenaltyWad) maxPenaltyWad = slot.penaltyWad;
-  }
-
-  // Exit-bundle sizing: assetsToDeallocate = shortfall * WAD / (WAD + penalty)
-  const assetsToDeallocate = mulDivDown(
-    shortfall,
-    FORCE_DEALLOCATE_WAD,
-    FORCE_DEALLOCATE_WAD + maxPenaltyWad
-  );
-
-  if (assetsToDeallocate === BigInt(0)) {
-    return null;
-  }
-
+  // Free the full illiquid shortfall into idle. Penalty burns shares (not withdraw assets);
+  // size liquidity 1:1 with shortfall. Prefer low-penalty slots (already sorted).
+  const assetsToDeallocate = shortfall;
   let remaining = assetsToDeallocate;
   const deallocations: ForceDeallocationStep[] = [];
   let estimatedPenaltyAssets = BigInt(0);
+  let maxPenaltyWad = BigInt(0);
 
   for (const slot of slots) {
     if (remaining === BigInt(0)) break;
@@ -476,6 +465,7 @@ export async function planForceWithdrawV2(
       penaltyAssets,
     });
     estimatedPenaltyAssets += penaltyAssets;
+    if (slot.penaltyWad > maxPenaltyWad) maxPenaltyWad = slot.penaltyWad;
     remaining -= amount;
   }
 
@@ -488,7 +478,8 @@ export async function planForceWithdrawV2(
     return null;
   }
 
-  const expectedAssetsOut = instantPart + assetsToDeallocate;
+  // User receives the requested amount; penalty is paid in shares.
+  const expectedAssetsOut = requestedAssets;
   if (expectedAssetsOut === BigInt(0)) return null;
 
   let exitMode: 'withdraw' | 'redeem' = 'withdraw';

@@ -10,6 +10,8 @@ import {
   buildWethVaultNativeDepositBundle,
   buildWethVaultWithdrawToEthBundle,
   executeBundler3Multicall,
+  maxSharePriceE27FromQuote,
+  minSharePriceE27FromQuote,
 } from './bundler3';
 import { BASE_WETH_ADDRESS, ETH_GAS_RESERVE, GENERAL_ADAPTER_ADDRESS } from './constants';
 import type { ForceWithdrawPlan } from './force-withdraw-v2';
@@ -100,6 +102,13 @@ const ERC4626_ABI = [
     type: 'function',
     stateMutability: 'view',
     inputs: [{ name: 'shares', type: 'uint256' }],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+  {
+    name: 'convertToShares',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [{ name: 'assets', type: 'uint256' }],
     outputs: [{ name: '', type: 'uint256' }],
   },
 ] as const;
@@ -391,6 +400,18 @@ async function executeVaultWithdrawThenUnwrap(
     user: userAddress,
     mode,
     assetsOrShares,
+    minSharePriceE27:
+      mode === 'withdraw'
+        ? minSharePriceE27FromQuote(assetsOrShares, sharesForApproval)
+        : minSharePriceE27FromQuote(
+            (await publicClient.readContract({
+              address: normalizedVault,
+              abi: ERC4626_ABI,
+              functionName: 'convertToAssets',
+              args: [assetsOrShares],
+            })) as bigint,
+            assetsOrShares
+          ),
   });
 
   return executeBundler3Multicall(publicClient, walletClient, calls, {
@@ -554,12 +575,19 @@ export async function depositToVaultV2(
   }
 
   if (useBundlerDeposit) {
+    const expectedShares = (await publicClient.readContract({
+      address: normalizedVault,
+      abi: ERC4626_ABI,
+      functionName: 'convertToShares',
+      args: [amountBigInt],
+    })) as bigint;
     const calls = buildWethVaultNativeDepositBundle({
       vault: normalizedVault,
       user: userAddress,
       ethToWrap,
       wethFromWallet: wethFromWalletForBundler,
       totalAssets: amountBigInt,
+      maxSharePriceE27: maxSharePriceE27FromQuote(amountBigInt, expectedShares),
     });
     return executeBundler3Multicall(publicClient, walletClient, calls, {
       value: ethToWrap,
@@ -980,12 +1008,12 @@ export async function forceWithdrawFromVaultV2(
 
   const receipt = await publicClient.waitForTransactionReceipt({ hash: forceHash });
 
-  if (!unwrapToEth) {
-    return forceHash;
-  }
-
   if (receipt.status !== 'success') {
     throw new Error('Force withdraw transaction failed.');
+  }
+
+  if (!unwrapToEth) {
+    return forceHash;
   }
 
   const wethAmount = getWethReceivedFromReceipt(receipt, userAddress);

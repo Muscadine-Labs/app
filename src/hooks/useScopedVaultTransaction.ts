@@ -465,20 +465,27 @@ export function useScopedVaultTransaction({
 
   const exceedsBalance = useMemo(() => {
     if (!amount || !derivedAsset) return false;
-    const enteredAmount = parseFloat(amount);
-    if (isNaN(enteredAmount) || enteredAmount <= 0) return false;
+    const enteredAmount = Number.parseFloat(amount);
+    if (!Number.isFinite(enteredAmount) || enteredAmount <= 0) return false;
     const max = maxAmount;
-    if (max === null) return false;
-    return enteredAmount > max;
+    if (max === null || !Number.isFinite(max)) return false;
+    // Tolerate float noise when MAX uses exact bigint formatting vs float maxAmount.
+    const tolerance = Math.max(Math.abs(max) * 1e-9, 1e-12);
+    return enteredAmount > max + tolerance;
   }, [amount, derivedAsset, maxAmount]);
+
+  const hasValidAmount = useMemo(() => {
+    const parsed = Number.parseFloat(amount);
+    return Number.isFinite(parsed) && parsed > 0;
+  }, [amount]);
 
   const blockContinueForBalance = exceedsBalance;
 
   const handleStartTransaction = useCallback(() => {
-    if (fromAccount && toAccount && derivedAsset) {
+    if (fromAccount && toAccount && derivedAsset && hasValidAmount && !exceedsBalance) {
       setStatus('preview');
     }
-  }, [fromAccount, toAccount, derivedAsset, setStatus]);
+  }, [fromAccount, toAccount, derivedAsset, hasValidAmount, exceedsBalance, setStatus]);
 
   const handleResetToIdle = useCallback(() => {
     reset();
@@ -528,6 +535,7 @@ export function useScopedVaultTransaction({
     walletBalanceText,
     vaultBalanceText,
     handleStartTransaction,
+    hasValidAmount,
     exceedsBalance,
     blockContinueForBalance,
     preferredAsset,

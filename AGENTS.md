@@ -22,13 +22,17 @@ Instructions for AI agents working in this repo. Full architecture docs live in 
 - Registry: `src/lib/vaults.ts` — fields include `strategy` (`prime` | `frontier`), `vaultSymbol` (e.g. `mpUSDC`, `mfUSDC`).
 - Use `findVaultByAddress` / `isCuratedVaultAddress` from `src/lib/vault-utils.ts` — never infer vault by asset symbol alone.
 - Use `logger` from `src/lib/logger.ts`, not `console.log`.
+- **Token display decimals:** UI via `getDisplayFractionDigits` — USDC **6**, cbBTC/ETH/WETH **8**. Prefer raw `bigint` amounts. **Transactions** always use full token decimals (`formatBigIntForInput`, `formatAssetAmountForMax` — ETH 18, cbBTC 8, USDC 6). Chart axes stay compact.
 - **No developer / over-balance bypass mode** — `VaultVersionContext` removed. Explorer filters default to All for everyone; transact blocks amounts over balance.
 
 ## Dashboard & positions
 
+- **Wallet strip:** Total / Wallet (liquid) / Vaults USD (`WalletOverview`).
+- **Tokens panel:** Dynamic — USDC / BTC / ETH only if wallet holds them (or a derivative) or they’re in a vault. Other wallet tokens (AERO, etc.) appear when above ~$0.02 dust. Stocks stay in the Stocks panel.
+- **Stocks panel:** tokenized equities (xStocks-style) listed **only when held** in the wallet.
 - **Your Vaults** (dashboard): **v2** positions only (registry + external Morpho v2 vaults).
 - **Morpho Vaults total** includes **all** user v2 positions from Morpho (`/api/user/morpho-positions`), not only Muscadine registry vaults.
-- **External vaults** (not in `vaults.ts`): shown on dashboard totals, **not clickable** (no detail/transact pages).
+- **External vaults** (not in `vaults.ts`): shown on dashboard / explorer wallet filters, **not clickable** (no detail page; `/vault/v2/{external}` redirects home).
 - **Portfolio chart:** v2 positions via `/api/user/morpho-positions` + `/api/vault/v2/.../position-history` (`aggregatePortfolioHistory` in `portfolio-utils.ts`).
 - **Earned interest:** `/api/vault/v2/.../earned-interest` + `useVaultEarnedInterest`; shows **0** (not `-`) when user never deposited. Use `resolveAssetDecimals` / `getAssetDecimalsForSymbol`.
 

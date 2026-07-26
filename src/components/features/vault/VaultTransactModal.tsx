@@ -225,8 +225,7 @@ export function VaultTransactModal({
                 !tx.fromAccount ||
                 !tx.toAccount ||
                 !tx.derivedAsset ||
-                !tx.amount ||
-                parseFloat(tx.amount) <= 0 ||
+                !tx.hasValidAmount ||
                 tx.blockContinueForBalance
               }
               variant="primary"

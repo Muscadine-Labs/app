@@ -57,8 +57,8 @@ function stepTypeForLabel(label: string): 'signing' | 'approving' | 'confirming'
 }
 
 /**
- * Resume only the post-exit unwrap (force→ETH), not the atomic Bundler3 "Withdraw & unwrap" step.
- * Match labels that are unwrap-only ("Unwrap to ETH" / "Unwrap WETH"), or WETH approve after force.
+ * Resume only the post-exit unwrap (force→ETH), not the atomic Bundler3 "Withdraw to ETH" step.
+ * Match unwrap-only labels, or any retry after a force exit was already submitted.
  */
 function shouldResumeUnwrapOnly(
   transactionType: string | null,
@@ -69,16 +69,14 @@ function shouldResumeUnwrapOnly(
   const failedStep = stepsInfo.find((s) => s.stepIndex === failedStepIndex);
   const label = failedStep?.label?.toLowerCase() ?? '';
 
-  // "Withdraw & unwrap" / "Redeem & unwrap" are atomic Bundler3 exits — retry full flow, not resume.
+  // Atomic Bundler3 exits ("Withdraw to ETH" / "Redeem to ETH") retry the full flow.
   const isUnwrapOnlyStep =
     label.startsWith('unwrap') || label === 'unwrap to eth' || label === 'unwrap weth';
   if (isUnwrapOnlyStep) return true;
 
-  const isApproveOrReset = label.includes('approve') || label.includes('reset');
-  if (!isApproveOrReset) return false;
-
   const priorStep = stepsInfo.find((s) => s.stepIndex === 0);
   const priorLabel = priorStep?.label?.toLowerCase() ?? '';
+  // Force exit already broadcast — never re-run forceDeallocate on Try again.
   return priorLabel.includes('force') && Boolean(priorStep?.txHash);
 }
 
@@ -391,6 +389,11 @@ export function TransactionFlow({
             stepLabel: step.stepLabel,
             timestamp: new Date().toISOString(),
           });
+          // Force exit is on-chain once hashed — drop the plan so a later unwrap
+          // failure resumes unwrap instead of re-running forceDeallocate.
+          if (step.stepLabel?.toLowerCase().includes('force')) {
+            forcePlanRef.current = null;
+          }
         }
         setTotalSteps(step.totalSteps);
         setCurrentStepIndex(step.stepIndex);
@@ -475,7 +478,6 @@ export function TransactionFlow({
 
         const forcePlan = forcePlanRef.current;
         if (forcePlan) {
-          forcePlanRef.current = null;
           txHash = await forceWithdrawFromVaultV2(
             publicClient as PublicClient,
             walletClient as WalletClient,
@@ -483,6 +485,7 @@ export function TransactionFlow({
             withdrawPreferredAsset,
             onProgress
           );
+          forcePlanRef.current = null;
         } else if (shouldUseWithdrawAll) {
           txHash = await redeemFromVaultV2(
             publicClient as PublicClient,

@@ -8,7 +8,6 @@ import { Providers } from './Providers'
 import { config } from '@/config/wagmi'
 import { PriceProvider } from '@/contexts/PriceContext'
 import { Analytics } from '@vercel/analytics/react'
-import { ClientHydrated } from '@/components/common/ClientHydrated'
 import { getAppUrl } from '@/lib/app-url'
 import { BASE_APP_ID } from '@/lib/base-app'
 
@@ -85,9 +84,7 @@ export default async function RootLayout({
       <body className={`${figtree.className} ${funnelDisplay.variable} ${outfit.variable} ${tinos.variable}`}>
           <Providers initialState={initialState}>
               <PriceProvider>
-                <ClientHydrated>
-                  <AppLayout>{children}</AppLayout>
-                </ClientHydrated>
+                <AppLayout>{children}</AppLayout>
               </PriceProvider>
           </Providers>
           <Analytics />
