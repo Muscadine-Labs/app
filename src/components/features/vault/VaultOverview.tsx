@@ -617,11 +617,11 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
 
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-5">
       {/* Performance Section */}
-      <div className="space-y-8">
+      <div className="space-y-5">
         {/* Current Performance */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 overflow-visible">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-5 overflow-visible">
           <div className="overflow-visible">
             <div className="flex items-center gap-1.5 mb-1">
               <p className="text-xs text-[var(--foreground-secondary)]">Current Earnings Rate</p>
@@ -632,7 +632,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                 managementFee={vaultData.managementFee ?? 0}
               />
             </div>
-            <p className="text-3xl font-bold text-[var(--foreground)]">
+            <p className="text-2xl font-bold text-[var(--foreground)]">
               {apyPercent}
             </p>
             <p className="text-xs text-[var(--foreground-secondary)] mt-1">
@@ -646,7 +646,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
           </div>
           <div>
             <p className="text-xs text-[var(--foreground-secondary)] mb-1">Total Deposited</p>
-            <p className="text-2xl font-bold text-[var(--foreground)]">
+            <p className="text-xl sm:text-2xl font-bold text-[var(--foreground)]">
               {formatVaultDetailTokenAmount(
                 vaultData.totalAssets || '0',
                 vaultData.assetDecimals || 18,
@@ -668,7 +668,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                 />
               )}
             </div>
-            <p className="text-2xl font-bold text-[var(--foreground)]">
+            <p className="text-xl sm:text-2xl font-bold text-[var(--foreground)]">
               {liquidityRaw}
             </p>
             <p className="text-xs text-[var(--foreground-secondary)] mt-1">
@@ -677,7 +677,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
           </div>
           <div>
             <p className="text-xs text-[var(--foreground-secondary)] mb-1">Status</p>
-            <p className={`text-xl font-bold ${
+            <p className={`text-lg sm:text-xl font-bold ${
               vaultData.status === 'active' ? 'text-[var(--success)]' :
               vaultData.status === 'paused' ? 'text-[var(--warning)]' :
               'text-[var(--foreground-muted)]'
@@ -748,7 +748,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
 
         {/* Chart / Allocations panel */}
         <div
-          className={`bg-[var(--surface-elevated)] rounded-lg border border-[var(--border-subtle)] p-2 sm:p-4 min-h-[18rem] ${
+          className={`bg-[var(--surface-elevated)] rounded-lg border border-[var(--border-subtle)] p-2 sm:p-3 min-h-[14rem] ${
             chartType === 'allocations' ? '' : 'hidden'
           }`}
           aria-hidden={chartType !== 'allocations'}
@@ -808,7 +808,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                 </div>
               )}
             </div>
-            <div className="h-64">
+            <div className="h-52 sm:h-56">
               <div className="h-full flex flex-col justify-between">
                 {/* Y-axis labels area */}
                 <div className="flex justify-between mb-2">
@@ -835,9 +835,9 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
             </div>
           </div>
         ) : (historyData.length > 0) ? (
-          <div className="bg-[var(--surface-elevated)] rounded-lg border border-[var(--border-subtle)] p-2 sm:p-4">
+          <div className="bg-[var(--surface-elevated)] rounded-lg border border-[var(--border-subtle)] p-2 sm:p-3">
             {/* Controls Row */}
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-3">
               {/* Period Selector */}
               <div className="flex gap-2 overflow-x-auto overscroll-x-contain flex-nowrap scrollbar-hide [-webkit-overflow-scrolling:touch] min-w-0">
                 {availablePeriods.map((p) => (
@@ -881,8 +881,8 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                 </div>
               )}
             </div>
-            <div className="w-full min-w-0 h-64">
-              <ResponsiveContainer width="100%" height="100%" minHeight={256} debounce={50}>
+            <div className="w-full min-w-0 h-52 sm:h-56">
+              <ResponsiveContainer width="100%" height="100%" minHeight={208} debounce={50}>
                 {chartType === 'apy' ? (
                   <LineChart data={historyData} margin={VAULT_CHART_MARGIN}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" />
@@ -1049,7 +1049,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
             </div>
           </div>
         ) : (
-          <div className="bg-[var(--surface-elevated)] rounded-lg border border-[var(--border-subtle)] h-64 flex items-center justify-center text-sm text-[var(--foreground-muted)]">
+          <div className="bg-[var(--surface-elevated)] rounded-lg border border-[var(--border-subtle)] h-52 sm:h-56 flex items-center justify-center text-sm text-[var(--foreground-muted)]">
             No historical data available
           </div>
         )}

@@ -223,7 +223,7 @@ export function VaultAllocations({
     allocatedValueType === 'usd' ? 'Allocated (USD)' : `Allocated (${vaultTokenLabel})`;
 
   return (
-    <div className="space-y-3 min-h-[12rem]">
+    <div className="space-y-3 min-h-[10rem]">
       {!embedded && (
         <div>
           <h3 className="text-base font-semibold text-[var(--foreground)]">Allocations</h3>

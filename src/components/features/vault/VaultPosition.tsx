@@ -20,7 +20,6 @@ import {
   splitPositionValueAtPoint,
   type ActivityFlowEvent,
 } from '@/lib/interest-utils';
-import { VaultTransactModal } from '@/components/features/vault/VaultTransactModal';
 import { logger } from '@/lib/logger';
 import { useToast } from '@/contexts/ToastContext';
 import { usePrices } from '@/contexts/PriceContext';
@@ -84,7 +83,6 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
     shares: number;
   }>>([]);
   const [activityFlowEvents, setActivityFlowEvents] = useState<ActivityFlowEvent[] | null>(null);
-  const [transactModalTab, setTransactModalTab] = useState<'deposit' | 'withdraw' | null>(null);
 
   const { data: sharesRaw } = useReadContract({
     address: address ? vaultData.address as `0x${string}` : undefined,
@@ -578,14 +576,6 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
   }, [selectedTimeFrame, chartData]);
   
 
-  const handleDeposit = () => {
-    setTransactModalTab('deposit');
-  };
-
-  const handleWithdraw = () => {
-    setTransactModalTab('withdraw');
-  };
-
   const formatChartValue = useCallback(
     (value: number) => {
       if (valueType === 'usd') {
@@ -597,141 +587,90 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
   );
 
   return (
-    <div className="space-y-6">
-      <VaultTransactModal
-        key={transactModalTab ?? 'closed'}
-        isOpen={transactModalTab !== null}
-        onClose={() => setTransactModalTab(null)}
-        vaultData={vaultData}
-        initialTab={transactModalTab ?? 'deposit'}
-      />
+    <div className="space-y-5">
       {/* Position Value */}
-      <div>
-        <div className="flex flex-col md:flex-row items-start justify-between gap-6 mb-4">
-          <div className="flex flex-col md:flex-row flex-1 w-full gap-6 md:gap-10">
-            {/* Your Position — on-chain convertToAssets (matches withdraw / MAX) */}
-            <div className="flex-1 w-full md:w-auto">
-              <p className="text-xs text-[var(--foreground-secondary)] mb-1">Your Position</p>
-              {!isConnected ? (
-                <p className="text-sm text-[var(--foreground-muted)]">Connect wallet</p>
-              ) : positionRawValue === null ? (
-                <Skeleton width="8rem" height="2rem" />
-              ) : (() => {
-                try {
-                  return BigInt(positionRawValue) <= BigInt(0);
-                } catch {
-                  return false;
-                }
-              })() ? (
-                <p className="text-sm text-[var(--foreground-muted)]">No holdings</p>
-              ) : (
+      <div className="flex flex-col sm:flex-row sm:items-start gap-5 sm:gap-10">
+        {/* Your Position — on-chain convertToAssets (matches withdraw / MAX) */}
+        <div className="flex-1 min-w-0">
+          <p className="text-xs text-[var(--foreground-secondary)] mb-1">Your Position</p>
+          {!isConnected ? (
+            <p className="text-sm text-[var(--foreground-muted)]">Connect wallet</p>
+          ) : positionRawValue === null ? (
+            <Skeleton width="8rem" height="2rem" />
+          ) : (() => {
+            try {
+              return BigInt(positionRawValue) <= BigInt(0);
+            } catch {
+              return false;
+            }
+          })() ? (
+            <p className="text-sm text-[var(--foreground-muted)]">No holdings</p>
+          ) : (
+            <>
+              <p className="text-xl sm:text-2xl font-bold text-[var(--foreground)]">
+                {formatVaultDetailTokenAmount(
+                  positionRawValue,
+                  depositAssetDecimals,
+                  vaultData.symbol
+                )}
+              </p>
+              <p className="text-xs text-[var(--foreground-secondary)] mt-1">
+                {formatPositionUsd(userVaultTotalUsd)}
+              </p>
+            </>
+          )}
+        </div>
+
+        {/* Earned Interest */}
+        <div className="flex-1 min-w-0 sm:text-right">
+          <p className="text-xs text-[var(--foreground-secondary)] mb-1">Earned Interest</p>
+          {!isConnected ? (
+            <p className="text-sm text-[var(--foreground-muted)]">Connect wallet</p>
+          ) : earnedInterest.isLoading ? (
+            <Skeleton width="8rem" height="2rem" />
+          ) : (() => {
+            try {
+              const raw = BigInt(earnedInterest.earnedInterestRaw || '0');
+              if (raw <= BigInt(0) && earnedInterest.earnedInterestUsd <= 0) {
+                return (
+                  <>
+                    <p className="text-xl sm:text-2xl font-bold text-[var(--foreground)]">
+                      {formatVaultDetailTokenAmount('0', interestDecimals, vaultData.symbol)}
+                    </p>
+                    <p className="text-xs text-[var(--foreground-secondary)] mt-1">
+                      {formatCurrency(0)}
+                    </p>
+                  </>
+                );
+              }
+              return (
                 <>
-                  <p className="text-2xl font-bold text-[var(--foreground)]">
+                  <p className="text-xl sm:text-2xl font-bold text-[var(--foreground)]">
                     {formatVaultDetailTokenAmount(
-                      positionRawValue,
-                      depositAssetDecimals,
+                      earnedInterest.earnedInterestRaw || '0',
+                      interestDecimals,
                       vaultData.symbol
                     )}
                   </p>
                   <p className="text-xs text-[var(--foreground-secondary)] mt-1">
-                    {formatPositionUsd(userVaultTotalUsd)}
+                    {formatCurrency(earnedInterest.earnedInterestUsd)}
                   </p>
                 </>
-              )}
-            </div>
-
-            {/* Earned Interest */}
-            <div className="flex-1 w-full md:w-auto md:text-right">
-              <p className="text-xs text-[var(--foreground-secondary)] mb-1">Earned Interest</p>
-              {!isConnected ? (
-                <p className="text-sm text-[var(--foreground-muted)]">Connect wallet</p>
-              ) : earnedInterest.isLoading ? (
-                <Skeleton width="8rem" height="2rem" />
-              ) : (() => {
-                try {
-                  const raw = BigInt(earnedInterest.earnedInterestRaw || '0');
-                  if (raw <= BigInt(0) && earnedInterest.earnedInterestUsd <= 0) {
-                    return (
-                      <>
-                        <p className="text-2xl font-bold text-[var(--foreground)]">
-                          {formatVaultDetailTokenAmount('0', interestDecimals, vaultData.symbol)}
-                        </p>
-                        <p className="text-xs text-[var(--foreground-secondary)] mt-1">
-                          {formatCurrency(0)}
-                        </p>
-                      </>
-                    );
-                  }
-                  return (
-                    <>
-                      <p className="text-2xl font-bold text-[var(--foreground)]">
-                        {formatVaultDetailTokenAmount(
-                          earnedInterest.earnedInterestRaw || '0',
-                          interestDecimals,
-                          vaultData.symbol
-                        )}
-                      </p>
-                      <p className="text-xs text-[var(--foreground-secondary)] mt-1">
-                        {formatCurrency(earnedInterest.earnedInterestUsd)}
-                      </p>
-                    </>
-                  );
-                } catch {
-                  return <p className="text-sm text-[var(--foreground-muted)]">-</p>;
-                }
-              })()}
-            </div>
-          </div>
-
-          {/* Transaction Buttons - Desktop: Show in second column */}
-          {isConnected && (
-            <div className="hidden md:flex gap-2">
-              <Button
-                onClick={handleDeposit}
-                variant="primary"
-                size="sm"
-              >
-                Deposit
-              </Button>
-              <Button
-                onClick={handleWithdraw}
-                variant="secondary"
-                size="sm"
-              >
-                Withdraw
-              </Button>
-            </div>
-          )}
+              );
+            } catch {
+              return <p className="text-sm text-[var(--foreground-muted)]">-</p>;
+            }
+          })()}
         </div>
-        
-        {/* Transaction Buttons - Mobile: Show below deposits */}
-        {isConnected && (
-          <div className="flex md:hidden gap-2 mt-4">
-            <Button
-              onClick={handleDeposit}
-              variant="primary"
-              size="sm"
-            >
-              Deposit
-            </Button>
-            <Button
-              onClick={handleWithdraw}
-              variant="secondary"
-              size="sm"
-            >
-              Withdraw
-            </Button>
-          </div>
-        )}
       </div>
 
       {/* Chart */}
       {isConnected && address && (
         <div>
           {loading ? (
-            <div className="bg-[var(--surface-elevated)] rounded-lg p-2 sm:p-4">
+            <div className="bg-[var(--surface-elevated)] rounded-lg p-2 sm:p-3">
               {/* Controls Row Skeleton */}
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-3">
                 <div className="flex items-center gap-2">
                   <Skeleton width="3rem" height="2rem" />
                   <Skeleton width="3rem" height="2rem" />
@@ -743,7 +682,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
                 </div>
               </div>
               {/* Chart Skeleton */}
-              <div className="h-80 p-4">
+              <div className="h-52 sm:h-56 p-3">
                 <div className="h-full flex flex-col justify-between">
                   {/* Y-axis labels area */}
                   <div className="flex justify-between mb-2">
@@ -865,8 +804,8 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
                   </button>
                 </div>
               </div>
-              <div className="w-full min-w-0 h-80">
-                <ResponsiveContainer width="100%" height="100%" minHeight={320} debounce={50}>
+              <div className="w-full min-w-0 h-52 sm:h-56">
+                <ResponsiveContainer width="100%" height="100%" minHeight={208} debounce={50}>
                   <AreaChart data={chartData} margin={CHART_MARGIN}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" />
                     <XAxis 

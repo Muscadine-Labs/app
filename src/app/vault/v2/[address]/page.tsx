@@ -13,13 +13,17 @@ import VaultOverview from '@/components/features/vault/VaultOverview';
 import VaultTabs from '@/components/features/vault/VaultTabs';
 import VaultPosition from '@/components/features/vault/VaultPosition';
 import VaultHistory from '@/components/features/vault/VaultHistory';
+import { VaultTransactModal } from '@/components/features/vault/VaultTransactModal';
+import { Button } from '@/components/ui';
 import { Skeleton } from '@/components/ui/Skeleton';
+import type { VaultTransactionTab } from '@/hooks/useScopedVaultTransaction';
 
 export default function VaultV2Page() {
   const params = useParams();
   const router = useRouter();
   const address = (params?.address as string) || '';
   const [activeTab, setActiveTab] = useState<string>('position');
+  const [transactTab, setTransactTab] = useState<VaultTransactionTab | null>(null);
 
   const handleTabChange = (tab: string) => {
     if (tab === 'safety') {
@@ -41,38 +45,44 @@ export default function VaultV2Page() {
     }
   }, [address, router]);
 
+  const openDeposit = () => setTransactTab('deposit');
+  const openWithdraw = () => setTransactTab('withdraw');
+
   const pageShellClassName =
-    'w-full bg-[var(--background)] flex flex-col p-4 sm:p-6 md:p-8 pb-8 min-h-full';
+    'w-full bg-[var(--background)] flex flex-col p-4 sm:p-6 md:p-8 pb-24 md:pb-8 min-h-full';
 
   if (!vault || (isLoading && !vaultData)) {
     return (
       <div className={pageShellClassName}>
-        <div className="flex-shrink-0 mb-6">
-          <div className="flex items-center gap-4">
-            <div className="flex flex-col gap-2">
-              <Skeleton width="12rem" height="3rem" />
-              <div className="flex items-center gap-2">
-                <Skeleton variant="circular" width="1.25rem" height="1.25rem" />
-                <Skeleton width="4rem" height="1rem" />
-              </div>
+        <div className="flex-shrink-0 mb-5">
+          <div className="flex flex-col gap-2">
+            <Skeleton width="12rem" height="2.25rem" />
+            <div className="flex items-center gap-2">
+              <Skeleton variant="circular" width="1.25rem" height="1.25rem" />
+              <Skeleton width="4rem" height="1rem" />
             </div>
           </div>
         </div>
 
-        <div className="flex-shrink-0 mb-8">
-          <div className="flex gap-2 border-b border-[var(--border-subtle)]">
-            <Skeleton width="6rem" height="3rem" className="mb-2" />
-            <Skeleton width="8rem" height="3rem" className="mb-2" />
-            <Skeleton width="6rem" height="3rem" className="mb-2" />
+        <div className="flex-shrink-0 mb-6">
+          <div className="flex items-center justify-between gap-3 border-b border-[var(--border-subtle)]">
+            <div className="flex gap-2">
+              <Skeleton width="6rem" height="2.5rem" className="mb-2" />
+              <Skeleton width="8rem" height="2.5rem" className="mb-2" />
+              <Skeleton width="6rem" height="2.5rem" className="mb-2" />
+            </div>
+            <div className="hidden md:flex gap-2 mb-2">
+              <Skeleton width="5rem" height="2rem" />
+              <Skeleton width="5rem" height="2rem" />
+            </div>
           </div>
         </div>
 
-        <div className="space-y-6">
-          <Skeleton width="100%" height="16rem" />
-          <div className="space-y-4">
-            <Skeleton width="100%" height="4rem" />
-            <Skeleton width="100%" height="4rem" />
-            <Skeleton width="100%" height="4rem" />
+        <div className="space-y-5">
+          <Skeleton width="100%" height="12rem" />
+          <div className="space-y-3">
+            <Skeleton width="100%" height="3.5rem" />
+            <Skeleton width="100%" height="3.5rem" />
           </div>
         </div>
       </div>
@@ -112,13 +122,34 @@ export default function VaultV2Page() {
 
   return (
     <div className={pageShellClassName}>
-      <div className="flex-shrink-0 mb-6">
+      <VaultTransactModal
+        key={transactTab ?? 'closed'}
+        isOpen={transactTab !== null}
+        onClose={() => setTransactTab(null)}
+        vaultData={vaultData}
+        initialTab={transactTab ?? 'deposit'}
+      />
+
+      <div className="flex-shrink-0 mb-5">
         <VaultHero vaultData={vaultData} />
       </div>
 
       <div className="flex flex-col w-full mx-auto">
         <div className="flex-shrink-0 -mx-4 sm:-mx-6 md:mx-0">
-          <VaultTabs activeTab={activeTab} onTabChange={handleTabChange} />
+          <VaultTabs
+            activeTab={activeTab}
+            onTabChange={handleTabChange}
+            actions={
+              <>
+                <Button onClick={openDeposit} variant="primary" size="sm">
+                  Deposit
+                </Button>
+                <Button onClick={openWithdraw} variant="secondary" size="sm">
+                  Withdraw
+                </Button>
+              </>
+            }
+          />
         </div>
 
         <div className="px-0 sm:px-2 md:px-6">
@@ -127,6 +158,20 @@ export default function VaultV2Page() {
           {activeTab === 'history' && <VaultHistory vaultData={vaultData} />}
         </div>
       </div>
+
+      {/* Mobile sticky actions — hide while the transact modal is open */}
+      {transactTab === null ? (
+        <div className="md:hidden fixed inset-x-0 bottom-0 z-40 border-t border-[var(--border)] bg-[var(--background)]/95 backdrop-blur-sm">
+          <div className="flex gap-2 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+            <Button onClick={openDeposit} variant="primary" size="md" fullWidth>
+              Deposit
+            </Button>
+            <Button onClick={openWithdraw} variant="secondary" size="md" fullWidth>
+              Withdraw
+            </Button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
