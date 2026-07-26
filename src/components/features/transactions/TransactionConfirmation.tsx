@@ -5,7 +5,7 @@ import { Account, VaultAccount, getVaultLogo } from '@/types/vault';
 import { TransactionType, useTransactionState } from '@/contexts/TransactionContext';
 import { formatAssetBalance } from '@/lib/formatter';
 import { ETH_GAS_RESERVE } from '@/lib/constants';
-import { VAULTS } from '@/lib/vaults';
+import { isWethVault } from '@/lib/transaction-form-utils';
 import { Button } from '@/components/ui';
 import { useAccount } from 'wagmi';
 import { useRouter } from 'next/navigation';
@@ -32,6 +32,8 @@ interface TransactionConfirmationProps {
   txHash?: string | null;
   onCancel: () => void;
   onConfirm: () => void;
+  /** When set, success completion uses this instead of navigating to /transact. */
+  onSuccessComplete?: () => void;
 }
 
 export function TransactionConfirmation({
@@ -50,6 +52,7 @@ export function TransactionConfirmation({
   txHash,
   onCancel,
   onConfirm,
+  onSuccessComplete,
 }: TransactionConfirmationProps) {
   const { address } = useAccount();
   const router = useRouter();
@@ -87,8 +90,11 @@ export function TransactionConfirmation({
       }
       
       reset();
-      // Reset state and stay on transactions page to start a new transaction
-      router.push('/transact');
+      if (onSuccessComplete) {
+        onSuccessComplete();
+      } else {
+        router.push('/transact');
+      }
     } else {
       onCancel();
     }
@@ -121,8 +127,7 @@ export function TransactionConfirmation({
     assetSymbol === 'WETH' &&
     fromAccount.type === 'wallet' &&
     toAccount.type === 'vault' &&
-    (toAccount as VaultAccount).address.toLowerCase() ===
-      VAULTS.WETH_VAULT_V2.address.toLowerCase() &&
+    isWethVault((toAccount as VaultAccount).address, assetSymbol) &&
     (preferredAsset === 'ETH' || preferredAsset === 'ALL' || preferredAsset === undefined) &&
     !isDevMode;
 

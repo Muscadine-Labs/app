@@ -30,6 +30,10 @@ import { ERC4626_ABI } from '@/lib/abis';
 
 interface TransactionFlowProps {
   onSuccess?: () => void;
+  /** When set, success "Done" stays in context (e.g. closes vault modal) instead of /transact. */
+  onSuccessComplete?: () => void;
+  /** When set, preview cancel returns to amount step instead of leaving flow idle globally. */
+  onReturnToIdle?: () => void;
 }
 
 function stepTypeForLabel(label: string): 'signing' | 'approving' | 'confirming' {
@@ -50,7 +54,11 @@ function shouldResumeUnwrapOnly(
   return failedStepIndex >= 1;
 }
 
-export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
+export function TransactionFlow({
+  onSuccess,
+  onSuccessComplete,
+  onReturnToIdle,
+}: TransactionFlowProps) {
   const {
     fromAccount,
     toAccount,
@@ -672,6 +680,7 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
           isPartialFailure={isError && partialFailure}
           errorMessage={isError && partialFailure ? error ?? undefined : undefined}
           txHash={effectiveCurrentTxHash ?? txHash}
+          onSuccessComplete={onSuccessComplete}
           onCancel={() => {
             if (isSigning || isApproving || isConfirming) {
               setStatus('preview');
@@ -683,7 +692,9 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
               setIsExecuting(false);
               setPartialFailure(false);
             } else if (isSuccess) {
-              if (onSuccess) {
+              if (onSuccessComplete) {
+                onSuccessComplete();
+              } else if (onSuccess) {
                 onSuccess();
               }
             } else if (isError && partialFailure) {
@@ -694,6 +705,8 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
               setTotalSteps(0);
               setCurrentStepIndex(0);
               currentStepRef.current = 0;
+            } else if (onReturnToIdle) {
+              onReturnToIdle();
             } else {
               setStatus('idle');
             }

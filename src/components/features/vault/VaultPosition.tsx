@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
 import { useAccount, useReadContract } from 'wagmi';
 import { MorphoVaultData } from '@/types/vault';
 import {
@@ -13,15 +12,14 @@ import {
   formatVaultChartTokenAmount,
   formatVaultDetailTokenAmount,
 } from '@/lib/formatter';
-import { calculateYAxisDomain, isCuratedVaultAddress } from '@/lib/vault-utils';
-import { getMorphoVaultUrl } from '@/lib/liquidity-utils';
+import { calculateYAxisDomain } from '@/lib/vault-utils';
 import {
   buildActivityFlowEvents,
   netDepositRawAtTime,
   splitPositionValueAtPoint,
   type ActivityFlowEvent,
 } from '@/lib/interest-utils';
-import { ExternalVaultTransactModal } from '@/components/features/vault/ExternalVaultTransactModal';
+import { VaultTransactModal } from '@/components/features/vault/VaultTransactModal';
 import { logger } from '@/lib/logger';
 import { useToast } from '@/contexts/ToastContext';
 import { usePrices } from '@/contexts/PriceContext';
@@ -58,7 +56,6 @@ const formatDate = (timestamp: number) => {
 };
 
 export default function VaultPosition({ vaultData }: VaultPositionProps) {
-  const router = useRouter();
   const { address, isConnected } = useAccount();
   const { btc: btcPrice, eth: ethPrice } = usePrices();
   const { error: showErrorToast } = useToast();
@@ -87,11 +84,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
     shares: number;
   }>>([]);
   const [activityFlowEvents, setActivityFlowEvents] = useState<ActivityFlowEvent[] | null>(null);
-  const [externalTransactAction, setExternalTransactAction] = useState<'deposit' | 'withdraw' | null>(null);
-
-  const isExternalVault =
-    vaultData.isCurated === false || !isCuratedVaultAddress(vaultData.address);
-  const morphoVaultUrl = getMorphoVaultUrl(vaultData.chainId, vaultData.address);
+  const [transactModalTab, setTransactModalTab] = useState<'deposit' | 'withdraw' | null>(null);
 
   // Get shares using balanceOf
   const { data: sharesRaw } = useReadContract({
@@ -603,19 +596,11 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
   
 
   const handleDeposit = () => {
-    if (isExternalVault) {
-      setExternalTransactAction('deposit');
-      return;
-    }
-    router.push(`/transact?vault=${vaultData.address}&action=deposit`);
+    setTransactModalTab('deposit');
   };
 
   const handleWithdraw = () => {
-    if (isExternalVault) {
-      setExternalTransactAction('withdraw');
-      return;
-    }
-    router.push(`/transact?vault=${vaultData.address}&action=withdraw`);
+    setTransactModalTab('withdraw');
   };
 
   const formatChartValue = useCallback(
@@ -630,11 +615,12 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
 
   return (
     <div className="space-y-6">
-      <ExternalVaultTransactModal
-        isOpen={externalTransactAction !== null}
-        onClose={() => setExternalTransactAction(null)}
-        morphoVaultUrl={morphoVaultUrl}
-        action={externalTransactAction ?? 'deposit'}
+      <VaultTransactModal
+        key={transactModalTab ?? 'closed'}
+        isOpen={transactModalTab !== null}
+        onClose={() => setTransactModalTab(null)}
+        vaultData={vaultData}
+        initialTab={transactModalTab ?? 'deposit'}
       />
       {/* Position Value */}
       <div>
