@@ -1,7 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useAccount, useReadContract } from 'wagmi';
 import { MorphoVaultData } from '@/types/vault';
 import {
@@ -13,15 +12,14 @@ import {
   formatVaultChartTokenAmount,
   formatVaultDetailTokenAmount,
 } from '@/lib/formatter';
-import { calculateYAxisDomain, isCuratedVaultAddress } from '@/lib/vault-utils';
-import { getMorphoVaultUrl } from '@/lib/liquidity-utils';
+import { calculateYAxisDomain } from '@/lib/vault-utils';
+import { CHART_MARGIN, getChartYAxisWidth, withLeadingChartTick } from '@/lib/chart-utils';
 import {
   buildActivityFlowEvents,
   netDepositRawAtTime,
   splitPositionValueAtPoint,
   type ActivityFlowEvent,
 } from '@/lib/interest-utils';
-import { ExternalVaultTransactModal } from '@/components/features/vault/ExternalVaultTransactModal';
 import { logger } from '@/lib/logger';
 import { useToast } from '@/contexts/ToastContext';
 import { usePrices } from '@/contexts/PriceContext';
@@ -34,6 +32,11 @@ import { useVaultEarnedInterest } from '@/hooks/useVaultEarnedInterest';
 import { useLockPageScroll } from '@/hooks/useLockPageScroll';
 import { resolveAssetDecimals } from '@/lib/asset-decimals';
 import { BASE_CHAIN_ID } from '@/lib/constants';
+
+const VAULT_READ_QUERY = {
+  refetchInterval: false as const,
+  staleTime: 60_000,
+};
 
 interface VaultPositionProps {
   vaultData: MorphoVaultData;
@@ -58,7 +61,6 @@ const formatDate = (timestamp: number) => {
 };
 
 export default function VaultPosition({ vaultData }: VaultPositionProps) {
-  const router = useRouter();
   const { address, isConnected } = useAccount();
   const { btc: btcPrice, eth: ethPrice } = usePrices();
   const { error: showErrorToast } = useToast();
@@ -74,12 +76,6 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
     assetsUsd: number;
     shares: number;
   }>>([]);
-  const [hourly7dPositionHistory, setHourly7dPositionHistory] = useState<Array<{
-    timestamp: number;
-    assets: number;
-    assetsUsd: number;
-    shares: number;
-  }>>([]);
   const [hourly30dPositionHistory, setHourly30dPositionHistory] = useState<Array<{
     timestamp: number;
     assets: number;
@@ -87,20 +83,14 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
     shares: number;
   }>>([]);
   const [activityFlowEvents, setActivityFlowEvents] = useState<ActivityFlowEvent[] | null>(null);
-  const [externalTransactAction, setExternalTransactAction] = useState<'deposit' | 'withdraw' | null>(null);
 
-  const isExternalVault =
-    vaultData.isCurated === false || !isCuratedVaultAddress(vaultData.address);
-  const morphoVaultUrl = getMorphoVaultUrl(vaultData.chainId, vaultData.address);
-
-  // Get shares using balanceOf
   const { data: sharesRaw } = useReadContract({
     address: address ? vaultData.address as `0x${string}` : undefined,
     chainId: vaultData.chainId as typeof BASE_CHAIN_ID,
     abi: ERC20_BALANCE_ABI,
     functionName: 'balanceOf',
     args: address ? [address as `0x${string}`] : undefined,
-    query: { enabled: !!address },
+    query: { enabled: !!address, ...VAULT_READ_QUERY },
   });
 
   // Convert shares to assets using convertToAssets
@@ -110,7 +100,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
     abi: ERC4626_ABI,
     functionName: 'convertToAssets',
     args: sharesRaw !== undefined ? [sharesRaw] : undefined,
-    query: { enabled: sharesRaw !== undefined },
+    query: { enabled: sharesRaw !== undefined, ...VAULT_READ_QUERY },
   });
 
   const currentAssetsRaw = useMemo(() => {
@@ -155,15 +145,31 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
 
   useLockPageScroll(isTimeFrameMenuOpen);
 
+  const positionHistoryLoadedRef = useRef(false);
+  const positionHistoryFetchKeyRef = useRef('');
+
+  const positionHistoryFetchKey = `${vaultData.address}:${vaultData.chainId}:${address ?? ''}`;
+
+  useEffect(() => {
+    if (positionHistoryFetchKeyRef.current !== positionHistoryFetchKey) {
+      positionHistoryFetchKeyRef.current = positionHistoryFetchKey;
+      positionHistoryLoadedRef.current = false;
+    }
+  }, [positionHistoryFetchKey]);
+
   useEffect(() => {
     const fetchPositionHistory = async () => {
       if (!address) {
         setUserPositionHistory([]);
         setLoading(false);
+        positionHistoryLoadedRef.current = false;
         return;
       }
 
-      setLoading(true);
+      const isInitialLoad = !positionHistoryLoadedRef.current;
+      if (isInitialLoad) {
+        setLoading(true);
+      }
       try {
         // NOTE: Position history graphs use Graph API (via /api/vault/v2/[address]/position-history)
         // This provides historical data points for chart display
@@ -210,67 +216,32 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
         showErrorToast('Failed to load position data. Please refresh the page.', 5000);
       } finally {
         setLoading(false);
+        if (address) {
+          positionHistoryLoadedRef.current = true;
+        }
       }
     };
 
     fetchPositionHistory();
-  }, [vaultData, address, showErrorToast]);
+  }, [vaultData.address, vaultData.chainId, vaultData.version, address, showErrorToast]);
 
-  // Fetch hourly data for 7D period
-  useEffect(() => {
-    const abortController = new AbortController();
-    
-    const fetch7dHourlyPosition = async () => {
-      if (!address) {
-        setHourly7dPositionHistory([]);
-        return;
+  const chartEndTimestamp = useMemo(() => {
+    let maxTs = 0;
+    for (const series of [userPositionHistory, hourly30dPositionHistory]) {
+      for (const point of series) {
+        if (point.timestamp > maxTs) maxTs = point.timestamp;
       }
+    }
+    return maxTs || now;
+  }, [userPositionHistory, hourly30dPositionHistory, now]);
 
-      try {
-        // Fetch 7D data with hourly intervals
-        const response = await fetch(
-          `/api/vault/${vaultData.version}/${vaultData.address}/position-history?chainId=${vaultData.chainId}&userAddress=${address}&period=7d`,
-          { signal: abortController.signal }
-        );
-        
-        if (!response.ok) {
-          return; // Silently fail, will fall back to daily data
-        }
-        
-        const data = await response.json().catch(() => ({}));
-        
-        // Check for errors in response body
-        if (data.error) {
-          return; // Silently fail, will fall back to daily data
-        }
-        
-        // Set position history - use empty array if error or invalid response
-        if (data && typeof data === 'object' && Array.isArray(data.history)) {
-          setHourly7dPositionHistory(data.history);
-        } else {
-          setHourly7dPositionHistory([]);
-        }
-      } catch (error) {
-        if (error instanceof Error && error.name === 'AbortError') return;
-        // Silently fail, will fall back to daily data
-        logger.warn(
-          'Failed to fetch 7D hourly position data, falling back to daily',
-          { 
-            vaultAddress: vaultData.address, 
-            userAddress: address, 
-            chainId: vaultData.chainId as typeof BASE_CHAIN_ID,
-            error: error instanceof Error ? error.message : String(error)
-          }
-        );
-        setHourly7dPositionHistory([]);
-      }
-    };
+  const hourly7dPositionHistory = useMemo(() => {
+    if (hourly30dPositionHistory.length === 0) return [];
+    const cutoff = chartEndTimestamp - TIME_FRAME_SECONDS['7D'];
+    return hourly30dPositionHistory.filter((point) => point.timestamp >= cutoff);
+  }, [hourly30dPositionHistory, chartEndTimestamp]);
 
-    fetch7dHourlyPosition();
-    return () => abortController.abort();
-  }, [vaultData.address, vaultData.chainId, vaultData.version, address]);
-
-  // Fetch hourly data for 30D period
+  // Fetch hourly data for 30D period (7D derived client-side from the same series)
   useEffect(() => {
     const abortController = new AbortController();
     
@@ -408,7 +379,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
     // Find minimum timestamp to ensure correctness regardless of sort order
     // Use reduce instead of Math.min spread to avoid potential stack overflow with large arrays
     const oldestTimestamp = fullUserDepositHistory.reduce((min, d) => Math.min(min, d.timestamp), fullUserDepositHistory[0].timestamp);
-    const dataRangeSeconds = now - oldestTimestamp;
+    const dataRangeSeconds = chartEndTimestamp - oldestTimestamp;
     
     const frames: TimeFrame[] = ['all'];
     
@@ -417,7 +388,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
       frames.push('1Y');
     }
     // Only show '90D' if 90 days ago is after Oct 7, 2025
-    if (dataRangeSeconds >= TIME_FRAME_SECONDS['90D'] && (now - TIME_FRAME_SECONDS['90D']) >= MIN_TIMESTAMP) {
+    if (dataRangeSeconds >= TIME_FRAME_SECONDS['90D'] && (chartEndTimestamp - TIME_FRAME_SECONDS['90D']) >= MIN_TIMESTAMP) {
       frames.push('90D');
     }
     if (dataRangeSeconds >= TIME_FRAME_SECONDS['30D']) {
@@ -428,7 +399,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
     }
     
     return frames;
-  }, [fullUserDepositHistory, now]);
+  }, [fullUserDepositHistory, chartEndTimestamp]);
 
   // Use GraphQL position history data directly - no calculation needed
   // This is used for displaying the chart, and switches between hourly/daily based on selectedTimeFrame
@@ -450,7 +421,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
     let data = userDepositHistory;
     
     if (selectedTimeFrame !== 'all' && userDepositHistory.length > 0) {
-      const cutoffTimestamp = now - TIME_FRAME_SECONDS[selectedTimeFrame];
+      const cutoffTimestamp = chartEndTimestamp - TIME_FRAME_SECONDS[selectedTimeFrame];
       data = userDepositHistory.filter(d => d.timestamp >= cutoffTimestamp);
     }
     
@@ -470,7 +441,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
     }
     
     return mappedData;
-  }, [userDepositHistory, selectedTimeFrame, valueType, now]);
+  }, [userDepositHistory, selectedTimeFrame, valueType, chartEndTimestamp]);
 
   const hasActivityBreakdown =
     activityFlowEvents !== null && activityFlowEvents.length > 0;
@@ -598,25 +569,12 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
       }
     });
     
-    return ticks.length > 0 ? ticks : undefined;
+    return withLeadingChartTick(
+      ticks.length > 0 ? ticks : undefined,
+      sortedData[0]?.timestamp
+    );
   }, [selectedTimeFrame, chartData]);
   
-
-  const handleDeposit = () => {
-    if (isExternalVault) {
-      setExternalTransactAction('deposit');
-      return;
-    }
-    router.push(`/transact?vault=${vaultData.address}&action=deposit`);
-  };
-
-  const handleWithdraw = () => {
-    if (isExternalVault) {
-      setExternalTransactAction('withdraw');
-      return;
-    }
-    router.push(`/transact?vault=${vaultData.address}&action=withdraw`);
-  };
 
   const formatChartValue = useCallback(
     (value: number) => {
@@ -629,140 +587,90 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
   );
 
   return (
-    <div className="space-y-6">
-      <ExternalVaultTransactModal
-        isOpen={externalTransactAction !== null}
-        onClose={() => setExternalTransactAction(null)}
-        morphoVaultUrl={morphoVaultUrl}
-        action={externalTransactAction ?? 'deposit'}
-      />
+    <div className="space-y-5">
       {/* Position Value */}
-      <div>
-        <div className="flex flex-col md:flex-row items-start justify-between gap-6 mb-4">
-          <div className="flex flex-col md:flex-row flex-1 w-full gap-6 md:gap-10">
-            {/* Your Position — on-chain convertToAssets (matches withdraw / MAX) */}
-            <div className="flex-1 w-full md:w-auto">
-              <p className="text-xs text-[var(--foreground-secondary)] mb-1">Your Position</p>
-              {!isConnected ? (
-                <p className="text-sm text-[var(--foreground-muted)]">Connect wallet</p>
-              ) : positionRawValue === null ? (
-                <Skeleton width="8rem" height="2rem" />
-              ) : (() => {
-                try {
-                  return BigInt(positionRawValue) <= BigInt(0);
-                } catch {
-                  return false;
-                }
-              })() ? (
-                <p className="text-sm text-[var(--foreground-muted)]">No holdings</p>
-              ) : (
+      <div className="flex flex-col sm:flex-row sm:items-start gap-5 sm:gap-10">
+        {/* Your Position — on-chain convertToAssets (matches withdraw / MAX) */}
+        <div className="flex-1 min-w-0">
+          <p className="text-xs text-[var(--foreground-secondary)] mb-1">Your Position</p>
+          {!isConnected ? (
+            <p className="text-sm text-[var(--foreground-muted)]">Connect wallet</p>
+          ) : positionRawValue === null ? (
+            <Skeleton width="8rem" height="2rem" />
+          ) : (() => {
+            try {
+              return BigInt(positionRawValue) <= BigInt(0);
+            } catch {
+              return false;
+            }
+          })() ? (
+            <p className="text-sm text-[var(--foreground-muted)]">No holdings</p>
+          ) : (
+            <>
+              <p className="text-xl sm:text-2xl font-bold text-[var(--foreground)]">
+                {formatVaultDetailTokenAmount(
+                  positionRawValue,
+                  depositAssetDecimals,
+                  vaultData.symbol
+                )}
+              </p>
+              <p className="text-xs text-[var(--foreground-secondary)] mt-1">
+                {formatPositionUsd(userVaultTotalUsd)}
+              </p>
+            </>
+          )}
+        </div>
+
+        {/* Earned Interest */}
+        <div className="flex-1 min-w-0 sm:text-right">
+          <p className="text-xs text-[var(--foreground-secondary)] mb-1">Earned Interest</p>
+          {!isConnected ? (
+            <p className="text-sm text-[var(--foreground-muted)]">Connect wallet</p>
+          ) : earnedInterest.isLoading ? (
+            <Skeleton width="8rem" height="2rem" />
+          ) : (() => {
+            try {
+              const raw = BigInt(earnedInterest.earnedInterestRaw || '0');
+              if (raw <= BigInt(0) && earnedInterest.earnedInterestUsd <= 0) {
+                return (
+                  <>
+                    <p className="text-xl sm:text-2xl font-bold text-[var(--foreground)]">
+                      {formatVaultDetailTokenAmount('0', interestDecimals, vaultData.symbol)}
+                    </p>
+                    <p className="text-xs text-[var(--foreground-secondary)] mt-1">
+                      {formatCurrency(0)}
+                    </p>
+                  </>
+                );
+              }
+              return (
                 <>
-                  <p className="text-2xl font-bold text-[var(--foreground)]">
+                  <p className="text-xl sm:text-2xl font-bold text-[var(--foreground)]">
                     {formatVaultDetailTokenAmount(
-                      positionRawValue,
-                      depositAssetDecimals,
+                      earnedInterest.earnedInterestRaw || '0',
+                      interestDecimals,
                       vaultData.symbol
                     )}
                   </p>
                   <p className="text-xs text-[var(--foreground-secondary)] mt-1">
-                    {formatPositionUsd(userVaultTotalUsd)}
+                    {formatCurrency(earnedInterest.earnedInterestUsd)}
                   </p>
                 </>
-              )}
-            </div>
-
-            {/* Earned Interest */}
-            <div className="flex-1 w-full md:w-auto md:text-right">
-              <p className="text-xs text-[var(--foreground-secondary)] mb-1">Earned Interest</p>
-              {!isConnected ? (
-                <p className="text-sm text-[var(--foreground-muted)]">Connect wallet</p>
-              ) : earnedInterest.isLoading ? (
-                <Skeleton width="8rem" height="2rem" />
-              ) : (() => {
-                try {
-                  const raw = BigInt(earnedInterest.earnedInterestRaw || '0');
-                  if (raw <= BigInt(0) && earnedInterest.earnedInterestUsd <= 0) {
-                    return (
-                      <>
-                        <p className="text-2xl font-bold text-[var(--foreground)]">
-                          {formatVaultDetailTokenAmount('0', interestDecimals, vaultData.symbol)}
-                        </p>
-                        <p className="text-xs text-[var(--foreground-secondary)] mt-1">
-                          {formatCurrency(0)}
-                        </p>
-                      </>
-                    );
-                  }
-                  return (
-                    <>
-                      <p className="text-2xl font-bold text-[var(--foreground)]">
-                        {formatVaultDetailTokenAmount(
-                          earnedInterest.earnedInterestRaw || '0',
-                          interestDecimals,
-                          vaultData.symbol
-                        )}
-                      </p>
-                      <p className="text-xs text-[var(--foreground-secondary)] mt-1">
-                        {formatCurrency(earnedInterest.earnedInterestUsd)}
-                      </p>
-                    </>
-                  );
-                } catch {
-                  return <p className="text-sm text-[var(--foreground-muted)]">-</p>;
-                }
-              })()}
-            </div>
-          </div>
-
-          {/* Transaction Buttons - Desktop: Show in second column */}
-          {isConnected && (
-            <div className="hidden md:flex gap-2">
-              <Button
-                onClick={handleDeposit}
-                variant="primary"
-                size="sm"
-              >
-                Deposit
-              </Button>
-              <Button
-                onClick={handleWithdraw}
-                variant="secondary"
-                size="sm"
-              >
-                Withdraw
-              </Button>
-            </div>
-          )}
+              );
+            } catch {
+              return <p className="text-sm text-[var(--foreground-muted)]">-</p>;
+            }
+          })()}
         </div>
-        
-        {/* Transaction Buttons - Mobile: Show below deposits */}
-        {isConnected && (
-          <div className="flex md:hidden gap-2 mt-4">
-            <Button
-              onClick={handleDeposit}
-              variant="primary"
-              size="sm"
-            >
-              Deposit
-            </Button>
-            <Button
-              onClick={handleWithdraw}
-              variant="secondary"
-              size="sm"
-            >
-              Withdraw
-            </Button>
-          </div>
-        )}
       </div>
 
       {/* Chart */}
       {isConnected && address && (
         <div>
           {loading ? (
-            <div className="bg-[var(--surface-elevated)] rounded-lg p-2 sm:p-4">
+            <div className="bg-[var(--surface-elevated)] rounded-lg p-2 sm:p-3">
               {/* Controls Row Skeleton */}
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-3">
                 <div className="flex items-center gap-2">
                   <Skeleton width="3rem" height="2rem" />
                   <Skeleton width="3rem" height="2rem" />
@@ -774,7 +682,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
                 </div>
               </div>
               {/* Chart Skeleton */}
-              <div className="h-80 p-4">
+              <div className="h-52 sm:h-56 p-3">
                 <div className="h-full flex flex-col justify-between">
                   {/* Y-axis labels area */}
                   <div className="flex justify-between mb-2">
@@ -896,9 +804,9 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
                   </button>
                 </div>
               </div>
-              <div className="w-full min-w-0 h-80">
-                <ResponsiveContainer width="100%" height="100%" minHeight={320} debounce={50}>
-                  <AreaChart data={chartData}>
+              <div className="w-full min-w-0 h-52 sm:h-56">
+                <ResponsiveContainer width="100%" height="100%" minHeight={208} debounce={50}>
+                  <AreaChart data={chartData} margin={CHART_MARGIN}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" />
                     <XAxis 
                       dataKey="timestamp" 
@@ -907,9 +815,12 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
                       style={{ fontSize: '12px' }}
                       interval="preserveStartEnd"
                       ticks={getChartTicks}
+                      padding={{ left: 0, right: 0 }}
                     />
                     <YAxis
-                      width={valueType === 'usd' ? 120 : 128}
+                      width={getChartYAxisWidth(valueType === 'usd' ? 'usd' : 'tokenWide')}
+                      orientation="left"
+                      tickMargin={8}
                       domain={yAxisDomain}
                       tickFormatter={(value) => {
                         if (value === undefined || typeof value !== 'number') return '';
@@ -992,6 +903,7 @@ export default function VaultPosition({ vaultData }: VaultPositionProps) {
                       fill="var(--primary-subtle)"
                       strokeWidth={2}
                       dot={false}
+                      isAnimationActive={false}
                       activeDot={{ r: 4, fill: 'var(--primary)', stroke: 'var(--primary)', strokeWidth: 2 }}
                     />
                   </AreaChart>

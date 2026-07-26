@@ -8,7 +8,6 @@ import { useTransactionState } from '@/contexts/TransactionContext';
 import { useWallet } from '@/contexts/WalletContext';
 import { useVaultData } from '@/contexts/VaultDataContext';
 import { usePrices } from '@/contexts/PriceContext';
-import { useVaultVersion } from '@/contexts/VaultVersionContext';
 import { VAULTS } from '@/lib/vaults';
 import { ETH_GAS_RESERVE } from '@/lib/constants';
 import { Account, Vault, VaultAccount, WalletAccount } from '@/types/vault';
@@ -22,7 +21,12 @@ import {
   type WalletMorphoPosition,
 } from '@/lib/vault-utils';
 import { getAssetDecimalsForSymbol } from '@/lib/asset-decimals';
-import { TOKEN_ADDRESSES_LOWER, type TokenBalance } from '@/contexts/WalletContext';
+import { TOKEN_ADDRESSES_LOWER } from '@/contexts/WalletContext';
+import {
+  accountsMatchTransactionTab,
+  findTokenBySymbol,
+  type TransactionTab,
+} from '@/lib/transaction-form-utils';
 
 function buildRegistryVaultList(): Vault[] {
   return Object.values(VAULTS).map((vault) => ({
@@ -56,39 +60,6 @@ function vaultToVaultAccount(
   };
 }
 
-// Helper function to find token by symbol using address-based matching for reliability
-// Note: wstETH and cbETH are intentionally excluded - only shown in wallet overview
-const findTokenBySymbol = (
-  symbol: string,
-  tokenBalances: TokenBalance[]
-): TokenBalance | undefined => {
-  // Address-based matching for major tokens (Alchemy may return different symbol variants)
-  if (symbol === 'cbBTC' || symbol === 'CBBTC') {
-    return tokenBalances.find((t) => t.address.toLowerCase() === TOKEN_ADDRESSES_LOWER.cbBTC);
-  }
-  if (symbol === 'USDC') {
-    return tokenBalances.find((t) => t.address.toLowerCase() === TOKEN_ADDRESSES_LOWER.USDC);
-  }
-  if (symbol === 'WETH') {
-    return tokenBalances.find((t) => t.address.toLowerCase() === TOKEN_ADDRESSES_LOWER.WETH);
-  }
-  // Fallback to symbol-based matching for other tokens
-  return tokenBalances.find((t) => t.symbol.toUpperCase() === symbol.toUpperCase());
-};
-
-type TransactionTab = 'deposit' | 'withdraw';
-
-function accountsMatchTransactionTab(
-  tab: TransactionTab,
-  from: Account | null,
-  to: Account | null
-): boolean {
-  if (tab === 'deposit') {
-    return from?.type === 'wallet' && (to === null || to.type === 'vault');
-  }
-  return from?.type === 'vault' && to?.type === 'wallet';
-}
-
 /** Restore wallet/vault slots for the selected tab while keeping the same vault. */
 function syncAccountsToTab(
   tab: TransactionTab,
@@ -113,7 +84,6 @@ export default function TransactionsPage() {
   const { tokenBalances, ethBalance, morphoHoldings, refreshBalances } = useWallet();
   const { fetchVaultData } = useVaultData();
   const { btc: btcPrice, eth: ethPrice } = usePrices();
-  const { isDevMode } = useVaultVersion();
   const {
     fromAccount,
     toAccount,
@@ -128,8 +98,6 @@ export default function TransactionsPage() {
     setPreferredAsset,
     reset,
   } = useTransactionState();
-
-  const [balanceBypassAcknowledged, setBalanceBypassAcknowledged] = useState(false);
   
   // Tab state - determine from URL params or default to deposit
   const [activeTab, setActiveTab] = useState<TransactionTab>(() => {
@@ -366,9 +334,8 @@ export default function TransactionsPage() {
 
   const getWrappableEthBalance = useCallback(() => {
     const ethBal = parseFloat(ethBalance || '0');
-    if (isDevMode) return ethBal;
     return Math.max(0, ethBal - ETH_GAS_RESERVE);
-  }, [ethBalance, isDevMode]);
+  }, [ethBalance]);
 
   const isWethVaultEthDeposit = useMemo(() => {
     if (effectiveActiveTab !== 'deposit' || fromAccount?.type !== 'wallet' || toAccount?.type !== 'vault') {
@@ -617,20 +584,25 @@ export default function TransactionsPage() {
   // Check if entered amount exceeds available balance
   const exceedsBalance = useMemo(() => {
     if (!amount || !fromAccount || !derivedAsset) return false;
-    
-    const enteredAmount = parseFloat(amount);
-    if (isNaN(enteredAmount) || enteredAmount <= 0) return false;
-    
+
+    const enteredAmount = Number.parseFloat(amount);
+    if (!Number.isFinite(enteredAmount) || enteredAmount <= 0) return false;
+
     const maxAmount = getMaxAmount;
     // Allow checking even if maxAmount is 0 (no balance)
-    if (maxAmount === null) return false;
-    
-    return enteredAmount > maxAmount;
+    if (maxAmount === null || !Number.isFinite(maxAmount)) return false;
+
+    // Tolerate float noise when MAX uses exact bigint formatting vs float maxAmount.
+    const tolerance = Math.max(Math.abs(maxAmount) * 1e-9, 1e-12);
+    return enteredAmount > maxAmount + tolerance;
   }, [amount, fromAccount, derivedAsset, getMaxAmount]);
 
-  const allowOverBalanceOnDevMode = isDevMode;
-  const blockContinueForBalance =
-    exceedsBalance && !(allowOverBalanceOnDevMode && balanceBypassAcknowledged);
+  const hasValidAmount = useMemo(() => {
+    const parsed = Number.parseFloat(amount);
+    return Number.isFinite(parsed) && parsed > 0;
+  }, [amount]);
+
+  const blockContinueForBalance = exceedsBalance;
 
   const mergedRegistryVaults = useMemo(
     () => buildRegistryVaultList(),
@@ -638,7 +610,7 @@ export default function TransactionsPage() {
   );
 
   const handleStartTransaction = () => {
-    if (fromAccount && toAccount && derivedAsset) {
+    if (fromAccount && toAccount && derivedAsset && hasValidAmount && !exceedsBalance) {
       setStatus('preview');
     }
   };
@@ -1033,7 +1005,7 @@ export default function TransactionsPage() {
                   {fromAccount.type === 'wallet' ? getWalletBalanceText : getVaultBalanceText}
                 </p>
               )}
-              {isWethVaultEthDeposit && !isDevMode && (
+              {isWethVaultEthDeposit && (
                 <p className="text-xs text-[var(--foreground-muted)]">
                   {ETH_GAS_RESERVE} ETH is intentionally left in your wallet for network gas fees.
                 </p>
@@ -1043,17 +1015,6 @@ export default function TransactionsPage() {
                   <p className="text-xs text-[var(--foreground)]">
                     <span className="font-medium">Warning:</span> Amount exceeds available balance. This transaction will fail if you proceed.
                   </p>
-                  {allowOverBalanceOnDevMode && (
-                    <label className="flex items-start gap-2 cursor-pointer text-xs text-[var(--foreground)]">
-                      <input
-                        type="checkbox"
-                        checked={balanceBypassAcknowledged}
-                        onChange={(e) => setBalanceBypassAcknowledged(e.target.checked)}
-                        className="mt-0.5 rounded border-[var(--border-subtle)]"
-                      />
-                      <span>Proceed anyway (Dev mode — for testing)</span>
-                    </label>
-                  )}
                 </div>
               )}
             </div>
@@ -1079,8 +1040,7 @@ export default function TransactionsPage() {
               !fromAccount || 
               !toAccount || 
               !derivedAsset || 
-              !amount || 
-              parseFloat(amount) <= 0 ||
+              !hasValidAmount ||
               blockContinueForBalance ||
               (fromAccount.type === 'wallet' && toAccount.type === 'wallet') || // Prevent wallet-to-wallet
               (fromAccount.type === 'vault' && toAccount.type === 'vault') // Prevent vault-to-vault

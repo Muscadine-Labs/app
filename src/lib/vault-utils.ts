@@ -1,6 +1,10 @@
 import { VAULTS, VaultStrategy } from '@/lib/vaults';
 import { Vault } from '@/types/vault';
-import { getAssetDecimalsForSymbol } from '@/lib/asset-decimals';
+import {
+  DEFAULT_MORPHO_ASSET_SYMBOL,
+  getAssetDecimalsForSymbol,
+  resolveMorphoAssetSymbol,
+} from '@/lib/asset-decimals';
 import { BASE_CHAIN_ID } from '@/lib/constants';
 
 /** Morpho holding row from WalletContext (minimal shape for display helpers). */
@@ -8,6 +12,7 @@ export interface WalletMorphoPosition {
   shares: string;
   assets?: string;
   assetsUsd?: number;
+  assetDecimals?: number;
   pnl?: number;
   pnlUsd?: number;
   pnlRaw?: string;
@@ -52,7 +57,9 @@ export function resolvePositionAssetsUsd(
 
   const symbol = (options?.symbol ?? position.vault.symbol ?? '').toUpperCase();
   const decimals =
-    options?.assetDecimals ?? getAssetDecimalsForSymbol(symbol);
+    options?.assetDecimals ??
+    position.assetDecimals ??
+    getAssetDecimalsForSymbol(symbol);
 
   if (position.assets) {
     try {
@@ -158,28 +165,77 @@ export function createExternalVaultStub(
   return {
     address,
     name: options?.name ?? `${address.slice(0, 6)}...${address.slice(-4)}`,
-    symbol: options?.symbol ?? 'UNKNOWN',
+    symbol: options?.symbol ?? DEFAULT_MORPHO_ASSET_SYMBOL,
     chainId: options?.chainId ?? BASE_CHAIN_ID,
     version: 'v2',
     isCurated: false,
   };
 }
 
-/** Registry vault or external stub — used by vault detail pages. */
-export function resolveVaultForPage(
-  address: string,
-  walletPosition?: WalletMorphoPosition
-): Vault | null {
+export type VaultWalletFilterMode = 'all' | 'inWallet' | 'inWalletAndWhitelisted';
+
+export function dedupeVaultsByAddress(vaults: Vault[]): Vault[] {
+  const seen = new Set<string>();
+  const result: Vault[] = [];
+  for (const vault of vaults) {
+    const key = vault.address.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(vault);
+  }
+  return result;
+}
+
+/** Registry list + optional wallet/external vaults for the vault explorer. */
+export function buildExplorerVaultCandidates(
+  registryVaults: Vault[],
+  positions: WalletMorphoPosition[],
+  walletFilter: VaultWalletFilterMode
+): Vault[] {
+  if (walletFilter === 'all') {
+    return registryVaults;
+  }
+
+  const activePositions = positions.filter(hasOnChainVaultShares);
+  const depositedKeys = new Set(
+    activePositions.map((position) => position.vault.address.toLowerCase())
+  );
+
+  const externalVaults: Vault[] = activePositions
+    .filter((position) => !isCuratedVaultAddress(position.vault.address))
+    .map((position) => {
+      const symbol = resolveMorphoAssetSymbol({
+        assetSymbol: position.vault.symbol,
+        assetDecimals: position.assetDecimals ?? null,
+        vaultName: position.vault.name,
+      });
+      return createExternalVaultStub(position.vault.address, {
+        name: position.vault.name,
+        symbol,
+        chainId: BASE_CHAIN_ID,
+      });
+    });
+
+  if (walletFilter === 'inWallet') {
+    return [
+      ...registryVaults.filter((vault) =>
+        depositedKeys.has(vault.address.toLowerCase())
+      ),
+      ...externalVaults,
+    ];
+  }
+
+  return dedupeVaultsByAddress([...registryVaults, ...externalVaults]);
+}
+
+/** Whitelisted registry vault only — external Morpho positions have no detail page. */
+export function resolveVaultForPage(address: string): Vault | null {
   if (!address || !isValidEthereumAddress(address)) return null;
 
   const registryVault = findVaultByAddress(address);
   if (registryVault?.version === 'v2') return registryVault;
 
-  return createExternalVaultStub(address, {
-    name: walletPosition?.vault.name,
-    symbol: walletPosition?.vault.symbol,
-    chainId: BASE_CHAIN_ID,
-  });
+  return null;
 }
 
 /** Vault write/read product surface is v2 only. */

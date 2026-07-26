@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useWaitForTransactionReceipt, useReadContract, useWalletClient, usePublicClient } from 'wagmi';
-import { formatUnits, type Address, type PublicClient, type WalletClient } from 'viem';
+import { parseUnits, type Address, type PublicClient, type WalletClient } from 'viem';
 import { VaultAccount } from '@/types/vault';
 import { useTransactionState } from '@/contexts/TransactionContext';
 import type { TransactionProgressStep } from '@/types/transactions';
@@ -14,22 +14,40 @@ import {
   parseTransactionAmount,
   simulateVaultWithdraw,
 } from '@/lib/liquidity-utils';
+import {
+  formatForcePenaltyAmount,
+  formatPenaltyRatePercent,
+  planForceWithdrawV2,
+  simulateForceWithdrawPlan,
+  type ForceWithdrawPlan,
+} from '@/lib/force-withdraw-v2';
 import { formatAssetAmount } from '@/lib/formatter';
 import { BASE_CHAIN_ID, POST_TX_BALANCE_REFRESH_DELAY_MS } from '@/lib/constants';
-import { depositToVaultV2, withdrawFromVaultV2, redeemFromVaultV2, resumeUnwrapWalletWethV2 } from '@/lib/transactionUtilsV2';
+import {
+  depositToVaultV2,
+  withdrawFromVaultV2,
+  redeemFromVaultV2,
+  resumeUnwrapWalletWethV2,
+  forceWithdrawFromVaultV2,
+} from '@/lib/transactionUtilsV2';
 import { TransactionConfirmation } from './TransactionConfirmation';
 import { WithdrawLiquidityWarningModal } from './WithdrawLiquidityWarningModal';
 import { TransactionStatus as TransactionStatusComponent } from './TransactionStatus';
 import { useToast } from '@/contexts/ToastContext';
 import { useWallet } from '@/contexts/WalletContext';
 import { useVaultData } from '@/contexts/VaultDataContext';
-import { useVaultVersion } from '@/contexts/VaultVersionContext';
 import { logger } from '@/lib/logger';
 import { useRouter } from 'next/navigation';
 import { ERC4626_ABI } from '@/lib/abis';
 
 interface TransactionFlowProps {
   onSuccess?: () => void;
+  /** When set, success "Done" stays in context (e.g. closes vault modal) instead of /transact. */
+  onSuccessComplete?: () => void;
+  /** When set, preview cancel returns to amount step instead of leaving flow idle globally. */
+  onReturnToIdle?: () => void;
+  /** Softer layout for vault transact modal. */
+  embedded?: boolean;
 }
 
 function stepTypeForLabel(label: string): 'signing' | 'approving' | 'confirming' {
@@ -38,19 +56,41 @@ function stepTypeForLabel(label: string): 'signing' | 'approving' | 'confirming'
   return 'confirming';
 }
 
+/**
+ * Resume only the post-exit unwrap (force→ETH), not the atomic Bundler3 "Withdraw to ETH" step.
+ * Match unwrap-only labels, or failures after a force exit already progressed past step 0.
+ */
 function shouldResumeUnwrapOnly(
   transactionType: string | null,
   failedStepIndex: number,
-  stepsInfo: Array<{ stepIndex: number; label: string }>
+  stepsInfo: Array<{ stepIndex: number; label: string; txHash?: string }>
 ): boolean {
   if (transactionType !== 'withdraw') return false;
   const failedStep = stepsInfo.find((s) => s.stepIndex === failedStepIndex);
   const label = failedStep?.label?.toLowerCase() ?? '';
-  if (label.includes('unwrap')) return true;
-  return failedStepIndex >= 1;
+
+  // Atomic Bundler3 exits ("Withdraw to ETH" / "Redeem to ETH") retry the full flow.
+  const isUnwrapOnlyStep =
+    label.startsWith('unwrap') || label === 'unwrap to eth' || label === 'unwrap weth';
+  if (isUnwrapOnlyStep) return true;
+
+  const priorStep = stepsInfo.find((s) => s.stepIndex === 0);
+  const priorLabel = priorStep?.label?.toLowerCase() ?? '';
+  // Force was broadcast and we failed on a later step (approve / unwrap) — resume unwrap.
+  // Do NOT resume when still on step 0 (force may have reverted; retry the force plan).
+  return (
+    failedStepIndex > 0 &&
+    priorLabel.includes('force') &&
+    Boolean(priorStep?.txHash)
+  );
 }
 
-export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
+export function TransactionFlow({
+  onSuccess,
+  onSuccessComplete,
+  onReturnToIdle,
+  embedded = false,
+}: TransactionFlowProps) {
   const {
     fromAccount,
     toAccount,
@@ -63,7 +103,6 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
     preferredAsset,
     setStatus,
   } = useTransactionState();
-  const { isDevMode } = useVaultVersion();
   const { success, error: showErrorToast } = useToast();
   const { refreshBalancesWithPolling, morphoHoldings, refreshBalances } = useWallet();
   const { fetchVaultData } = useVaultData();
@@ -82,9 +121,15 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
     morphoVaultUrl: string;
     requestedAmountLabel: string;
     instantLiquidityLabel: string;
+    estimatedPenaltyLabel: string | null;
+    penaltyRateLabel: string | null;
+    expectedOutLabel: string | null;
+    forceWithdrawAvailable: boolean;
+    mayLeaveShareDust: boolean;
   } | null>(null);
   const [isCheckingLiquidity, setIsCheckingLiquidity] = useState(false);
   const currentStepRef = useRef(0);
+  const forcePlanRef = useRef<ForceWithdrawPlan | null>(null);
 
   const shouldClearFlowState = (status === 'idle' || status === 'preview') && !partialFailure;
   const effectiveCurrentTxHash = shouldClearFlowState ? null : currentTxHash;
@@ -118,26 +163,35 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
     },
   });
 
-  // Check if withdrawal amount matches max (within small tolerance for rounding)
+  // Treat as full exit only when amount is essentially MAX (bigint compare — not float).
   const shouldUseWithdrawAll = useMemo(() => {
     if (transactionType !== 'withdraw' || !fromAccount || fromAccount.type !== 'vault' || !amount || !exactAssetAmount) {
       return false;
     }
 
     const vaultAccount = fromAccount as VaultAccount;
-    const vaultData = getVaultData(vaultAccount.address);
-    if (!vaultData) return false;
+    const decimals =
+      vaultAccount.assetDecimals ??
+      getVaultData(vaultAccount.address)?.assetDecimals ??
+      18;
 
-    const maxAssetAmount = parseFloat(formatUnits(exactAssetAmount, vaultData.assetDecimals || 18));
-    const enteredAmount = parseFloat(amount);
-
-    if (isNaN(enteredAmount) || isNaN(maxAssetAmount) || maxAssetAmount === 0) {
+    let entered: bigint;
+    try {
+      entered = parseUnits(amount, decimals);
+    } catch {
       return false;
     }
 
-    // Check if entered amount is within 0.1% of max (to account for rounding)
-    const tolerance = maxAssetAmount * 0.001;
-    return Math.abs(enteredAmount - maxAssetAmount) <= tolerance;
+    const max = exactAssetAmount;
+    if (max === BigInt(0)) return false;
+
+    const diff = entered > max ? entered - max : max - entered;
+    // ~1 unit at ≤8 display decimals, or 0.001% of max — whichever is larger.
+    const absTol =
+      decimals > 8 ? BigInt(10) ** BigInt(decimals - 8) : BigInt(1);
+    const relTol = max / BigInt(100_000);
+    const tol = absTol > relTol ? absTol : relTol;
+    return diff <= tol;
   }, [transactionType, fromAccount, amount, exactAssetAmount, getVaultData]);
 
   // Wait for main transaction receipt (fallback only — v2 flow confirms inside depositToVaultV2)
@@ -397,6 +451,7 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
         isResuming &&
         shouldResumeUnwrapOnly(transactionType, resumeStepIndex, stepsInfo)
       ) {
+        forcePlanRef.current = null;
         const priorWithdrawHash = stepsInfo.find((s) => s.stepIndex === 0 && s.txHash)?.txHash;
         if (!priorWithdrawHash) {
           throw new Error(
@@ -421,14 +476,24 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
           amount,
           assetToUse.decimals,
           preferredAsset,
-          onProgress,
-          { skipEthGasReserve: isDevMode }
+          onProgress
         );
       } else if (transactionType === 'withdraw') {
         const vaultAddr = (fromAccount as VaultAccount).address as Address;
         const withdrawPreferredAsset =
           preferredAsset === 'ALL' ? undefined : (preferredAsset as 'ETH' | 'WETH' | undefined);
-        if (shouldUseWithdrawAll) {
+
+        const forcePlan = forcePlanRef.current;
+        if (forcePlan) {
+          txHash = await forceWithdrawFromVaultV2(
+            publicClient as PublicClient,
+            walletClient as WalletClient,
+            forcePlan,
+            withdrawPreferredAsset,
+            onProgress
+          );
+          forcePlanRef.current = null;
+        } else if (shouldUseWithdrawAll) {
           txHash = await redeemFromVaultV2(
             publicClient as PublicClient,
             walletClient as WalletClient,
@@ -454,10 +519,10 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
         throw new Error('Invalid transaction type');
       }
 
-      setIsExecuting(false);
       setCurrentTxHash(txHash);
       setPartialFailure(false);
       completeSuccessfulTransaction(txHash);
+      setIsExecuting(false);
 
     } catch (err) {
       setIsExecuting(false);
@@ -497,7 +562,6 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
     stepsInfo,
     totalSteps,
     preferredAsset,
-    isDevMode,
     shouldUseWithdrawAll,
     completeSuccessfulTransaction,
     setStatus,
@@ -553,6 +617,40 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
           );
 
           if (!simulationSucceeded) {
+            const userAddress = walletClient.account?.address as Address | undefined;
+            let forcePlan: ForceWithdrawPlan | null = null;
+            let forceOk = false;
+
+            if (userAddress) {
+              try {
+                forcePlan = await planForceWithdrawV2(
+                  publicClient as PublicClient,
+                  vaultAccount.address as Address,
+                  requested,
+                  instant,
+                  userAddress,
+                  { useRedeemExit: shouldUseWithdrawAll }
+                );
+                if (forcePlan) {
+                  forceOk = await simulateForceWithdrawPlan(
+                    publicClient as PublicClient,
+                    forcePlan,
+                    userAddress
+                  );
+                  if (!forceOk) forcePlan = null;
+                }
+              } catch (planErr) {
+                logger.warn('Force withdraw planning failed', {
+                  vaultAddress: vaultAccount.address,
+                  error: planErr instanceof Error ? planErr.message : String(planErr),
+                });
+                forcePlan = null;
+                forceOk = false;
+              }
+            }
+
+            forcePlanRef.current = forceOk && forcePlan ? forcePlan : null;
+
             setLiquidityWarningContext({
               morphoVaultUrl: getMorphoVaultUrl(BASE_CHAIN_ID, vaultAccount.address),
               requestedAmountLabel: formatAssetAmount(
@@ -565,6 +663,26 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
                 assetToUse.decimals,
                 assetToUse.symbol
               ),
+              estimatedPenaltyLabel: forcePlan
+                ? formatForcePenaltyAmount(
+                    forcePlan.estimatedPenaltyAssets,
+                    assetToUse.decimals,
+                    assetToUse.symbol
+                  )
+                : null,
+              penaltyRateLabel: forcePlan
+                ? formatPenaltyRatePercent(forcePlan.maxPenaltyWad)
+                : null,
+              expectedOutLabel: forcePlan
+                ? formatAssetAmount(
+                    forcePlan.expectedAssetsOut,
+                    assetToUse.decimals,
+                    assetToUse.symbol
+                  )
+                : null,
+              forceWithdrawAvailable: Boolean(forceOk && forcePlan),
+              mayLeaveShareDust:
+                shouldUseWithdrawAll && Boolean(forcePlan && forcePlan.exitMode === 'withdraw'),
             });
             setLiquidityWarningOpen(true);
             return;
@@ -582,10 +700,17 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
     await executeTransaction();
   };
 
-  const handleLiquidityWarningContinue = async () => {
+  const handleLiquidityWarningForceWithdraw = async () => {
+    if (!forcePlanRef.current) return;
     setLiquidityWarningOpen(false);
     setLiquidityWarningContext(null);
     await executeTransaction();
+  };
+
+  const handleLiquidityWarningClose = () => {
+    forcePlanRef.current = null;
+    setLiquidityWarningOpen(false);
+    setLiquidityWarningContext(null);
   };
 
   const isSigning = status === 'signing';
@@ -653,7 +778,7 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
     : '');
 
   return (
-    <div className="space-y-6">
+    <div className={embedded ? 'space-y-4' : 'space-y-6'}>
       {/* Progress bar is now shown at the page level */}
 
       {/* Transaction Confirmation - Show during preview, transaction flow, and success */}
@@ -672,6 +797,8 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
           isPartialFailure={isError && partialFailure}
           errorMessage={isError && partialFailure ? error ?? undefined : undefined}
           txHash={effectiveCurrentTxHash ?? txHash}
+          onSuccessComplete={onSuccessComplete}
+          embedded={embedded}
           onCancel={() => {
             if (isSigning || isApproving || isConfirming) {
               setStatus('preview');
@@ -683,7 +810,9 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
               setIsExecuting(false);
               setPartialFailure(false);
             } else if (isSuccess) {
-              if (onSuccess) {
+              if (onSuccessComplete) {
+                onSuccessComplete();
+              } else if (onSuccess) {
                 onSuccess();
               }
             } else if (isError && partialFailure) {
@@ -694,6 +823,8 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
               setTotalSteps(0);
               setCurrentStepIndex(0);
               currentStepRef.current = 0;
+            } else if (onReturnToIdle) {
+              onReturnToIdle();
             } else {
               setStatus('idle');
             }
@@ -713,11 +844,21 @@ export function TransactionFlow({ onSuccess }: TransactionFlowProps) {
       {liquidityWarningContext && (
         <WithdrawLiquidityWarningModal
           isOpen={liquidityWarningOpen}
-          onClose={() => setLiquidityWarningOpen(false)}
-          onContinue={handleLiquidityWarningContinue}
+          onClose={handleLiquidityWarningClose}
+          onForceWithdraw={
+            liquidityWarningContext.forceWithdrawAvailable
+              ? handleLiquidityWarningForceWithdraw
+              : undefined
+          }
           morphoVaultUrl={liquidityWarningContext.morphoVaultUrl}
           requestedAmountLabel={liquidityWarningContext.requestedAmountLabel}
           instantLiquidityLabel={liquidityWarningContext.instantLiquidityLabel}
+          estimatedPenaltyLabel={liquidityWarningContext.estimatedPenaltyLabel}
+          penaltyRateLabel={liquidityWarningContext.penaltyRateLabel}
+          expectedOutLabel={liquidityWarningContext.expectedOutLabel}
+          forceWithdrawAvailable={liquidityWarningContext.forceWithdrawAvailable}
+          mayLeaveShareDust={liquidityWarningContext.mayLeaveShareDust}
+          isPreparingForce={isExecuting}
         />
       )}
     </div>

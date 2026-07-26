@@ -108,6 +108,11 @@ export function isMorphoRateLimitError(status: number, responseText: string): bo
   }
 }
 
+/** Upstream blips that are worth retrying (wallet switch bursts often hit these). */
+export function isTransientMorphoHttpStatus(status: number): boolean {
+  return status === 429 || status === 502 || status === 503 || status === 504;
+}
+
 /** Shared 503 payload when Morpho public API rate limit is hit. */
 export const MORPHO_RATE_LIMIT_BODY = {
   error: 'Morpho API rate limit exceeded',
@@ -129,11 +134,19 @@ export async function readMorphoGraphQLResponse(response: Response): Promise<{
 /** POST to Morpho GraphQL with cache TTL, in-memory dev cache, retries, and abort timeout. */
 export async function fetchMorphoGraphQL(
   body: { query: string; variables?: Record<string, unknown> },
-  options?: { revalidate?: number; timeoutMs?: number; tags?: string[] }
+  options?: {
+    revalidate?: number;
+    timeoutMs?: number;
+    tags?: string[];
+    /** Bypass the 60s in-memory cache (required for user-specific reads). */
+    skipMemoryCache?: boolean;
+  }
 ): Promise<Response> {
   const cacheKey = morphoCacheKey(body);
   const now = Date.now();
-  const cached = morphoResponseCache.get(cacheKey);
+  const skipMemoryCache =
+    options?.skipMemoryCache === true || options?.revalidate === 0;
+  const cached = skipMemoryCache ? undefined : morphoResponseCache.get(cacheKey);
 
   if (cached && cached.expiresAt > now) {
     return toMorphoResponse(cached);
@@ -183,12 +196,17 @@ export async function fetchMorphoGraphQL(
     lastEntry = entry;
 
     if (response.ok) {
-      morphoResponseCache.set(cacheKey, entry);
+      if (!skipMemoryCache) {
+        morphoResponseCache.set(cacheKey, entry);
+      }
       return toMorphoResponse(entry);
     }
 
-    if (isMorphoRateLimitError(response.status, responseText)) {
-      if (cached?.ok) {
+    const rateLimited = isMorphoRateLimitError(response.status, responseText);
+    const transient = isTransientMorphoHttpStatus(response.status);
+
+    if (rateLimited || transient) {
+      if (!skipMemoryCache && rateLimited && cached?.ok) {
         return toMorphoResponse(cached);
       }
       if (attempt < MORPHO_MAX_RETRIES) {
@@ -204,7 +222,7 @@ export async function fetchMorphoGraphQL(
     break;
   }
 
-  if (cached?.ok && lastEntry && isMorphoRateLimitError(lastEntry.status, lastEntry.responseText)) {
+  if (!skipMemoryCache && cached?.ok && lastEntry && isMorphoRateLimitError(lastEntry.status, lastEntry.responseText)) {
     return toMorphoResponse(cached);
   }
 

@@ -5,7 +5,7 @@ import { Account, VaultAccount, getVaultLogo } from '@/types/vault';
 import { TransactionType, useTransactionState } from '@/contexts/TransactionContext';
 import { formatAssetBalance } from '@/lib/formatter';
 import { ETH_GAS_RESERVE } from '@/lib/constants';
-import { VAULTS } from '@/lib/vaults';
+import { isWethVault } from '@/lib/transaction-form-utils';
 import { Button } from '@/components/ui';
 import { useAccount } from 'wagmi';
 import { useRouter } from 'next/navigation';
@@ -13,7 +13,6 @@ import { TransactionProgressBar } from './TransactionProgressBar';
 import { useToast } from '@/contexts/ToastContext';
 import { useVaultData } from '@/contexts/VaultDataContext';
 import { useWallet } from '@/contexts/WalletContext';
-import { useVaultVersion } from '@/contexts/VaultVersionContext';
 import { logger } from '@/lib/logger';
 
 interface TransactionConfirmationProps {
@@ -32,6 +31,10 @@ interface TransactionConfirmationProps {
   txHash?: string | null;
   onCancel: () => void;
   onConfirm: () => void;
+  /** When set, success completion uses this instead of navigating to /transact. */
+  onSuccessComplete?: () => void;
+  /** Softer layout when rendered inside the vault transact modal. */
+  embedded?: boolean;
 }
 
 export function TransactionConfirmation({
@@ -50,6 +53,8 @@ export function TransactionConfirmation({
   txHash,
   onCancel,
   onConfirm,
+  onSuccessComplete,
+  embedded = false,
 }: TransactionConfirmationProps) {
   const { address } = useAccount();
   const router = useRouter();
@@ -57,7 +62,6 @@ export function TransactionConfirmation({
   const { error: showErrorToast, showToast } = useToast();
   const { fetchVaultData } = useVaultData();
   const { refreshBalances } = useWallet();
-  const { isDevMode } = useVaultVersion();
 
   const handleDone = async () => {
     if (isSuccess) {
@@ -87,8 +91,11 @@ export function TransactionConfirmation({
       }
       
       reset();
-      // Reset state and stay on transactions page to start a new transaction
-      router.push('/transact');
+      if (onSuccessComplete) {
+        onSuccessComplete();
+      } else {
+        router.push('/transact');
+      }
     } else {
       onCancel();
     }
@@ -121,10 +128,8 @@ export function TransactionConfirmation({
     assetSymbol === 'WETH' &&
     fromAccount.type === 'wallet' &&
     toAccount.type === 'vault' &&
-    (toAccount as VaultAccount).address.toLowerCase() ===
-      VAULTS.WETH_VAULT_V2.address.toLowerCase() &&
-    (preferredAsset === 'ETH' || preferredAsset === 'ALL' || preferredAsset === undefined) &&
-    !isDevMode;
+    isWethVault((toAccount as VaultAccount).address, assetSymbol) &&
+    (preferredAsset === 'ETH' || preferredAsset === 'ALL' || preferredAsset === undefined);
 
   // Get current date for transaction details
   const getCurrentDate = () => {
@@ -156,11 +161,14 @@ export function TransactionConfirmation({
   if (isSuccess) {
     // Success state - Payment confirmation style
     return (
-      <div className="bg-[var(--surface)] rounded-lg border border-[var(--border-subtle)] p-8">
-        {/* Title */}
-        <h2 className="text-2xl font-semibold text-[var(--foreground)] text-center mb-2">
-          Transaction confirmed
-        </h2>
+      <div className={embedded
+        ? 'space-y-4'
+        : 'bg-[var(--surface)] rounded-lg border border-[var(--border-subtle)] p-8'}>
+        {!embedded && (
+          <h2 className="text-2xl font-semibold text-[var(--foreground)] text-center mb-2">
+            Transaction confirmed
+          </h2>
+        )}
 
         {/* Transaction Details */}
         <div className="mb-6">
@@ -255,29 +263,30 @@ export function TransactionConfirmation({
           </div>
         </div>
 
-        {/* New Transaction Button */}
+        {/* New Transaction / Done */}
         <Button
           onClick={handleDone}
           variant="primary"
           size="lg"
           fullWidth
-          className="mb-4"
+          className={`min-h-11 touch-manipulation ${embedded ? '' : 'mb-4'}`}
         >
-          New Transaction
+          {embedded ? 'Done' : 'New Transaction'}
         </Button>
 
-        {/* Back to Dashboard Button */}
-        <Button
-          onClick={() => {
-            reset();
-            router.push('/');
-          }}
-          variant="secondary"
-          size="lg"
-          fullWidth
-        >
-          Back to Dashboard
-        </Button>
+        {!embedded && (
+          <Button
+            onClick={() => {
+              reset();
+              router.push('/');
+            }}
+            variant="secondary"
+            size="lg"
+            fullWidth
+          >
+            Back to Dashboard
+          </Button>
+        )}
 
       </div>
     );
@@ -285,24 +294,30 @@ export function TransactionConfirmation({
 
   // Preview/Confirm state - Original design
   return (
-    <div className="bg-[var(--surface)] rounded-lg border border-[var(--border-subtle)] p-4 md:p-6 space-y-4 md:space-y-6">
-      {/* Header */}
-      <div className="flex items-start md:items-center justify-between gap-3">
-        <div className="flex-1 min-w-0">
-          <h3 className="text-lg md:text-xl font-semibold text-[var(--foreground)]">Confirm Transaction</h3>
-          <p className="text-xs md:text-sm text-[var(--foreground-secondary)] mt-0.5 md:mt-1">
-            Review the details before confirming
-          </p>
+    <div className={embedded
+      ? 'space-y-4'
+      : 'bg-[var(--surface)] rounded-lg border border-[var(--border-subtle)] p-4 md:p-6 space-y-4 md:space-y-6'}>
+      {/* Header — hidden in embedded modal (title is in Modal chrome) */}
+      {!embedded && (
+        <div className="flex items-start md:items-center justify-between gap-3">
+          <div className="flex-1 min-w-0">
+            <h3 className="text-lg md:text-xl font-semibold text-[var(--foreground)]">Confirm Transaction</h3>
+            <p className="text-xs md:text-sm text-[var(--foreground-secondary)] mt-0.5 md:mt-1">
+              Review the details before confirming
+            </p>
+          </div>
+          <div className="px-2 py-1 md:px-3 md:py-1.5 bg-[var(--primary-subtle)] rounded-lg shrink-0">
+            <span className="text-xs md:text-sm font-medium text-[var(--primary)]">
+              {getTransactionTypeLabel()}
+            </span>
+          </div>
         </div>
-        <div className="px-2 py-1 md:px-3 md:py-1.5 bg-[var(--primary-subtle)] rounded-lg shrink-0">
-          <span className="text-xs md:text-sm font-medium text-[var(--primary)]">
-            {getTransactionTypeLabel()}
-          </span>
-        </div>
-      </div>
+      )}
 
       {/* Transaction Details Card */}
-      <div className="bg-[var(--surface-elevated)] rounded-lg p-3 md:p-5 space-y-3 md:space-y-4">
+      <div className={embedded
+        ? 'bg-[var(--surface)]/80 rounded-lg border border-[var(--border-subtle)] p-3 space-y-3'
+        : 'bg-[var(--surface-elevated)] rounded-lg p-3 md:p-5 space-y-3 md:space-y-4'}>
         {/* From Account */}
         <div className="flex items-center justify-between gap-2 md:gap-4">
           <div className="flex items-center gap-2 md:gap-3 flex-1 min-w-0">
@@ -425,9 +440,30 @@ export function TransactionConfirmation({
             </svg>
           </div>
           <p className="text-xs md:text-sm text-[var(--foreground)]">
-            <span className="font-medium">Note:</span> Depositing ETH will wrap it to WETH before
-            depositing to the vault. {ETH_GAS_RESERVE} ETH is intentionally left in your wallet for
-            network gas fees.
+            <span className="font-medium">Note:</span> Depositing ETH uses Morpho Bundler3 to wrap
+            to WETH and deposit in one confirmation. {ETH_GAS_RESERVE} ETH is intentionally left in
+            your wallet for network gas fees.
+          </p>
+        </div>
+      )}
+
+      {/* Note for WETH vault withdrawals that unwrap to native ETH */}
+      {transactionType === 'withdraw' &&
+        assetSymbol === 'WETH' &&
+        fromAccount.type === 'vault' &&
+        toAccount.type === 'wallet' &&
+        isWethVault((fromAccount as VaultAccount).address, assetSymbol) &&
+        preferredAsset === 'ETH' && (
+        <div className="flex items-start gap-2 md:gap-3 p-3 md:p-4 bg-[var(--info-subtle)] rounded-lg border border-[var(--info)]">
+          <div className="w-4 h-4 md:w-5 md:h-5 rounded-full bg-[var(--info)] flex items-center justify-center shrink-0 mt-0.5">
+            <svg className="w-2.5 h-2.5 md:w-3 md:h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <p className="text-xs md:text-sm text-[var(--foreground)]">
+            <span className="font-medium">Note:</span> Withdrawing to ETH uses Morpho Bundler3 to
+            exit the vault and unwrap WETH in one confirmation (share approval may be required
+            first). Force withdraw is separate: vault exit, then a Bundler3 unwrap.
           </p>
         </div>
       )}
@@ -476,13 +512,14 @@ export function TransactionConfirmation({
       )}
 
       {/* Action Buttons */}
-      <div className="flex gap-2 md:gap-3 pt-2">
+      <div className={`flex gap-2 md:gap-3 pt-2 ${embedded ? 'flex-col-reverse sm:flex-row' : ''}`}>
         {isSuccess ? (
           <Button
             onClick={onCancel}
             variant="primary"
             size="lg"
             fullWidth
+            className="min-h-11 touch-manipulation"
           >
             Done
           </Button>
@@ -494,6 +531,7 @@ export function TransactionConfirmation({
               variant="secondary"
               size="lg"
               fullWidth
+              className="min-h-11 touch-manipulation"
             >
               {isPartialFailure ? 'Start over' : 'Cancel'}
             </Button>
@@ -503,6 +541,7 @@ export function TransactionConfirmation({
               variant="primary"
               size="lg"
               fullWidth
+              className="min-h-11 touch-manipulation"
             >
               {isLoading ? 'Processing...' : isPartialFailure ? 'Try again' : 'Confirm'}
             </Button>

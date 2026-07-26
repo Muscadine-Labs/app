@@ -22,39 +22,66 @@ export default function VaultHistory({ vaultData }: VaultHistoryProps) {
   const [userTransactions, setUserTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [showUserOnly, setShowUserOnly] = useState(true);
+  const [allActivityLoaded, setAllActivityLoaded] = useState(false);
 
   useEffect(() => {
+    const abortController = new AbortController();
+
     const fetchActivity = async () => {
       setLoading(true);
       try {
-        // Fetch all vault activity
-        const allResponse = await fetch(
-          `/api/vault/${vaultData.version}/${vaultData.address}/activity?chainId=${vaultData.chainId}`
-        );
-        const allData = await allResponse.json();
-        
-        // Fetch user-specific activity if connected
-        let userData: Transaction[] = [];
-        if (address) {
+        if (address && showUserOnly) {
           const userResponse = await fetch(
-            `/api/vault/${vaultData.version}/${vaultData.address}/activity?chainId=${vaultData.chainId}&userAddress=${address}`
+            `/api/vault/${vaultData.version}/${vaultData.address}/activity?chainId=${vaultData.chainId}&userAddress=${address}`,
+            { signal: abortController.signal }
           );
           const userResponseData = await userResponse.json();
-          userData = userResponseData.transactions || [];
+          setUserTransactions(userResponseData.transactions || []);
+          return;
         }
 
+        const requests = [
+          fetch(
+            `/api/vault/${vaultData.version}/${vaultData.address}/activity?chainId=${vaultData.chainId}`,
+            { signal: abortController.signal }
+          ),
+        ];
+
+        if (address) {
+          requests.push(
+            fetch(
+              `/api/vault/${vaultData.version}/${vaultData.address}/activity?chainId=${vaultData.chainId}&userAddress=${address}`,
+              { signal: abortController.signal }
+            )
+          );
+        }
+
+        const responses = await Promise.all(requests);
+        const allData = await responses[0].json();
         setTransactions(allData.transactions || []);
-        setUserTransactions(userData);
-      } catch {
+        setAllActivityLoaded(true);
+
+        if (responses[1]) {
+          const userResponseData = await responses[1].json();
+          setUserTransactions(userResponseData.transactions || []);
+        } else {
+          setUserTransactions([]);
+        }
+      } catch (error) {
+        if (error instanceof Error && error.name === 'AbortError') return;
         setTransactions([]);
         setUserTransactions([]);
       } finally {
-        setLoading(false);
+        if (!abortController.signal.aborted) {
+          setLoading(false);
+        }
       }
     };
 
-    fetchActivity();
-  }, [vaultData.address, vaultData.chainId, vaultData.version, address]);
+    void fetchActivity();
+
+    return () => abortController.abort();
+  }, [vaultData.address, vaultData.chainId, vaultData.version, address, showUserOnly]);
 
   const getExplorerUrl = (txHash: string) => {
     return `https://basescan.org/tx/${txHash}`;
@@ -209,7 +236,9 @@ export default function VaultHistory({ vaultData }: VaultHistoryProps) {
             <p className="text-sm text-[var(--foreground-muted)]">
               {showUserOnly && address 
                 ? "You haven't made any transactions yet"
-                : 'No recent activity'}
+                : allActivityLoaded
+                  ? 'No recent activity'
+                  : 'No recent activity'}
             </p>
           </div>
         )}
@@ -217,4 +246,3 @@ export default function VaultHistory({ vaultData }: VaultHistoryProps) {
     </div>
   );
 }
-

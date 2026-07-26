@@ -1,12 +1,23 @@
 **To Work on Today:**
-- Review the miniapp congifuration for the base app. Might be a base app issue or repo issue because i have to manually search up our app on base app. Also on base app, review why on the miniapp it takes a long time to load into it, than it blanks, than it loads up and correctly works. Review the docs and anaylze the code.
-- Still cant connect to walletconnect from rainbow kit. Research why and try to click on it? Is it a rainbow wallet thing or should we use something else?
-- on the graphs, they are shifted right, and white space under All, where the y-axis should be. 
 
 **To work on another day:**
 
-Considering:
--Withdraws and deposits are blocked for non-muscadine vaults, have the ability on withdraw or deposit on the non-muscadine vault page to be able to deposit or withdraw from the /trascact page. We might need to refractor the repo to be able to be more fluid / dynamic, with a whitelist on /vaults of the muscadine vaults. Maybe instead of a /transcaction page it would be a model on the vault pages when depositing/withdrawing. Rearch this and find the best design. 
-- Smart wallet (AA) deposit issue when USDC is used for gas — investigate math and contract ABI paths before changing transaction code.
-- Look into if we should keep abi functions to deposit/withdraw for v2 vaults, or change to the V2 vault sdk for transctions with updated Morpho SDKs. Or have the abis just as backup or a feature on dev mode. Review https://docs.morpho.org/developers/earn/tutorials/assets-flow .
-- **Vault v2 force exit when withdraw > liquidity:** Currently in-app withdraw warns (preview banner + confirm modal with Morpho link) when amount exceeds instant liquidity and on-chain simulation fails; user can continue anyway. Still TODO: auto-route via `forceDeallocate` then `withdraw`/`redeem` in `transactionUtilsV2.ts` (or Morpho SDK `forceWithdraw`/`forceRedeem`). Users can force-exit via [Morpho app](https://app.morpho.org) in the meantime. Ref: [Morpho force deallocate](https://morpho-org-vault-v2.mintlify.app/operations/force-deallocate).
+### Transaction paths
+
+**Shipped:**
+- **Normal deposit/withdraw/redeem:** Direct ERC-4626 in `transactionUtilsV2.ts`.
+- **WETH Prime multi-step (ETH wrap / unwrap):** Morpho **Bundler3** + **GeneralAdapter1** (`src/lib/bundler3.ts`) — one user `multicall` after any needed approvals.
+  - Deposit ETH/ALL: fund adapter → `wrapNative` → optional WETH `transferFrom` → `erc4626Deposit` (reverts if share price moves worse than **0.5%** vs quote).
+  - Withdraw/redeem → ETH: approve shares to adapter → `erc4626Withdraw|Redeem` (receiver=adapter, same **0.5%** min share-price bound) → `unwrapNative`.
+  - Resume leftover wallet WETH (force→ETH unwrap failure only): approve WETH → `transferFrom` + `unwrapNative` (amount from exit receipt logs).
+- **Force withdraw when amount > instant liquidity:** Plan + simulate via `force-withdraw-v2.ts` (`forceDeallocate` × N + `withdraw`, or **`redeem` on MAX**). Prefers low-penalty markets; penalty burns shares. Warning modal + Morpho link. Optional ETH unwrap is a follow-up Bundler3 tx.
+- **External vaults:** listed in UI (dashboard / wallet filters) with External label; **not clickable**; `/vault/v2/{external}` redirects home. Whitelisted-only detail + in-app transact.
+- **Developer mode removed** — no over-balance bypass; Settings is theme only.
+- **Dashboard asset surface:** Tokens / Stocks panels, `/asset/usdc|btc|eth`, compact wallet strip.
+
+**Future (optional):**
+- Switch force exit to [morpho-org/bundles](https://github.com/morpho-org/bundles) `vaultExitBundlesV1ForceWithdrawVaultV2` when Base addresses exist.
+- Fold force+ETH unwrap into one Bundler3 flow if Morpho adds Base exit bundles.
+- Vault-to-vault migrate / deposit Permit2 via Morpho bundles or SDK when ready.
+- Smart wallet (AA) deposit issue when USDC is used for gas — investigate before changing tx code.
+- ABI vs Morpho SDK for v2 txs: keep direct ABIs as default until wagmi 2.x constraint clears.

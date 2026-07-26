@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useRef } from 'react';
+import { useEffect, useCallback, useRef, useMemo } from 'react';
 import { useVaultData } from '../contexts/VaultDataContext';
 import { Vault } from '../types/vault';
 
@@ -13,12 +13,13 @@ function vaultPreloadKey(vault: Vault): string {
 
 export function useVaultDataFetch(vault: Vault | null, options: UseVaultDataFetchOptions = {}) {
   const { autoFetch = true, chainId = 8453 } = options;
-  const { 
+  const {
     fetchVaultData,
     getVaultData,
     getVaultError,
-    isLoading, 
-    hasError 
+    isLoading,
+    hasError,
+    vaultData: vaultDataByAddress,
   } = useVaultData();
 
   const vaultAddress = vault?.address ?? null;
@@ -45,8 +46,20 @@ export function useVaultDataFetch(vault: Vault | null, options: UseVaultDataFetc
     void fetchAllData(vaultAddress, vaultChainId);
   }, [autoFetch, vaultAddress, vaultChainId, fetchAllData]);
 
+  const cacheGeneration = vaultAddress
+    ? vaultDataByAddress[vaultAddress]?.lastFetched ?? 0
+    : 0;
+
+  // Stable reference between re-renders — getVaultData() always returns a new object.
+  const vaultData = useMemo(
+    () => (vaultAddress ? getVaultData(vaultAddress) : null),
+    // cacheGeneration tracks this vault's fetch cycle only (not other vaults' loading flags)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [vaultAddress, cacheGeneration]
+  );
+
   return {
-    vaultData: vault ? getVaultData(vault.address) : null,
+    vaultData,
     isLoading: vault ? isLoading(vault.address) : false,
     hasError: vault ? hasError(vault.address) : false,
     errorMessage: vault ? getVaultError(vault.address) : null,

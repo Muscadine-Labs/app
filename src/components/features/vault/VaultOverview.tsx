@@ -14,10 +14,12 @@ import {
   formatVaultDetailTokenAmount,
 } from '@/lib/formatter';
 import { calculateYAxisDomain } from '@/lib/vault-utils';
+import { CHART_MARGIN, getChartYAxisWidth, withLeadingChartTick } from '@/lib/chart-utils';
 import { logger } from '@/lib/logger';
 import { MorphoVaultData } from '@/types/vault';
 import { VaultLiquidityInfo } from './VaultLiquidityInfo';
 import { VaultApyInfo } from './VaultApyInfo';
+import { VaultAllocations } from './VaultAllocations';
 import { useToast } from '@/contexts/ToastContext';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -42,11 +44,11 @@ interface HistoryDataPoint {
   assetPriceUsd?: number;
 }
 
-type ChartType = 'apy' | 'tvl' | 'sharePrice';
+type ChartType = 'apy' | 'tvl' | 'sharePrice' | 'allocations';
 
 type Period = 'all' | '7d' | '30d' | '90d' | '1y';
 
-const VAULT_CHART_MARGIN = { top: 8, right: 16, bottom: 4, left: 4 };
+const VAULT_CHART_MARGIN = CHART_MARGIN;
 
 function formatTvlYAxisTick(
   value: number,
@@ -64,7 +66,7 @@ function formatTvlYAxisTick(
 }
 
 function getTvlYAxisWidth(valueType: 'usd' | 'token'): number {
-  return valueType === 'usd' ? 120 : 128;
+  return getChartYAxisWidth(valueType === 'usd' ? 'usd' : 'tokenWide');
 }
 
 function formatSharePriceYAxisTick(
@@ -83,7 +85,7 @@ function formatSharePriceYAxisTick(
 }
 
 function getSharePriceYAxisWidth(valueType: 'usd' | 'token'): number {
-  return valueType === 'usd' ? 96 : 104;
+  return getChartYAxisWidth(valueType === 'usd' ? 'usd' : 'tokenWide');
 }
 
 const PERIOD_SECONDS: Record<Period, number> = {
@@ -100,7 +102,6 @@ const MIN_TIMESTAMP = 1759795200;
 export default function VaultOverview({ vaultData }: VaultOverviewProps) {
   const [period, setPeriod] = useState<Period>('all');
   const [allHistoryData, setAllHistoryData] = useState<HistoryDataPoint[]>([]);
-  const [hourly7dData, setHourly7dData] = useState<HistoryDataPoint[]>([]);
   const [hourly30dData, setHourly30dData] = useState<HistoryDataPoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [chartType, setChartType] = useState<ChartType>('apy');
@@ -127,6 +128,23 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
   // Format APY
   const apyPercent = formatPercentage(vaultData.apy);
 
+  const chartEndTimestamp = useMemo(() => {
+    let maxTs = 0;
+    for (const series of [allHistoryData, hourly30dData]) {
+      if (series.length > 0) {
+        const last = series[series.length - 1]?.timestamp ?? 0;
+        if (last > maxTs) maxTs = last;
+      }
+    }
+    return maxTs || now;
+  }, [allHistoryData, hourly30dData, now]);
+
+  const hourly7dData = useMemo(() => {
+    if (hourly30dData.length === 0) return [];
+    const cutoff = chartEndTimestamp - PERIOD_SECONDS['7d'];
+    return hourly30dData.filter((point) => point.timestamp >= cutoff);
+  }, [hourly30dData, chartEndTimestamp]);
+
   // Filter history data based on selected period and find first non-zero value
   const historyData = useMemo(() => {
     // Use hourly data for 7d and 30d periods, otherwise use daily data
@@ -139,7 +157,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
     let filtered = sourceData;
     
     if (period !== 'all' && sourceData.length > 0) {
-      const cutoffTimestamp = now - PERIOD_SECONDS[period];
+      const cutoffTimestamp = chartEndTimestamp - PERIOD_SECONDS[period];
       filtered = sourceData.filter(d => d.timestamp >= cutoffTimestamp);
     }
     
@@ -176,7 +194,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
     }
     
     return filtered;
-  }, [allHistoryData, hourly7dData, hourly30dData, period, chartType, valueType, now]);
+  }, [allHistoryData, hourly7dData, hourly30dData, period, chartType, valueType, chartEndTimestamp]);
 
   // Calculate Y-axis domain for APY chart
   const apyYAxisDomain = useMemo(() => {
@@ -300,48 +318,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
     fetchAllHistory();
   }, [vaultData.address, vaultData.chainId, vaultData.version, showErrorToast]);
 
-  // Fetch hourly data for 7d period
-  useEffect(() => {
-    const fetch7dHourly = async () => {
-      try {
-        // Fetch 7d data with hourly intervals
-        const response = await fetch(
-          `/api/vault/${vaultData.version}/${vaultData.address}/history?chainId=${vaultData.chainId}&period=7d`
-        );
-        
-        if (!response.ok) {
-          return; // Silently fail, will fall back to daily data
-        }
-        
-        const data = await response.json();
-        
-        if (data.history && Array.isArray(data.history) && data.history.length > 0) {
-          // Ensure timestamps are unique and sorted
-          const uniqueData = data.history.filter((point: HistoryDataPoint, index: number, self: HistoryDataPoint[]) => 
-            index === self.findIndex((p) => p.timestamp === point.timestamp)
-          );
-          setHourly7dData(uniqueData);
-        } else {
-          setHourly7dData([]);
-        }
-      } catch (error) {
-        // Silently fail, will fall back to daily data
-        logger.warn(
-          'Failed to fetch 7d hourly data, falling back to daily',
-          { 
-            vaultAddress: vaultData.address, 
-            chainId: vaultData.chainId,
-            error: error instanceof Error ? error.message : String(error)
-          }
-        );
-        setHourly7dData([]);
-      }
-    };
-
-    fetch7dHourly();
-  }, [vaultData.address, vaultData.chainId, vaultData.version]);
-
-  // Fetch hourly data for 30d period
+  // Fetch hourly data for 30d period (7d is derived client-side from the same series)
   useEffect(() => {
     const fetch30dHourly = async () => {
       try {
@@ -386,8 +363,8 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
   const availablePeriods = useMemo(() => {
     if (allHistoryData.length === 0) return ['all' as Period];
 
-    const oldestTimestamp = allHistoryData[0]?.timestamp || now;
-    const dataRangeSeconds = now - oldestTimestamp;
+    const oldestTimestamp = allHistoryData[0]?.timestamp || chartEndTimestamp;
+    const dataRangeSeconds = chartEndTimestamp - oldestTimestamp;
     
     const periods: Period[] = ['all'];
     
@@ -398,7 +375,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
       periods.push('1y');
     }
     // Only show '90d' if 90 days ago is after Oct 7, 2025
-    if (dataRangeSeconds >= PERIOD_SECONDS['90d'] && (now - PERIOD_SECONDS['90d']) >= MIN_TIMESTAMP) {
+    if (dataRangeSeconds >= PERIOD_SECONDS['90d'] && (chartEndTimestamp - PERIOD_SECONDS['90d']) >= MIN_TIMESTAMP) {
       periods.push('90d');
     }
     if (dataRangeSeconds >= PERIOD_SECONDS['30d']) {
@@ -409,7 +386,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
     }
     
     return periods;
-  }, [allHistoryData, now]);
+  }, [allHistoryData, chartEndTimestamp]);
 
   // Get ticks for 7d period - show every day, prefer midnight but fallback to first data point of day
   const get7dTicks = useMemo(() => {
@@ -601,10 +578,13 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
       }
     });
     
-    // Sort all ticks by timestamp
+    // Sort all ticks by timestamp; always anchor to first data point on "All"
     ticks.sort((a, b) => a - b);
-    
-    return ticks.length > 0 ? ticks : undefined;
+
+    return withLeadingChartTick(
+      ticks.length > 0 ? ticks : undefined,
+      firstTimestamp
+    );
   }, [period, historyData]);
 
   // Format date for tooltip - always shows accurate date/time
@@ -637,22 +617,22 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
 
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-5">
       {/* Performance Section */}
-      <div className="space-y-8">
+      <div className="space-y-5">
         {/* Current Performance */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 overflow-visible">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-5 overflow-visible">
           <div className="overflow-visible">
             <div className="flex items-center gap-1.5 mb-1">
               <p className="text-xs text-[var(--foreground-secondary)]">Current Earnings Rate</p>
               <VaultApyInfo
+                grossApy={vaultData.grossApy ?? vaultData.apy}
                 netApy={vaultData.apy}
-                baseApy={vaultData.netApyWithoutRewards}
                 performanceFee={vaultData.performanceFee ?? 0}
                 managementFee={vaultData.managementFee ?? 0}
               />
             </div>
-            <p className="text-3xl font-bold text-[var(--foreground)]">
+            <p className="text-2xl font-bold text-[var(--foreground)]">
               {apyPercent}
             </p>
             <p className="text-xs text-[var(--foreground-secondary)] mt-1">
@@ -666,7 +646,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
           </div>
           <div>
             <p className="text-xs text-[var(--foreground-secondary)] mb-1">Total Deposited</p>
-            <p className="text-2xl font-bold text-[var(--foreground)]">
+            <p className="text-xl sm:text-2xl font-bold text-[var(--foreground)]">
               {formatVaultDetailTokenAmount(
                 vaultData.totalAssets || '0',
                 vaultData.assetDecimals || 18,
@@ -688,7 +668,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                 />
               )}
             </div>
-            <p className="text-2xl font-bold text-[var(--foreground)]">
+            <p className="text-xl sm:text-2xl font-bold text-[var(--foreground)]">
               {liquidityRaw}
             </p>
             <p className="text-xs text-[var(--foreground-secondary)] mt-1">
@@ -697,7 +677,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
           </div>
           <div>
             <p className="text-xs text-[var(--foreground-secondary)] mb-1">Status</p>
-            <p className={`text-xl font-bold ${
+            <p className={`text-lg sm:text-xl font-bold ${
               vaultData.status === 'active' ? 'text-[var(--success)]' :
               vaultData.status === 'paused' ? 'text-[var(--warning)]' :
               'text-[var(--foreground-muted)]'
@@ -751,9 +731,36 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
               <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--primary)]" />
             )}
           </button>
+          <button
+            onClick={() => setChartType('allocations')}
+            className={`shrink-0 px-4 py-2 text-sm font-medium transition-colors relative cursor-pointer touch-manipulation ${
+              chartType === 'allocations'
+                ? 'text-[var(--foreground)]'
+                : 'text-[var(--foreground-secondary)] hover:text-[var(--foreground)]'
+            }`}
+          >
+            Allocations
+            {chartType === 'allocations' && (
+              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--primary)]" />
+            )}
+          </button>
         </div>
 
-        {/* Chart */}
+        {/* Chart / Allocations panel */}
+        <div
+          className={`bg-[var(--surface-elevated)] rounded-lg border border-[var(--border-subtle)] p-2 sm:p-3 min-h-[14rem] ${
+            chartType === 'allocations' ? '' : 'hidden'
+          }`}
+          aria-hidden={chartType !== 'allocations'}
+        >
+          <VaultAllocations
+            vaultData={vaultData}
+            embedded
+            active={chartType === 'allocations'}
+          />
+        </div>
+
+        <div className={chartType === 'allocations' ? 'hidden' : ''} aria-hidden={chartType === 'allocations'}>
         {loading ? (
           <div className="bg-[var(--surface-elevated)] rounded-lg border border-[var(--border-subtle)] p-2 sm:p-4">
             {/* Controls Row */}
@@ -801,7 +808,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                 </div>
               )}
             </div>
-            <div className="h-64">
+            <div className="h-52 sm:h-56">
               <div className="h-full flex flex-col justify-between">
                 {/* Y-axis labels area */}
                 <div className="flex justify-between mb-2">
@@ -828,9 +835,9 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
             </div>
           </div>
         ) : (historyData.length > 0) ? (
-          <div className="bg-[var(--surface-elevated)] rounded-lg border border-[var(--border-subtle)] p-2 sm:p-4">
+          <div className="bg-[var(--surface-elevated)] rounded-lg border border-[var(--border-subtle)] p-2 sm:p-3">
             {/* Controls Row */}
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-3">
               {/* Period Selector */}
               <div className="flex gap-2 overflow-x-auto overscroll-x-contain flex-nowrap scrollbar-hide [-webkit-overflow-scrolling:touch] min-w-0">
                 {availablePeriods.map((p) => (
@@ -874,8 +881,8 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                 </div>
               )}
             </div>
-            <div className="w-full min-w-0 h-64 pl-1 pr-0.5">
-              <ResponsiveContainer width="100%" height="100%" minHeight={256} debounce={50}>
+            <div className="w-full min-w-0 h-52 sm:h-56">
+              <ResponsiveContainer width="100%" height="100%" minHeight={208} debounce={50}>
                 {chartType === 'apy' ? (
                   <LineChart data={historyData} margin={VAULT_CHART_MARGIN}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" />
@@ -885,10 +892,12 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                       stroke="var(--foreground-secondary)"
                       style={{ fontSize: '12px' }}
                       ticks={period === '7d' ? get7dTicks : period === '30d' ? get30dTicks : period === '90d' ? get90dTicks : period === 'all' ? getAllTicks : undefined}
+                      padding={{ left: 0, right: 0 }}
                     />
                     <YAxis 
-                      width={52}
-                      tickMargin={6}
+                      width={getChartYAxisWidth('apy')}
+                      orientation="left"
+                      tickMargin={8}
                       domain={apyYAxisDomain}
                       tickFormatter={(value) => {
                         if (value === undefined || typeof value !== 'number') return '';
@@ -918,6 +927,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                       stroke="var(--primary)" 
                       strokeWidth={2}
                       dot={false}
+                      isAnimationActive={false}
                     />
                   </LineChart>
                 ) : chartType === 'sharePrice' ? (
@@ -929,10 +939,12 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                       stroke="var(--foreground-secondary)"
                       style={{ fontSize: '12px' }}
                       ticks={period === '7d' ? get7dTicks : period === '30d' ? get30dTicks : period === '90d' ? get90dTicks : period === 'all' ? getAllTicks : undefined}
+                      padding={{ left: 0, right: 0 }}
                     />
                     <YAxis
                       width={getSharePriceYAxisWidth(valueType)}
-                      tickMargin={6}
+                      orientation="left"
+                      tickMargin={8}
                       domain={sharePriceYAxisDomain}
                       tickFormatter={(value) => {
                         if (value === undefined || typeof value !== 'number') return '';
@@ -972,21 +984,24 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                       stroke="var(--primary)"
                       strokeWidth={2}
                       dot={false}
+                      isAnimationActive={false}
                     />
                   </LineChart>
                 ) : (
                   <AreaChart data={tvlChartData} margin={VAULT_CHART_MARGIN}>
                         <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" />
-                        <XAxis 
-                          dataKey="timestamp" 
+                        <XAxis
+                          dataKey="timestamp"
                           tickFormatter={formatDate}
                           stroke="var(--foreground-secondary)"
                           style={{ fontSize: '12px' }}
                           ticks={period === '7d' ? get7dTicks : period === '30d' ? get30dTicks : period === '90d' ? get90dTicks : period === 'all' ? getAllTicks : undefined}
+                          padding={{ left: 0, right: 0 }}
                         />
-                        <YAxis 
+                        <YAxis
                           width={getTvlYAxisWidth(valueType)}
-                          tickMargin={6}
+                          orientation="left"
+                          tickMargin={8}
                           domain={tvlYAxisDomain}
                           tickFormatter={(value) => {
                             if (value === undefined || typeof value !== 'number') return '';
@@ -1026,6 +1041,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                           stroke="var(--primary)" 
                           fill="var(--primary-subtle)"
                           strokeWidth={2}
+                          isAnimationActive={false}
                         />
                       </AreaChart>
                 )}
@@ -1033,10 +1049,11 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
             </div>
           </div>
         ) : (
-          <div className="bg-[var(--surface-elevated)] rounded-lg border border-[var(--border-subtle)] h-64 flex items-center justify-center text-sm text-[var(--foreground-muted)]">
+          <div className="bg-[var(--surface-elevated)] rounded-lg border border-[var(--border-subtle)] h-52 sm:h-56 flex items-center justify-center text-sm text-[var(--foreground-muted)]">
             No historical data available
           </div>
         )}
+        </div>
 
       </div>
     </div>

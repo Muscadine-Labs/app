@@ -1,10 +1,12 @@
 # Muscadine App
 
-A Next.js app for Muscadine vaults. Dashboard, vault explorer, and transact flows.
+A Next.js app for Muscadine vaults on Base. Dashboard, vault explorer, and deposit/withdraw (v2 Prime/Frontier).
 
 **Registry:** `src/lib/vaults.ts`.  
 **Dev:** `npm run dev` → http://localhost:3000  
-**Docs:** `CLAUDE.md` (architecture), `AGENTS.md` (agent rules), `TODO.md` (task list).
+**Docs:** `CLAUDE.md` (architecture — Bundler3 WETH/ETH, force withdraw, asset pages), `AGENTS.md` (agent rules), `TODO.md` (task list).
+
+**Product notes:** Base-only v2 vaults. External Morpho positions can appear in portfolio lists but only **whitelisted** registry vaults have detail/transact pages.
 
 ## Getting Started
 

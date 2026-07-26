@@ -105,45 +105,143 @@ function FilterDropdown({ label, value, options, onChange }: FilterDropdownProps
   );
 }
 
-interface ToggleProps {
-  label: string;
-  checked: boolean;
-  onChange: (checked: boolean) => void;
-}
-
-function Toggle({ label, checked, onChange }: ToggleProps) {
-  return (
-    <div className="inline-flex items-center gap-2 shrink-0 min-h-[36px] pl-1 sm:pl-0">
-      <span className="text-xs text-[var(--foreground-secondary)] whitespace-nowrap">{label}</span>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={checked}
-        aria-label={label}
-        onClick={() => onChange(!checked)}
-        className={`relative inline-flex h-6 w-11 shrink-0 overflow-hidden rounded-full transition-colors cursor-pointer touch-manipulation ${
-          checked ? 'bg-[var(--primary)]' : 'bg-[var(--border)]'
-        }`}
-      >
-        <span
-          className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
-            checked ? 'translate-x-5' : 'translate-x-0'
-          }`}
-        />
-      </button>
-    </div>
-  );
-}
-
 export type VaultAssetFilter = 'all' | 'USDC' | 'cbBTC' | 'WETH';
 export type VaultNetworkFilter = 'all' | 'base';
 export type VaultStrategyFilter = 'all' | VaultStrategy;
+export type VaultWalletFilter = 'all' | 'inWallet' | 'inWalletAndWhitelisted';
+
+const WALLET_FILTER_OPTIONS: Array<{
+  value: VaultWalletFilter;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: 'inWalletAndWhitelisted',
+    label: 'Deposits + whitelisted',
+    description: 'Yours plus whitelisted vaults',
+  },
+  {
+    value: 'inWallet',
+    label: 'In wallet',
+    description: 'Your deposits only',
+  },
+  { value: 'all', label: 'Whitelisted', description: 'Whitelisted registry' },
+];
+
+function WalletIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+      strokeWidth="1.75"
+      aria-hidden
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M19 7H5a2 2 0 00-2 2v8a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2z"
+      />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M16 11h.01" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18" />
+    </svg>
+  );
+}
+
+function WalletFilterControl({
+  value,
+  onChange,
+}: {
+  value: VaultWalletFilter;
+  onChange: (value: VaultWalletFilter) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const isActive = value !== 'all';
+  const selected =
+    WALLET_FILTER_OPTIONS.find((option) => option.value === value) ??
+    WALLET_FILTER_OPTIONS[0];
+
+  const { refs, floatingStyles, context } = useFloating({
+    open,
+    onOpenChange: setOpen,
+    placement: 'bottom-end',
+    middleware: [offset(6), flip(), shift({ padding: 8 })],
+    whileElementsMounted: autoUpdate,
+  });
+
+  const click = useClick(context);
+  const dismiss = useDismiss(context);
+  const role = useRole(context, { role: 'menu' });
+  const { getReferenceProps, getFloatingProps } = useInteractions([click, dismiss, role]);
+
+  return (
+    <>
+      <button
+        type="button"
+        ref={refs.setReference}
+        {...getReferenceProps()}
+        aria-label={`Wallet filter: ${selected.label}`}
+        title={selected.label}
+        className={`inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors cursor-pointer touch-manipulation shrink-0 ${
+          isActive
+            ? 'text-[var(--primary)] bg-[var(--primary-subtle)]'
+            : 'text-[var(--foreground-muted)] hover:text-[var(--foreground-secondary)] hover:bg-[var(--surface-hover)]'
+        }`}
+      >
+        <WalletIcon className="h-4 w-4" />
+      </button>
+
+      {open && (
+        <FloatingPortal>
+          <div
+            ref={refs.setFloating}
+            style={floatingStyles}
+            {...getFloatingProps()}
+            className="z-[9999] w-48 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] py-1 shadow-lg"
+          >
+            {WALLET_FILTER_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                role="menuitemradio"
+                aria-checked={option.value === value}
+                onClick={() => {
+                  onChange(option.value);
+                  setOpen(false);
+                }}
+                className={`w-full px-3 py-2 text-left transition-colors cursor-pointer ${
+                  option.value === value
+                    ? 'bg-[var(--primary-subtle)]'
+                    : 'hover:bg-[var(--surface-hover)]'
+                }`}
+              >
+                <span
+                  className={`block text-xs font-medium ${
+                    option.value === value
+                      ? 'text-[var(--primary)]'
+                      : 'text-[var(--foreground)]'
+                  }`}
+                >
+                  {option.label}
+                </span>
+                <span className="block text-[10px] text-[var(--foreground-muted)] mt-0.5">
+                  {option.description}
+                </span>
+              </button>
+            ))}
+          </div>
+        </FloatingPortal>
+      )}
+    </>
+  );
+}
 
 export interface VaultExplorerFilterState {
   network: VaultNetworkFilter;
   asset: VaultAssetFilter;
   strategy: VaultStrategyFilter;
-  inWalletOnly: boolean;
+  walletFilter: VaultWalletFilter;
 }
 
 interface VaultExplorerFiltersProps {
@@ -152,7 +250,12 @@ interface VaultExplorerFiltersProps {
 }
 
 export function getDefaultExplorerFilters(): VaultExplorerFilterState {
-  return { network: 'all', asset: 'all', strategy: 'all', inWalletOnly: false };
+  return {
+    network: 'all',
+    asset: 'all',
+    strategy: 'all',
+    walletFilter: 'inWalletAndWhitelisted',
+  };
 }
 
 export default function VaultExplorerFilters({
@@ -199,12 +302,9 @@ export default function VaultExplorerFilters({
           />
         </div>
 
-        <div className="hidden sm:block h-4 w-px bg-[var(--border)] shrink-0" />
-
-        <Toggle
-          label="In Wallet"
-          checked={filters.inWalletOnly}
-          onChange={(inWalletOnly) => update({ inWalletOnly })}
+        <WalletFilterControl
+          value={filters.walletFilter}
+          onChange={(walletFilter) => update({ walletFilter })}
         />
       </div>
     </div>

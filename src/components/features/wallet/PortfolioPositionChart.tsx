@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAccount } from 'wagmi';
 import { BASE_CHAIN_ID } from '@/lib/constants';
 import { calculateYAxisDomain } from '@/lib/vault-utils';
+import { CHART_MARGIN, getChartYAxisWidth, withLeadingChartTick } from '@/lib/chart-utils';
 import {
   aggregatePortfolioHistory,
   mapPortfolioHistoryToChartData,
@@ -13,6 +14,7 @@ import { formatCurrency, formatChartUsdAxisValue } from '@/lib/formatter';
 import { logger } from '@/lib/logger';
 import { useUnixTimestamp } from '@/hooks/useClientOnly';
 import { useLockPageScroll } from '@/hooks/useLockPageScroll';
+import { useWallet } from '@/contexts/WalletContext';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Button } from '@/components/ui';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -40,32 +42,6 @@ interface PortfolioVault {
   symbol: string;
 }
 
-async function fetchUserPortfolioVaults(
-  userAddress: string,
-  signal?: AbortSignal
-): Promise<PortfolioVault[]> {
-  const response = await fetch(
-    `/api/user/morpho-positions?address=${userAddress}&chainId=${BASE_CHAIN_ID}&includeEmpty=true`,
-    { signal }
-  );
-
-  if (!response.ok) return [];
-
-  const data = await response.json().catch(() => ({ positions: [] }));
-  const seenAddresses = new Set<string>();
-
-  return (data.positions ?? []).flatMap((p: { vault: { address: string; symbol: string } }) => {
-    const key = p.vault.address.toLowerCase();
-    if (seenAddresses.has(key)) return [];
-    seenAddresses.add(key);
-    return [{
-      address: p.vault.address,
-      chainId: BASE_CHAIN_ID,
-      symbol: p.vault.symbol,
-    }];
-  });
-}
-
 async function fetchVaultHistory(
   vault: PortfolioVault,
   userAddress: string,
@@ -90,33 +66,36 @@ async function fetchVaultHistory(
 
 export default function PortfolioPositionChart() {
   const { address, isConnected } = useAccount();
+  const { morphoHoldings } = useWallet();
   const now = useUnixTimestamp();
   const [loading, setLoading] = useState(true);
   const [selectedTimeFrame, setSelectedTimeFrame] = useState<TimeFrame>('all');
   const [isTimeFrameMenuOpen, setIsTimeFrameMenuOpen] = useState(false);
   useLockPageScroll(isTimeFrameMenuOpen);
   const [dailyHistory, setDailyHistory] = useState<PositionHistoryPoint[]>([]);
-  const [hourly7dHistory, setHourly7dHistory] = useState<PositionHistoryPoint[]>([]);
   const [hourly30dHistory, setHourly30dHistory] = useState<PositionHistoryPoint[]>([]);
-  const portfolioVaultsCache = useRef<{ address: string; vaults: PortfolioVault[] } | null>(null);
 
-  const getPortfolioVaults = useCallback(
-    async (userAddress: string, signal: AbortSignal): Promise<PortfolioVault[]> => {
-      if (
-        portfolioVaultsCache.current?.address === userAddress.toLowerCase()
-      ) {
-        return portfolioVaultsCache.current.vaults;
-      }
+  const portfolioVaults = useMemo((): PortfolioVault[] => {
+    const seenAddresses = new Set<string>();
+    return morphoHoldings.positions.flatMap((position) => {
+      // v2 only; include zero-share rows so fully withdrawn vaults still contribute history.
+      if (position.version !== 'v2') return [];
+      const key = position.vault.address.toLowerCase();
+      if (seenAddresses.has(key)) return [];
+      seenAddresses.add(key);
+      return [{
+        address: position.vault.address,
+        chainId: BASE_CHAIN_ID,
+        symbol: position.vault.symbol,
+      }];
+    });
+  }, [morphoHoldings.positions]);
 
-      const vaults = await fetchUserPortfolioVaults(userAddress, signal);
-      portfolioVaultsCache.current = {
-        address: userAddress.toLowerCase(),
-        vaults,
-      };
-      return vaults;
-    },
-    []
-  );
+  const hourly7dHistory = useMemo(() => {
+    if (hourly30dHistory.length === 0) return [];
+    const cutoff = now - TIME_FRAME_SECONDS['7D'];
+    return hourly30dHistory.filter((point) => point.timestamp >= cutoff);
+  }, [hourly30dHistory, now]);
 
   const fetchAggregatedHistory = useCallback(
     async (
@@ -124,18 +103,12 @@ export default function PortfolioPositionChart() {
       signal: AbortSignal,
       setter: (history: PositionHistoryPoint[]) => void
     ) => {
-      if (!address) {
+      if (!address || portfolioVaults.length === 0) {
         setter([]);
         return;
       }
 
       try {
-        const portfolioVaults = await getPortfolioVaults(address, signal);
-        if (portfolioVaults.length === 0) {
-          setter([]);
-          return;
-        }
-
         const vaultHistories = await Promise.all(
           portfolioVaults.map(async (vault) => {
             try {
@@ -163,15 +136,11 @@ export default function PortfolioPositionChart() {
         setter([]);
       }
     },
-    [address, getPortfolioVaults]
+    [address, portfolioVaults]
   );
 
   useEffect(() => {
-    portfolioVaultsCache.current = null;
-  }, [address]);
-
-  useEffect(() => {
-    if (!address) {
+    if (!address || morphoHoldings.isLoading) {
       return;
     }
 
@@ -190,25 +159,13 @@ export default function PortfolioPositionChart() {
       }
     };
 
-    loadDailyHistory();
+    void loadDailyHistory();
 
     return () => {
       cancelled = true;
       abortController.abort();
     };
-  }, [address, fetchAggregatedHistory]);
-
-  useEffect(() => {
-    if (!address) {
-      return;
-    }
-
-    const abortController = new AbortController();
-
-    fetchAggregatedHistory('7d', abortController.signal, setHourly7dHistory);
-
-    return () => abortController.abort();
-  }, [address, fetchAggregatedHistory]);
+  }, [address, fetchAggregatedHistory, morphoHoldings.isLoading]);
 
   useEffect(() => {
     if (!address) {
@@ -338,40 +295,44 @@ export default function PortfolioPositionChart() {
       }
     });
 
-    return ticks.length > 0 ? ticks : undefined;
+    return withLeadingChartTick(
+      ticks.length > 0 ? ticks : undefined,
+      sortedData[0]?.timestamp
+    );
   }, [selectedTimeFrame, filteredChartData]);
 
   return (
-    <div className="flex flex-col rounded-lg bg-[var(--surface)] h-full min-h-[280px] sm:min-h-[320px] w-full overflow-hidden">
-      <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-[var(--border)]">
+    <div className="@container flex flex-col rounded-lg bg-[var(--surface)] h-full w-full overflow-hidden">
+      <div className="px-3 sm:px-4 py-2 sm:py-2.5 border-b border-[var(--border)] shrink-0">
         <h2 className="text-sm sm:text-md text-[var(--foreground)]">Portfolio Value</h2>
-        <p className="text-xs sm:text-sm text-[var(--foreground-secondary)] mt-0.5 sm:mt-1">
+        <p className="text-xs text-[var(--foreground-secondary)] mt-0.5">
           Combined USD value across your vault deposits
         </p>
       </div>
 
-      <div className="flex-1 p-2 sm:p-4 min-h-0">
+      <div className="flex-1 p-2 sm:p-3 min-h-0">
         {!isConnected ? (
-          <div className="h-[220px] sm:h-full sm:min-h-[280px] flex items-center justify-center bg-[var(--surface-elevated)] rounded-lg px-4">
+          <div className="h-full min-h-[160px] flex items-center justify-center bg-[var(--surface-elevated)] rounded-lg px-4">
             <p className="text-sm text-[var(--foreground-muted)]">Connect wallet to view portfolio history</p>
           </div>
-        ) : loading ? (
-          <div className="bg-[var(--surface-elevated)] rounded-lg p-3 sm:p-4 h-[220px] sm:h-full sm:min-h-[280px]">
-            <div className="flex items-center justify-between mb-4">
+        ) : loading || morphoHoldings.isLoading ? (
+          <div className="bg-[var(--surface-elevated)] rounded-lg p-3 h-full min-h-[160px] flex flex-col">
+            <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
                 <Skeleton width="3rem" height="2rem" />
                 <Skeleton width="3rem" height="2rem" />
               </div>
             </div>
-            <div className="h-48 sm:h-64">
+            <div className="flex-1 min-h-0">
               <Skeleton width="100%" height="100%" />
             </div>
           </div>
         ) : fullChartHistory.length > 0 ? (
-          <div className="bg-[var(--surface-elevated)] rounded-lg p-2 sm:p-4 flex flex-col min-h-[280px]">
-            <div className="flex items-center justify-between mb-4">
+          <div className="bg-[var(--surface-elevated)] rounded-lg p-2 sm:p-3 flex flex-col h-full min-h-0">
+            <div className="flex items-center justify-between mb-2 shrink-0">
               <div className="relative">
-                <div className="hidden md:flex items-center gap-2">
+                {/* Button row when the chart container itself is wide enough (not viewport). */}
+                <div className="hidden @min-[480px]:flex items-center gap-2 flex-wrap">
                   {availableTimeFrames.map((timeFrame) => (
                     <Button
                       key={timeFrame}
@@ -385,7 +346,7 @@ export default function PortfolioPositionChart() {
                   ))}
                 </div>
 
-                <div className="md:hidden">
+                <div className="@min-[480px]:hidden">
                   <button
                     type="button"
                     onClick={() => setIsTimeFrameMenuOpen(!isTimeFrameMenuOpen)}
@@ -435,9 +396,9 @@ export default function PortfolioPositionChart() {
               </div>
             </div>
 
-            <div className="w-full min-w-0 h-[240px]">
-              <ResponsiveContainer width="100%" height="100%" minHeight={240} debounce={50}>
-                <AreaChart data={filteredChartData}>
+            <div className="w-full min-w-0 flex-1 min-h-[160px]">
+              <ResponsiveContainer width="100%" height="100%" minHeight={160} debounce={50}>
+                <AreaChart data={filteredChartData} margin={CHART_MARGIN}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" />
                   <XAxis
                     dataKey="timestamp"
@@ -446,9 +407,12 @@ export default function PortfolioPositionChart() {
                     style={{ fontSize: '12px' }}
                     interval="preserveStartEnd"
                     ticks={getChartTicks}
+                    padding={{ left: 0, right: 0 }}
                   />
                   <YAxis
-                    width={120}
+                    width={getChartYAxisWidth('usd')}
+                    orientation="left"
+                    tickMargin={8}
                     domain={yAxisDomain}
                     tickFormatter={(value) => {
                       if (value === undefined || typeof value !== 'number') return '';
@@ -486,7 +450,7 @@ export default function PortfolioPositionChart() {
             </div>
           </div>
         ) : (
-          <div className="h-[220px] sm:h-full sm:min-h-[280px] flex items-center justify-center bg-[var(--surface-elevated)] rounded-lg px-4 text-center">
+          <div className="h-full min-h-[160px] flex items-center justify-center bg-[var(--surface-elevated)] rounded-lg px-4 text-center">
             <p className="text-sm text-[var(--foreground-muted)]">
               No deposit history available yet. Make your first deposit to see your portfolio over time.
             </p>

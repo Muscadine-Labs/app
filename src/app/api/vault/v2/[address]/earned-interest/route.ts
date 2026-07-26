@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import type { GraphQLResponse, Transaction } from '@/types/api';
 import {
-  getAssetDecimalsForSymbol,
   morphoAmountToDecimal,
   morphoAmountToRaw,
   normalizeMorphoShares,
+  resolveAssetDecimals,
+  resolveMorphoAssetSymbol,
 } from '@/lib/asset-decimals';
 import { isValidEthereumAddress, findVaultByAddress } from '@/lib/vault-utils';
 import { isValidChainId, fetchMorphoGraphQL } from '@/lib/api-utils';
@@ -115,7 +116,7 @@ export async function GET(
         query: positionQuery,
         variables: { userAddress, vaultAddress, chainId },
       },
-      { tags: [`vault-${vaultAddress}-${chainId}`] }
+      { revalidate: 0, skipMemoryCache: true, tags: [`vault-${vaultAddress}-${chainId}`] }
     );
 
     const positionJson = (await positionResponse.json()) as GraphQLResponse<{
@@ -124,13 +125,15 @@ export async function GET(
 
     const position = positionJson.data?.vaultV2PositionByAddress;
     const registryVault = findVaultByAddress(vaultAddress);
-    const assetSymbol =
-      registryVault?.symbol ??
-      position?.vault?.asset?.symbol ??
-      'UNKNOWN';
-    const assetDecimals =
-      position?.vault?.asset?.decimals ??
-      getAssetDecimalsForSymbol(assetSymbol);
+    const assetSymbol = resolveMorphoAssetSymbol({
+      registrySymbol: registryVault?.symbol,
+      assetSymbol: position?.vault?.asset?.symbol,
+      assetDecimals: position?.vault?.asset?.decimals,
+    });
+    const assetDecimals = resolveAssetDecimals(
+      assetSymbol,
+      position?.vault?.asset?.decimals
+    );
 
     const sharesRaw = position ? normalizeMorphoShares(position.shares) : '0';
     const hasShares = (() => {
@@ -140,24 +143,6 @@ export async function GET(
         return false;
       }
     })();
-
-    let activity: {
-      deposits?: Transaction[];
-      withdrawals?: Transaction[];
-      assetDecimals?: number;
-      assetPriceUsd?: number;
-    } | null = null;
-
-    const loadActivity = async () => {
-      if (activity) return activity;
-
-      const data = await fetchVaultV2ActivityData(vaultAddress, chainId, userAddress);
-      if (data.error) {
-        throw new Error('Failed to fetch vault activity for earned interest');
-      }
-      activity = data;
-      return data;
-    };
 
     const resolveCurrentAssetsRaw = (): bigint => {
       const fromQuery = searchParams.get('currentAssetsRaw');
@@ -179,24 +164,27 @@ export async function GET(
     };
 
     const currentAssetsRaw = resolveCurrentAssetsRaw();
-    const hasPosition =
-      hasShares ||
-      currentAssetsRaw > BigInt(0);
+    const hasPosition = hasShares || currentAssetsRaw > BigInt(0);
 
     const buildActivityEarnedResponse = (
-      currentAssetsRaw: bigint,
-      activityData: NonNullable<typeof activity>,
+      assetsRaw: bigint,
+      activityData: {
+        deposits?: Transaction[];
+        withdrawals?: Transaction[];
+        assetDecimals?: number;
+        assetPriceUsd?: number;
+      },
       resolvedDecimals: number
     ) => {
       const deposits = activityData.deposits ?? [];
       const withdrawals = activityData.withdrawals ?? [];
       const earnedRaw = computeEarnedInterestFromActivity({
-        currentAssetsRaw,
+        currentAssetsRaw: assetsRaw,
         deposits,
         withdrawals,
       });
       const earnedDecimal = Number(earnedRaw) / 10 ** resolvedDecimals;
-      const currentAssetsDecimal = Number(currentAssetsRaw) / 10 ** resolvedDecimals;
+      const currentAssetsDecimal = Number(assetsRaw) / 10 ** resolvedDecimals;
       const positionAssetsDecimal = position
         ? morphoAmountToDecimal(position.assets, resolvedDecimals)
         : 0;
@@ -220,9 +208,26 @@ export async function GET(
       });
     };
 
-    let activityData: Awaited<ReturnType<typeof loadActivity>> | null = null;
+    // Fast path: Morpho pnl when user still has a position.
+    if (hasPosition && position?.pnl !== undefined && position.pnl !== null) {
+      const earned = positiveEarnedFromPnl(position.pnl, position.pnlUsd, assetDecimals);
+      return NextResponse.json({
+        ...earned,
+        assetDecimals,
+        source: 'morpho-pnl',
+        hasDeposited: true,
+        currentAssets: morphoAmountToDecimal(position.assets, assetDecimals),
+        currentAssetsUsd: position.assetsUsd,
+      });
+    }
+
+    // Activity fallback — only when pnl is unavailable or position was closed.
+    let activityData: Awaited<ReturnType<typeof fetchVaultV2ActivityData>> | null = null;
     try {
-      activityData = await loadActivity();
+      activityData = await fetchVaultV2ActivityData(vaultAddress, chainId, userAddress);
+      if (activityData.error) {
+        throw new Error('Failed to fetch vault activity for earned interest');
+      }
     } catch (activityError) {
       logger.warn('Failed to fetch vault activity for earned interest', {
         vaultAddress,
@@ -239,11 +244,8 @@ export async function GET(
     const hasActivityFlow =
       !!activityData && (deposits.length > 0 || withdrawals.length > 0);
 
-    // Never deposited → earned interest is zero (ignore stray Morpho pnl).
-    if (!hasPosition) {
-      if (!hasActivityFlow) {
-        return zeroEarnedInterestResponse(assetDecimals, 'none');
-      }
+    if (!hasPosition && !hasActivityFlow) {
+      return zeroEarnedInterestResponse(assetDecimals, 'none');
     }
 
     if (activityData && hasActivityFlow) {
@@ -254,15 +256,17 @@ export async function GET(
       );
     }
 
-    if (hasPosition && position?.pnl !== undefined && position.pnl !== null) {
-      const earned = positiveEarnedFromPnl(position.pnl, position.pnlUsd, assetDecimals);
+    if (hasPosition) {
+      const currentAssetsDecimal = Number(currentAssetsRaw) / 10 ** resolvedDecimals;
       return NextResponse.json({
-        ...earned,
-        assetDecimals,
-        source: 'morpho-pnl',
+        earnedInterest: 0,
+        earnedInterestUsd: 0,
+        earnedInterestRaw: '0',
+        assetDecimals: resolvedDecimals,
+        source: 'none',
         hasDeposited: true,
-        currentAssets: morphoAmountToDecimal(position.assets, assetDecimals),
-        currentAssetsUsd: position.assetsUsd,
+        currentAssets: currentAssetsDecimal,
+        currentAssetsUsd: position?.assetsUsd ?? 0,
       });
     }
 

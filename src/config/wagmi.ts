@@ -27,10 +27,18 @@ const alchemyUrl = `https://base-mainnet.g.alchemy.com/v2/${alchemyApiKey}`
 
 export const config = getDefaultConfig({
   appName: 'Muscadine',
-  appDescription: 'Curated Morpho vaults on Base',
+  appDescription: 'Morpho vaults',
   appUrl,
   appIcon: `${appUrl}/favicon.png`,
   projectId: walletConnectProjectId,
+  walletConnectParameters: {
+    metadata: {
+      name: 'Muscadine',
+      description: 'Morpho vaults',
+      url: appUrl,
+      icons: [`${appUrl}/favicon.png`],
+    },
+  },
   chains: [baseChain],
   transports: {
     [baseChain.id]: fallback([http(alchemyUrl), http()]),

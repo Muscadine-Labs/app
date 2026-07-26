@@ -3,7 +3,6 @@ import { logger } from '@/lib/logger';
 import { isValidEthereumAddress } from '@/lib/vault-utils';
 import { isValidChainId, fetchMorphoGraphQL, readMorphoGraphQLResponse, MORPHO_RATE_LIMIT_BODY } from '@/lib/api-utils';
 import { MORPHO_GRAPHQL_REVALIDATE_SECONDS } from '@/lib/constants';
-
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ address: string }> }
@@ -76,7 +75,9 @@ export async function GET(
             address
           }
           
-          # APY (Native + Rewards) — avgApy deprecated; use avgNetApyExcludingRewards
+          # APY — apy/netApy are current allocation-weighted rates (Morpho deposit widget)
+          apy
+          netApy
           avgNetApy
           avgNetApyExcludingRewards
           maxApy
@@ -95,12 +96,10 @@ export async function GET(
             supplyApr
           }
           
-          # Allocation & Strategy (V2 uses adapters)
-          adapters {
+          # Adapters (addresses only — allocation detail lives in /allocations route)
+          adapters(first: 20) {
             items {
               address
-              assets
-              assetsUsd
               type
             }
           }
@@ -204,11 +203,14 @@ export async function GET(
         address: alloc.allocator?.address || '',
       })) || [];
       
-      // Wrap v2 response in state structure for compatibility with existing code
-      // Headline APY: avgNetApyExcludingRewards (Morpho replacement for deprecated avgApy)
-      const headlineApy =
-        vault.avgNetApyExcludingRewards ?? vault.avgNetApy ?? vault.maxApy ?? 0;
-      const netApy = vault.avgNetApy ?? headlineApy;
+      // Headline: Morpho netApy; popover uses gross apy → fees → netApy.
+      const morphoGrossApy = vault.apy ?? vault.netApy ?? 0;
+      const morphoNetApy =
+        vault.netApy ?? vault.apy ?? vault.avgNetApy ?? vault.avgNetApyExcludingRewards ?? 0;
+      const morphoAvgNetApy =
+        vault.avgNetApy ?? vault.avgNetApyExcludingRewards ?? morphoNetApy;
+      const morphoBaseApy =
+        vault.avgNetApyExcludingRewards ?? vault.avgNetApy ?? morphoAvgNetApy;
 
       const instantLiquidityRaw = (() => {
         try {
@@ -266,11 +268,12 @@ export async function GET(
           totalSupply: vault.totalSupply,
           sharePrice: sharePrice,
           sharePriceUsd: sharePriceUsd,
-          apy: headlineApy,
-          netApy,
-          netApyWithoutRewards: headlineApy,
-          avgApy: headlineApy,
-          avgNetApy: netApy,
+          apy: morphoNetApy,
+          grossApy: morphoGrossApy,
+          netApy: morphoNetApy,
+          netApyWithoutRewards: morphoBaseApy,
+          avgApy: morphoBaseApy,
+          avgNetApy: morphoAvgNetApy,
           maxApy: vault.maxApy || 0,
           owner: vault.owner || '',
           curator: vault.curator || '',
