@@ -142,3 +142,18 @@ export function useWalletStripNeedsFullWidth({
 
   return wide;
 }
+
+/** Desktop two-column dashboard (`min-[1000px]`). Mobile stays a single stack. */
+export function useIsDashboardSplitLayout(): boolean {
+  const [split, setSplit] = useState(false);
+
+  useIsomorphicLayoutEffect(() => {
+    const mql = window.matchMedia(DASHBOARD_SPLIT_MQ);
+    const update = () => setSplit(mql.matches);
+    update();
+    mql.addEventListener('change', update);
+    return () => mql.removeEventListener('change', update);
+  }, []);
+
+  return split;
+}

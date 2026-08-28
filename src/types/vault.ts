@@ -25,7 +25,7 @@ export interface Vault {
     chainId: number;
     version?: 'v1' | 'v2';
     strategy?: VaultStrategy;
-    /** True when vault is in the Muscadine registry (has detail/transact pages). */
+    /** True when vault is in the Muscadine registry (has a detail page). */
     isCurated?: boolean;
     
     // Financial Metrics
@@ -118,6 +118,7 @@ export interface MorphoVaultData extends Vault {
 // Vault symbol to logo mapping
 export const VAULT_LOGO_MAP: Record<string, string> = {
     'USDC': '/usdc-logo.svg',
+    'USD': '/usdc-logo.svg',
     'WETH': '/eth-logo.svg',
     'ETH': '/eth-logo.svg',
     'CBTC': '/btc-logo.svg',

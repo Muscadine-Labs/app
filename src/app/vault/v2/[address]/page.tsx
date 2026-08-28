@@ -14,6 +14,7 @@ import VaultTabs from '@/components/features/vault/VaultTabs';
 import VaultPosition from '@/components/features/vault/VaultPosition';
 import VaultHistory from '@/components/features/vault/VaultHistory';
 import { VaultTransactModal } from '@/components/features/vault/VaultTransactModal';
+import { VaultActionCard } from '@/components/features/vault/VaultActionCard';
 import { Button } from '@/components/ui';
 import { Skeleton } from '@/components/ui/Skeleton';
 import type { VaultTransactionTab } from '@/hooks/useScopedVaultTransaction';
@@ -47,6 +48,9 @@ export default function VaultV2Page() {
 
   const openDeposit = () => setTransactTab('deposit');
   const openWithdraw = () => setTransactTab('withdraw');
+  const actionCard = (
+    <VaultActionCard onDeposit={openDeposit} onWithdraw={openWithdraw} />
+  );
 
   const pageShellClassName =
     'w-full bg-[var(--background)] flex flex-col p-4 sm:p-6 md:p-8 pb-24 md:pb-8 min-h-full';
@@ -65,17 +69,11 @@ export default function VaultV2Page() {
         </div>
 
         <div className="flex-shrink-0 mb-6">
-          <div className="flex items-center justify-between gap-3 border-b border-[var(--border-subtle)]">
             <div className="flex gap-2">
               <Skeleton width="6rem" height="2.5rem" className="mb-2" />
               <Skeleton width="8rem" height="2.5rem" className="mb-2" />
               <Skeleton width="6rem" height="2.5rem" className="mb-2" />
             </div>
-            <div className="hidden md:flex gap-2 mb-2">
-              <Skeleton width="5rem" height="2rem" />
-              <Skeleton width="5rem" height="2rem" />
-            </div>
-          </div>
         </div>
 
         <div className="space-y-5">
@@ -140,21 +138,30 @@ export default function VaultV2Page() {
             activeTab={activeTab}
             onTabChange={handleTabChange}
             actions={
-              <>
-                <Button onClick={openDeposit} variant="primary" size="sm">
-                  Deposit
-                </Button>
-                <Button onClick={openWithdraw} variant="secondary" size="sm">
-                  Withdraw
-                </Button>
-              </>
+              activeTab === 'history' ? (
+                <>
+                  <Button onClick={openDeposit} variant="primary" size="sm">
+                    Deposit
+                  </Button>
+                  <Button onClick={openWithdraw} variant="secondary" size="sm">
+                    Withdraw
+                  </Button>
+                </>
+              ) : undefined
             }
           />
         </div>
 
         <div className="px-0 sm:px-2 md:px-6">
-          {activeTab === 'overview' && <VaultOverview vaultData={vaultData} />}
-          {activeTab === 'position' && <VaultPosition vaultData={vaultData} />}
+          {activeTab === 'overview' && (
+            <VaultOverview vaultData={vaultData} />
+          )}
+          {activeTab === 'position' && (
+            <VaultPosition
+              vaultData={vaultData}
+              chartAction={actionCard}
+            />
+          )}
           {activeTab === 'history' && <VaultHistory vaultData={vaultData} />}
         </div>
       </div>

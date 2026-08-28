@@ -15,7 +15,10 @@ import {
   buildAssetHolding,
   getAssetBySlug,
   getAssetRoute,
+  getAssetUiName,
+  getAssetUiSymbol,
   getVaultsForAssetPage,
+  isCashAsset,
 } from '@/lib/assets';
 import { getVaultLogo, type Vault } from '@/types/vault';
 import { formatCurrency, formatAssetAmount } from '@/lib/formatter';
@@ -115,6 +118,10 @@ export default function AssetPage() {
     );
   }
 
+  const isCash = isCashAsset(asset);
+  const uiSymbol = getAssetUiSymbol(asset);
+  const uiName = getAssetUiName(asset);
+
   const spotPrice =
     holding && holding.priceUsd > 0
       ? holding.priceUsd
@@ -150,18 +157,27 @@ export default function AssetPage() {
       <div className="rounded-lg bg-[var(--surface)] px-4 sm:px-5 py-3 sm:py-4 mb-3 sm:mb-4">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
-            <Image
-              src={holding?.logo ?? getVaultLogo(asset.displaySymbol)}
-              alt={asset.displaySymbol}
-              width={40}
-              height={40}
-              className="rounded-full shrink-0"
-            />
+            {isCash ? (
+              <div
+                className="w-10 h-10 rounded-full shrink-0 flex items-center justify-center text-lg font-semibold bg-[var(--primary-subtle)] text-[var(--primary)] border border-[var(--border)]"
+                aria-hidden
+              >
+                $
+              </div>
+            ) : (
+              <Image
+                src={holding?.logo ?? getVaultLogo(asset.displaySymbol)}
+                alt={uiSymbol}
+                width={40}
+                height={40}
+                className="rounded-full shrink-0"
+              />
+            )}
             <div className="min-w-0">
               <h1 className="text-2xl md:text-3xl font-bold text-[var(--foreground)] leading-tight truncate">
-                {asset.displaySymbol}
+                {uiSymbol}
               </h1>
-              <p className="text-sm text-[var(--foreground-secondary)] truncate">{asset.name}</p>
+              <p className="text-sm text-[var(--foreground-secondary)] truncate">{uiName}</p>
             </div>
           </div>
           <div className="flex flex-col items-start sm:items-end shrink-0">
@@ -198,11 +214,19 @@ export default function AssetPage() {
               <>
                 <div>
                   <div className="text-2xl md:text-3xl font-bold tabular-nums leading-none">
-                    {formatAmount(holding.totalRaw, asset.decimals, asset.displaySymbol)}
+                    {isCash
+                      ? formatCurrency(holding.totalUsd)
+                      : formatAmount(holding.totalRaw, asset.decimals, asset.displaySymbol)}
                   </div>
-                  <div className="text-sm text-[var(--foreground-secondary)] tabular-nums mt-1">
-                    {formatCurrency(holding.totalUsd)}
-                  </div>
+                  {isCash ? (
+                    <div className="text-sm text-[var(--foreground-secondary)] tabular-nums mt-1">
+                      {formatAmount(holding.totalRaw, asset.decimals, asset.displaySymbol)} in stables
+                    </div>
+                  ) : (
+                    <div className="text-sm text-[var(--foreground-secondary)] tabular-nums mt-1">
+                      {formatCurrency(holding.totalUsd)}
+                    </div>
+                  )}
                 </div>
 
                 <div className="border-t border-[var(--border-subtle)] pt-3 space-y-2">
@@ -262,12 +286,12 @@ export default function AssetPage() {
 
         <Panel
           title="Vaults"
-          subtitle={`${asset.displaySymbol} vaults · whitelisted open; external listed only`}
+          subtitle={`${uiSymbol} vaults · whitelisted open; external listed only`}
           className="min-[800px]:col-span-3 h-full min-h-[360px]"
         >
           <DashboardVaultTable
             vaults={relatedVaults}
-            emptyMessage={`No vaults for ${asset.displaySymbol} yet.`}
+            emptyMessage={`No vaults for ${uiSymbol} yet.`}
           />
         </Panel>
       </div>

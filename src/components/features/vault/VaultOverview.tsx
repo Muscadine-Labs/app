@@ -14,7 +14,7 @@ import {
   formatVaultDetailTokenAmount,
 } from '@/lib/formatter';
 import { calculateYAxisDomain } from '@/lib/vault-utils';
-import { CHART_MARGIN, getChartYAxisWidth, withLeadingChartTick } from '@/lib/chart-utils';
+import { CHART_MARGIN, getChartYAxisWidth, withLeadingChartTick, VAULT_DETAIL_CHART_HEIGHT_CLASS, VAULT_DETAIL_CHART_MIN_HEIGHT } from '@/lib/chart-utils';
 import { logger } from '@/lib/logger';
 import { MorphoVaultData } from '@/types/vault';
 import { VaultLiquidityInfo } from './VaultLiquidityInfo';
@@ -747,6 +747,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
         </div>
 
         {/* Chart / Allocations panel */}
+        <div className="min-w-0">
         <div
           className={`bg-[var(--surface-elevated)] rounded-lg border border-[var(--border-subtle)] p-2 sm:p-3 min-h-[14rem] ${
             chartType === 'allocations' ? '' : 'hidden'
@@ -808,7 +809,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                 </div>
               )}
             </div>
-            <div className="h-52 sm:h-56">
+            <div className={VAULT_DETAIL_CHART_HEIGHT_CLASS}>
               <div className="h-full flex flex-col justify-between">
                 {/* Y-axis labels area */}
                 <div className="flex justify-between mb-2">
@@ -881,8 +882,8 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                 </div>
               )}
             </div>
-            <div className="w-full min-w-0 h-52 sm:h-56">
-              <ResponsiveContainer width="100%" height="100%" minHeight={208} debounce={50}>
+            <div className={`w-full min-w-0 ${VAULT_DETAIL_CHART_HEIGHT_CLASS}`}>
+              <ResponsiveContainer width="100%" height="100%" minHeight={VAULT_DETAIL_CHART_MIN_HEIGHT} debounce={50}>
                 {chartType === 'apy' ? (
                   <LineChart data={historyData} margin={VAULT_CHART_MARGIN}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" />
@@ -1049,10 +1050,11 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
             </div>
           </div>
         ) : (
-          <div className="bg-[var(--surface-elevated)] rounded-lg border border-[var(--border-subtle)] h-52 sm:h-56 flex items-center justify-center text-sm text-[var(--foreground-muted)]">
+          <div className={`bg-[var(--surface-elevated)] rounded-lg border border-[var(--border-subtle)] ${VAULT_DETAIL_CHART_HEIGHT_CLASS} flex items-center justify-center text-sm text-[var(--foreground-muted)]`}>
             No historical data available
           </div>
         )}
+        </div>
         </div>
 
       </div>

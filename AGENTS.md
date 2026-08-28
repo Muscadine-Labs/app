@@ -28,14 +28,14 @@ Instructions for AI agents working in this repo. Full architecture docs live in 
 ## Dashboard & positions
 
 - **Wallet strip:** Total / Wallet (liquid) / Vaults USD (`WalletOverview`).
-- **Tokens panel:** Dynamic — USDC / BTC / ETH only if wallet holds them (or a derivative) or they’re in a vault. Other wallet tokens (AERO, etc.) appear when above ~$0.02 dust. Stocks stay in the Stocks panel.
+- **Cash / Crypto / Stocks:** Cash (USD) is USDC + other stables, shown as `$`. Crypto is BTC / ETH / extras above ~$0.02 dust. Stocks stay in the Stocks panel. Vaults sit beside the chart. Remaining groups pack into leftover column space (`packDashboardHoldings` in `dashboard-layout.ts`) so a short Your Vaults does not leave a hole. Tables match Your Vaults minus APY / TVL.
 - **Stocks panel:** tokenized equities (xStocks-style) listed **only when held** in the wallet.
 - **Your Vaults** (dashboard): **v2** positions only (registry + external Morpho v2 vaults).
 - **Morpho Vaults total** includes **all** user v2 positions from Morpho (`/api/user/morpho-positions`), not only Muscadine registry vaults.
 - **External vaults** (not in `vaults.ts`): shown on dashboard / explorer wallet filters with an **External** label, **not clickable**. Navigation uses `isCuratedVaultAddress()`; `/vault/v2/{external}` redirects home.
 - **Portfolio chart:** v2 positions via `/api/user/morpho-positions` + `/api/vault/v2/.../position-history` (`aggregatePortfolioHistory` in `portfolio-utils.ts`). Keep zero-share v2 rows for history when `includeEmpty=true`.
 - **Morpho positions fetch:** `WalletContext` clears on wallet switch, keeps last snapshot on soft-fail for the same wallet, and ignores stale responses after a switch. Server retries transient Morpho 429/502/503/504; client adds at most one light retry when `retryable`.
-- **Earned interest:** `/api/vault/v2/.../earned-interest` + `useVaultEarnedInterest`; shows **0** (not `-`) when user never deposited. Use `resolveAssetDecimals` / `getAssetDecimalsForSymbol`.
+- **Earned interest:** `/api/vault/v2/.../earned-interest` + `useVaultEarnedInterest` for all-time (shows **0** when never deposited). My Position shows total earned in the header; past periods and future estimates live in `VaultEarningsBreakdown` info popovers (`interest-utils.ts`). Use `resolveAssetDecimals` / `getAssetDecimalsForSymbol`.
 
 ## Transaction gotchas (WETH / Bundler3)
 
@@ -50,7 +50,8 @@ Instructions for AI agents working in this repo. Full architecture docs live in 
 - Morpho GraphQL invalid fields fail the whole request (HTTP 400).
 - Morpho public API rate limit (429) / blips (502): `fetchMorphoGraphQL()` retries transient statuses. Positions route returns **503** + `retryable` for rate-limit/transient; other failures **502** without retryable spam.
 - Morpho asset USD price: query `price { usd }`; parse via `resolveMorphoAssetPriceUsd()` in `api-utils.ts`.
-- Overlay scroll lock: use `useLockPageScroll()` — locks `body` and `[data-app-scroll]` in `AppLayout`.
+- Overlay scroll lock: use `useLockPageScroll()` — locks `body` and `[data-app-scroll]` in `AppLayout`. Reference counted, so nested overlays are safe; never set `overflow` directly.
+- Base App WebView: layout uses `dvh`; do not style RainbowKit `[role=dialog] ~ div` (leftover overlays look blank). In Base App, Connect prefers injected/Coinbase over WalletConnect.
 - Turbopack chunk errors: `rm -rf .next .turbo && npm run dev`.
 
 ## Commands

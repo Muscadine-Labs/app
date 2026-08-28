@@ -4,7 +4,7 @@ Comprehensive context for AI assistants and developers. This is the canonical �
 
 **Product:** Web app for Muscadine vaults on **Base (chain id 8453)** — deposit, withdraw, portfolio view, vault analytics. **v2 Prime and Frontier** vaults for USDC, cbBTC, and WETH. **v1 MetaMorpho removed** from registry and codebase (v2-only writes).
 
-**Version:** `package.json` → `1.3.0`
+**Version:** `package.json` → `1.3.1`
 
 ---
 
@@ -295,18 +295,18 @@ Morpho GraphQL is **server-only** (`fetchMorphoGraphQL()` in route handlers). Th
 
 | Path | Description |
 |------|-------------|
-| `/` | **Dashboard** — compact `WalletOverview` strip, portfolio chart (~⅖), Tokens + Your Vaults panels |
-| `/asset/[slug]` | Asset detail — combined wallet+vault holdings, price, related vaults (`usdc`, `btc`, `eth`; `cbbtc` → `btc`) |
+| `/` | **Dashboard** — compact `WalletOverview` strip, portfolio chart, Your Vaults + Cash + Crypto + Stocks |
+| `/asset/[slug]` | Asset detail — combined wallet+vault holdings, price, related vaults (`usdc` shown as USD/Cash, `btc`, `eth`; `cbbtc` → `btc`) |
 | `/vaults` | **Vault explorer** — filter bar + table of registry vaults |
-| `/transact` | Deposit/withdraw flow (`TransactionContext` + `TransactionFlow`) |
+| `/transact` | **Removed** — 308 redirect to `/vaults`. Deposit/withdraw is `VaultTransactModal` on vault detail. |
 | `/vault/v2/[address]` | V2 vault detail |
 | `/api/prices` | Price proxy/cache |
 | `/api/user/morpho-positions` | User Morpho v2 positions |
 | `/api/vault/v2/...` | V2 Morpho GraphQL proxies |
 
-**NavBar:** Dashboard → `/`, Vaults → `/vaults`, Transact → `/transact`. Settings: theme (light/dark) only.
+**NavBar:** Dashboard → `/`, Vaults → `/vaults`. Settings: theme (light/dark) only.
 
-**App title:** metadata in `layout.tsx` uses **Muscadine Vaults** (not “Muscadine Earn”).
+**App title:** metadata in `layout.tsx` uses **Muscadine** (`APP_NAME` in `src/lib/base-app.ts`) so Base.dev / RainbowKit / WalletConnect match.
 
 ---
 
@@ -320,20 +320,20 @@ Adaptive layout (content-sized panels; empty sections omitted):
 |------|-----------|----------|
 | Wallet | `WalletOverview` | Full $ amounts; strip width measured live |
 | Chart | `PortfolioPositionChart` | Under wallet; ~300–380px height |
-| Right | Vaults → Tokens / Stocks | Vaults when held; else Tokens/Stocks fill the right |
-| Lower | Tokens \| Stocks | Only when both exist (peer row from `min-[700px]`) |
+| Side | Your Vaults | When held; sits beside the chart |
+| Asset row | Cash, Crypto, Stocks | Full-width 2-col grid under chart/vaults so groups fill both sides. Each shows total earned. |
 
 **Responsive wallet / vaults (`useWalletStripNeedsFullWidth`):** On desktop (`min-[1000px]`), compares wallet strip intrinsic width to half the dashboard. If it fits → vaults align with wallet; if too wide (big $ / narrow window) → wallet spans full width and vaults drop to align with the chart. Mobile always stacks (wallet → chart → side). Hysteresis avoids flicker on resize.
 
 **Important:** Portfolio chart includes **v2** positions from the API; **Your Vaults** is **v2-only**. Token rows combine liquid + vault exposure for that asset (ETH includes native ETH + WETH + WETH vaults); the asset page breaks this down.
 
 - **Your Vaults** lists v2 deposits only (`position.version === 'v2'`), sorted by USD. External (non-curated) vaults are shown but **not clickable** (no `/vault/v2/...` detail page). Hidden when empty.
-- **Layout:** Desktop grid areas switch between `wallet|side / chart|side` and `wallet|wallet / chart|side`. Tokens + Stocks share a peer row below when both exist.
-- **Asset pages** (`/asset/usdc`, `/asset/btc`, `/asset/eth`): price, holdings breakdown (wallet vs vaults), curated + held Morpho vaults. Only **whitelisted** vault rows navigate; external stay list-only. BTC includes optional wrappers (LBTC, kBTC, …) **only when in wallet**. Stocks panel lists tokenized equities only when held. Helpers in `src/lib/assets.ts` (`/asset/cbbtc` redirects to `/asset/btc`).
+- **Layout:** Desktop uses two independent columns. Your Vaults sits beside the chart; if it is short, Cash / Crypto / Stocks move up into the leftover space (`packDashboardHoldings`). Wide wallet still uses `wallet|wallet / chart|side`. Mobile stacks wallet → chart → Vaults → Cash → Crypto → Stocks. Asset panels use the same table chrome as Your Vaults minus APY / TVL.
+- **Asset pages** (`/asset/usdc`, `/asset/btc`, `/asset/eth`): price, holdings breakdown (wallet vs vaults), curated + held Morpho vaults. `/asset/usdc` headlines as **USD / Cash** (`$`); breakdown still lists USDC (and other stables). Only **whitelisted** vault rows navigate; external stay list-only. BTC includes optional wrappers (LBTC, kBTC, …) **only when in wallet**. Stocks panel lists tokenized equities only when held. Helpers in `src/lib/assets.ts` (`/asset/cbbtc` redirects to `/asset/btc`).
 - **Portfolio chart** (`PortfolioPositionChart.tsx`):
   1. Discovers vaults via `/api/user/morpho-positions?includeEmpty=true`.
   2. **`aggregatePortfolioHistory()`** in `portfolio-utils.ts` — forward-fill and sum USD.
-  - **Current holdings** in `WalletOverview` / Tokens / Your Vaults from **`WalletContext`** (`/api/user/morpho-positions`).
+  - **Current holdings** in `WalletOverview` / Cash / Crypto / Your Vaults from **`WalletContext`** (`/api/user/morpho-positions`).
 - Preloads vault API data for deposited vaults via `useVaultListPreloader`.
 - **Position display:** `formatPositionUsd` / `formatPositionTokenAmount` in `formatter.ts` — USDC **6**, cbBTC/ETH/WETH **8**. Transactions use full chain decimals via `formatBigIntForInput` / `formatAssetAmountForMax`. Chart axes stay compact (2/6).
 
@@ -358,7 +358,7 @@ Adaptive layout (content-sized panels; empty sections omitted):
 
 ### Vault detail (`/vault/v2/[address]`)
 
-Whitelisted registry vaults only — unknown / external addresses redirect home. In-app Deposit/Withdraw via `VaultTransactModal`.
+Whitelisted registry vaults only — unknown / external addresses redirect home. In-app Deposit/Withdraw via `VaultTransactModal`. Desktop: compact `VaultActionCard` beside the chart on **My Position** (History tab uses tab-row buttons). Overview has no Manage card. Mobile: sticky Deposit/Withdraw bar. **My Position** shows total earned above the chart; past periods and future estimates are info popovers in `VaultEarningsBreakdown`.
 
 ### Vault detail charts (`VaultOverview.tsx`)
 
@@ -376,7 +376,7 @@ Provider tree (`src/app/Providers.tsx`):
 |---------|------|------|
 | `WalletContext` | `contexts/WalletContext.tsx` | Alchemy liquid balances; Morpho positions via `/api/user/morpho-positions`; refresh after txs |
 | `VaultDataContext` | `contexts/VaultDataContext.tsx` | Cached vault metadata from `/api/vault/.../complete` |
-| `TransactionContext` | `contexts/TransactionContext.tsx` | Transact page: from/to accounts, amount, status, `preferredAsset` |
+| `TransactionContext` | `contexts/TransactionContext.tsx` | Vault transact modal: from/to accounts, amount, status, `preferredAsset` |
 | `PriceContext` | `contexts/PriceContext.tsx` | Asset USD prices |
 | `ToastContext` | `contexts/ToastContext.tsx` | Toasts |
 | `ThemeContext` | `contexts/ThemeContext.tsx` | Light/dark |
@@ -406,7 +406,8 @@ Same Risk Framework link appears in **NavBar** Muscadine dropdown (Protocol sect
 
 | Hook | File | Purpose |
 |------|------|---------|
-| `useVaultEarnedInterest` | `hooks/useVaultEarnedInterest.ts` | Earned interest for curated vaults |
+| `useVaultEarnedInterest` | `hooks/useVaultEarnedInterest.ts` | All-time earned interest for curated vaults |
+| `useClearStuckWalletUi` | `hooks/useClearStuckWalletUi.ts` | Clear leftover wallet overlays in Base App WebView |
 | `useVaultDataFetch` | `hooks/useVaultDataFetch.ts` | Fetch/cache vault API data, list preloader |
 | `useClientOnly` | `hooks/useClientOnly.ts` | `useIsClient()`, `useUnixTimestamp()` — SSR-safe patterns |
 | `onClickOutside` | `hooks/onClickOutside.ts` | Dropdown dismiss |
@@ -423,20 +424,21 @@ src/
     vaults/page.tsx       # Vault explorer
   components/
     features/
-      vault/              # VaultExplorer*, VaultOverview, VaultPosition, VaultHistory, …
+      vault/              # VaultExplorer*, VaultOverview, VaultPosition, VaultHistory, VaultTransactModal, VaultActionCard, VaultEarningsBreakdown, …
       wallet/             # WalletOverview, DashboardTokensPanel, PortfolioPositionChart, ConnectButton, …
-      transactions/       # TransactionFlow, AccountSelector, confirmation UI
+      transactions/       # TransactionFlow, confirmation UI
       learn/              # LearnContent
     layout/               # AppLayout, NavBar, RightSidebar
     ui/                   # Button, Modal, Toast, Skeleton, Icon
     common/               # ErrorBoundary, CopiableAddress
   config/
     wagmi.ts              # Base + Alchemy + RainbowKit wallets
-    navigation.tsx        # Nav links (Vaults → page; transact)
+    navigation.tsx        # Nav links (Dashboard, Vaults)
   contexts/               # See table above
   hooks/
   lib/
-    assets.ts             # ★ Asset registry (USDC/cbBTC/ETH), combined wallet+vault holdings
+    assets.ts             # ★ Asset registry (USDC→USD cash / BTC / ETH), combined wallet+vault holdings
+    base-app.ts           # APP_NAME, BASE_APP_ID, Base App WebView detect
     portfolio-utils.ts    # ★ aggregatePortfolioHistory (dashboard)
     api-utils.ts          # Period/interval helpers; strip incomplete Morpho timeseries tails
     transactionUtilsV2.ts # ★ V2 on-chain (ERC-4626 + Bundler3 for WETH/ETH)
@@ -444,7 +446,7 @@ src/
     transactionUtils.ts   # Errors, shared tx helpers
     vaults.ts             # ★ Vault registry (v2 Prime + Frontier)
     vault-utils.ts        # Routes, sortVaultsForDisplay, resolvePositionAssetsUsd, isCuratedVaultAddress
-    interest-utils.ts     # Earned interest from activity
+    interest-utils.ts     # Earned interest from activity; period + projected estimates
     asset-decimals.ts     # Morpho amount normalization
     constants.ts          # Chain, WETH, cache TTLs, GENERAL_ADAPTER
     abis.ts               # Shared ERC20 balance + ERC4626 convertToAssets
@@ -469,7 +471,7 @@ src/
 - Approval txs use `approving`; only the main vault op should set `confirming` with the hash users care about.
 - After success, balances refresh via `refreshBalancesWithPolling` in `TransactionFlow`.
 
-**Transact page** (`app/transact/page.tsx`): Deposit/Withdraw tabs, account pickers, amount, MAX, WETH asset preference, deep links. Registry vaults from `VAULTS` + `sortVaultsForDisplay`. Amounts that exceed available balance block Continue.
+**Vault transact modal** (`VaultTransactModal.tsx` + `useScopedVaultTransaction`): Deposit/Withdraw tabs, amount, MAX, WETH asset preference. Amounts that exceed available balance block Continue. `/transact` redirects to `/vaults`.
 
 **Transact tabs:** Tab highlight uses `activeTab` (user selection). `effectiveActiveTab` infers deposit vs withdraw from From/To when both accounts are set (WETH prefs, max amount). `handleTabChange` resets accounts per tab; do not no-op on `tab === activeTab` alone — use `accountsMatchTransactionTab()` so mismatched From/To does not block clicks.
 
@@ -494,13 +496,15 @@ src/
 
 ## Base App
 
-Standard web app on Base — no Farcaster manifest or mini-app SDK. Register on [base.dev](https://base.dev) with primary URL **`https://app.muscadine.xyz`** (no separate `miniapp.*` subdomain).
+Standard web app on Base — no Farcaster manifest or mini-app SDK. Register on [base.dev](https://base.dev) with primary URL **`https://app.muscadine.xyz`** (no separate `miniapp.*` subdomain). Listing **name** should be **Muscadine** so in-app search matches by name, not only the URL.
 
 | Piece | Location |
 |-------|----------|
-| `base:app_id` meta tag | `src/lib/base-app.ts` → `layout.tsx` |
+| `APP_NAME` / `BASE_APP_ID` | `src/lib/base-app.ts` |
+| `base:app_id` meta tag | `layout.tsx` `metadata.other` **and** explicit `<meta name="base:app_id">` (id `6925cdc1547fca5d08131407`) |
 | `appUrl` / `appIcon` for Base Account UI | `getAppUrl()` + `/favicon.png` in wagmi config |
 | Builder code (ERC-8021) | `src/lib/builder-code.ts` → `transactionUtilsV2.ts` |
+| Base App WebView | `isBaseAppWebView()` — Connect uses injected/Coinbase, not WalletConnect. Layout `dvh`. Do not CSS-elevate RainbowKit dialog siblings. |
 
 Optional later: [Base Notifications API](https://docs.base.org/apps/technical-guides/base-notifications) (wallet-address based; no Farcaster).
 
@@ -520,6 +524,7 @@ Optional later: [Base Notifications API](https://docs.base.org/apps/technical-gu
 
 - Webpack/Turbopack aliases for `wagmi` and `@tanstack/react-query` (singleton React Query context)
 - Externals: `pino-pretty`, `lokijs`, `encoding`
+- Redirect: `/transact` → `/vaults` (308)
 
 ---
 

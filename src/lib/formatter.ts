@@ -113,7 +113,7 @@ export function formatSmartCurrency(
  */
 export function getDisplayFractionDigits(symbol: string): number {
   const normalized = symbol.toUpperCase();
-  if (normalized === 'USDC') return 6;
+  if (normalized === 'USDC' || normalized === 'USD') return 6;
   if (
     normalized === 'ETH' ||
     normalized === 'WETH' ||

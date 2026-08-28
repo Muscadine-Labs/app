@@ -2,15 +2,37 @@
 
 import React, { useRef, useEffect } from 'react';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
+import { useConnect } from 'wagmi';
 import { useAdvisoryAgreement } from '@/contexts/AdvisoryAgreementContext';
+import { isBaseAppWebView, pickBaseAppConnector } from '@/lib/base-app';
+import { logger } from '@/lib/logger';
 
 export default function ConnectButtonComponent() {
     const { isAccepted, openModal, shouldOpenWalletConnect, clearWalletConnectFlag } = useAdvisoryAgreement();
+    const { connectAsync, connectors } = useConnect();
     const openConnectModalRef = useRef<(() => void) | null>(null);
     const accountRef = useRef<any>(null);
     const chainRef = useRef<any>(null);
     const authenticationStatusRef = useRef<string | undefined>(undefined);
     const mountedRef = useRef<boolean>(false);
+
+    const connectWallet = async () => {
+        const openConnectModal = openConnectModalRef.current;
+        if (isBaseAppWebView()) {
+            const connector = pickBaseAppConnector(connectors);
+            if (connector) {
+                try {
+                    await connectAsync({ connector });
+                    return;
+                } catch (err) {
+                    logger.warn('Base App injected connect failed; opening RainbowKit', {
+                        error: err instanceof Error ? err.message : String(err),
+                    });
+                }
+            }
+        }
+        openConnectModal?.();
+    };
 
     // Auto-open wallet connect after advisory modal closes (defer to avoid WC modal reset race).
     useEffect(() => {
@@ -29,12 +51,14 @@ export default function ConnectButtonComponent() {
 
             if (!connected && ready) {
                 clearWalletConnectFlag();
-                openConnectModalRef.current();
+                void connectWallet();
             }
         }, 400);
 
         return () => window.clearTimeout(timer);
-    }, [shouldOpenWalletConnect, isAccepted, clearWalletConnectFlag]);
+        // connectWallet closes over connectors; advisory flags are the trigger.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [shouldOpenWalletConnect, isAccepted, clearWalletConnectFlag, connectors]);
 
     return (
         <ConnectButton.Custom>
@@ -67,8 +91,7 @@ export default function ConnectButtonComponent() {
                         // Show advisory agreement modal instead of wallet connect modal
                         openModal();
                     } else {
-                        // User has accepted, proceed with wallet connection
-                        openConnectModal();
+                        void connectWallet();
                     }
                 };
 

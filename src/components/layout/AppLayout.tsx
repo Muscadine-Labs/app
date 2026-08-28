@@ -4,6 +4,7 @@ import React, { type ReactNode, useState, useEffect } from 'react';
 import { NavBar } from './NavBar';
 import RightSidebar from './RightSidebar';
 import { ToastContainer } from '@/components/ui/ToastContainer';
+import { useClearStuckWalletUi } from '@/hooks/useClearStuckWalletUi';
 
 export function AppLayout({ children }: { children: ReactNode }) {
   const [isRightSidebarCollapsed, setIsRightSidebarCollapsed] = useState(true);
@@ -29,6 +30,8 @@ function LayoutContent({
   isRightSidebarCollapsed: boolean;
   setIsRightSidebarCollapsed: (collapsed: boolean) => void;
 }) {
+  useClearStuckWalletUi();
+
   // Update CSS variables when sidebar state changes
   useEffect(() => {
     const root = document.documentElement;
@@ -44,15 +47,18 @@ function LayoutContent({
   }, [isRightSidebarCollapsed]);
 
   return (
-    <div className="w-full bg-[var(--background)] h-screen flex flex-col">
+    <div className="w-full bg-[var(--background)] h-dvh flex flex-col">
       {/* Top NavBar */}
       <NavBar 
         isRightSidebarCollapsed={isRightSidebarCollapsed}
         onToggleSidebar={() => setIsRightSidebarCollapsed(!isRightSidebarCollapsed)}
       />
       
-      {/* Content Area with Sidebar */}
-      <div className="flex-1 flex overflow-hidden mt-[var(--navbar-height)]" style={{ height: 'calc(100vh - var(--navbar-height))' }}>
+      {/* Content Area with Sidebar — dvh avoids Base App WebView 100vh chrome bugs */}
+      <div
+        className="flex-1 flex overflow-hidden mt-[var(--navbar-height)]"
+        style={{ height: 'calc(100dvh - var(--navbar-height))' }}
+      >
         {/* Main Content Area - Scrollable */}
         <div className="flex-1 overflow-y-auto transition-all duration-300" data-app-scroll>
           <main className="w-full transition-all duration-300">

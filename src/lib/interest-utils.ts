@@ -94,3 +94,88 @@ export function splitPositionValueAtPoint(options: {
     positionValueRaw > depositedRaw ? positionValueRaw - depositedRaw : BigInt(0);
   return { depositedRaw, interestRaw };
 }
+
+export const EARNINGS_PERIOD_SECONDS = {
+  week: 7 * 24 * 60 * 60,
+  month: 30 * 24 * 60 * 60,
+  year: 365 * 24 * 60 * 60,
+} as const;
+
+export type EarningsPeriodId = keyof typeof EARNINGS_PERIOD_SECONDS;
+
+export function firstPositivePositionTimestamp(
+  history: ReadonlyArray<{ timestamp: number; assets: number }>
+): number | null {
+  let first: number | null = null;
+  for (const point of history) {
+    if (point.assets > 0 && (first === null || point.timestamp < first)) {
+      first = point.timestamp;
+    }
+  }
+  return first;
+}
+
+export function assetsAtOrBefore(
+  history: ReadonlyArray<{ timestamp: number; assets: number }>,
+  timestamp: number
+): number {
+  const sorted = [...history].sort((a, b) => a.timestamp - b.timestamp);
+  let last = 0;
+  for (const point of sorted) {
+    if (point.timestamp <= timestamp) last = point.assets;
+    else break;
+  }
+  return last;
+}
+
+/**
+ * Interest accrued during a window. Hidden when the wallet had no position
+ * at the start of that window (first deposit is too recent).
+ */
+export function periodInterestRaw(options: {
+  nowTs: number;
+  periodSeconds: number;
+  firstPositionTs: number | null;
+  startPositionRaw: bigint;
+  currentPositionRaw: bigint;
+  events: ReadonlyArray<ActivityFlowEvent>;
+}): { hidden: boolean; earnedRaw: bigint } {
+  const startTs = options.nowTs - options.periodSeconds;
+  if (options.firstPositionTs === null || options.firstPositionTs > startTs) {
+    return { hidden: true, earnedRaw: BigInt(0) };
+  }
+
+  const { interestRaw: nowInterest } = splitPositionValueAtPoint({
+    positionValueRaw: options.currentPositionRaw,
+    netDepositRaw: netDepositRawAtTime(options.events, options.nowTs),
+  });
+  const { interestRaw: startInterest } = splitPositionValueAtPoint({
+    positionValueRaw: options.startPositionRaw,
+    netDepositRaw: netDepositRawAtTime(options.events, startTs),
+  });
+  const earned =
+    nowInterest > startInterest ? nowInterest - startInterest : BigInt(0);
+  return { hidden: false, earnedRaw: earned };
+}
+
+/** Estimate interest over `days` if `netApy` (decimal, e.g. 0.05) holds. */
+export function projectedInterestRaw(
+  currentAssetsRaw: bigint,
+  netApy: number,
+  days: number
+): bigint {
+  if (
+    currentAssetsRaw <= BigInt(0) ||
+    !Number.isFinite(netApy) ||
+    netApy <= 0 ||
+    days <= 0
+  ) {
+    return BigInt(0);
+  }
+  const apyMillionths = BigInt(Math.round(netApy * 1_000_000));
+  if (apyMillionths <= BigInt(0)) return BigInt(0);
+  return (
+    (currentAssetsRaw * apyMillionths * BigInt(days)) /
+    BigInt(365 * 1_000_000)
+  );
+}

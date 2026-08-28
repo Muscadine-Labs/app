@@ -42,7 +42,7 @@ import { ERC4626_ABI } from '@/lib/abis';
 
 interface TransactionFlowProps {
   onSuccess?: () => void;
-  /** When set, success "Done" stays in context (e.g. closes vault modal) instead of /transact. */
+  /** When set, success "Done" stays in context (e.g. closes vault modal). */
   onSuccessComplete?: () => void;
   /** When set, preview cancel returns to amount step instead of leaving flow idle globally. */
   onReturnToIdle?: () => void;

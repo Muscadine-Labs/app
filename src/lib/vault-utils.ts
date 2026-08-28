@@ -42,6 +42,50 @@ export function hasOnChainVaultShares(
   }
 }
 
+/** All-time earned USD from Morpho `pnlUsd` for the given vaults (positive only). */
+export function sumPositivePnlUsd(
+  positions: readonly WalletMorphoPosition[],
+  vaultAddresses?: ReadonlyArray<string>
+): number {
+  const allowed =
+    vaultAddresses === undefined
+      ? null
+      : new Set(vaultAddresses.map((address) => address.toLowerCase()));
+
+  let total = 0;
+  for (const position of positions) {
+    if (!hasOnChainVaultShares(position)) continue;
+    if (allowed && !allowed.has(position.vault.address.toLowerCase())) continue;
+    const usd = position.pnlUsd;
+    if (typeof usd === 'number' && Number.isFinite(usd) && usd > 0) {
+      total += usd;
+    }
+  }
+  return total;
+}
+
+/** All-time earned raw amount from Morpho `pnlRaw` for the given vaults (positive only). */
+export function sumPositivePnlRaw(
+  positions: readonly WalletMorphoPosition[],
+  vaultAddresses: ReadonlyArray<string>
+): bigint {
+  const allowed = new Set(vaultAddresses.map((address) => address.toLowerCase()));
+
+  let total = BigInt(0);
+  for (const position of positions) {
+    if (!hasOnChainVaultShares(position)) continue;
+    if (!allowed.has(position.vault.address.toLowerCase())) continue;
+    if (!position.pnlRaw) continue;
+    try {
+      const raw = BigInt(position.pnlRaw);
+      if (raw > BigInt(0)) total += raw;
+    } catch {
+      // skip malformed raw amounts
+    }
+  }
+  return total;
+}
+
 /** USD value for tables/selectors; falls back when assetsUsd was not priced yet. */
 export function resolvePositionAssetsUsd(
   position: WalletMorphoPosition,

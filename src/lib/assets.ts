@@ -55,7 +55,7 @@ export const ASSETS: Record<AssetSlug, AssetDefinition> = {
     name: 'USD Coin',
     decimals: 6,
     primaryLiquidSymbols: ['USDC'],
-    optionalLiquidSymbols: [],
+    optionalLiquidSymbols: ['USDT', 'DAI', 'USDbC', 'USDBC', 'USDb'],
     vaultSymbols: ['USDC'],
   },
   btc: {
@@ -115,6 +115,19 @@ export function getAssetRoute(slug: string): string {
 
 export function getAssetLogo(asset: AssetDefinition): string {
   return getVaultLogo(asset.displaySymbol);
+}
+
+/** Dashboard / asset-page headline for stables (USDC family → USD). */
+export function getAssetUiSymbol(asset: AssetDefinition): string {
+  return asset.slug === 'usdc' ? 'USD' : asset.displaySymbol;
+}
+
+export function getAssetUiName(asset: AssetDefinition): string {
+  return asset.slug === 'usdc' ? 'Cash' : asset.name;
+}
+
+export function isCashAsset(asset: AssetDefinition): boolean {
+  return asset.slug === 'usdc';
 }
 
 function normalizeSymbol(symbol: string): string {
@@ -506,8 +519,8 @@ export function buildAssetHolding(
 }
 
 /**
- * Curated families for the Tokens panel — only when wallet holds the asset
- * (or a derivative) and/or has a vault position above dust (~$0.02).
+ * Curated families for dashboard Cash / Crypto panels — only when wallet holds
+ * the asset (or a derivative) and/or has a vault position above dust (~$0.02).
  */
 export function buildDashboardAssetHoldings(
   tokenBalances: TokenBalance[],
@@ -521,6 +534,24 @@ export function buildDashboardAssetHoldings(
         holding.totalUsd > DUST_USD || holding.vaultParts.length > 0
     )
     .sort((a, b) => b.totalUsd - a.totalUsd);
+}
+
+export function buildCashHoldings(
+  tokenBalances: TokenBalance[],
+  positions: WalletMorphoPosition[]
+): AssetHolding[] {
+  return buildDashboardAssetHoldings(tokenBalances, positions).filter(
+    (holding) => holding.asset.slug === 'usdc'
+  );
+}
+
+export function buildCryptoAssetHoldings(
+  tokenBalances: TokenBalance[],
+  positions: WalletMorphoPosition[]
+): AssetHolding[] {
+  return buildDashboardAssetHoldings(tokenBalances, positions).filter(
+    (holding) => holding.asset.slug !== 'usdc'
+  );
 }
 
 /** Stock-like tokens currently in the wallet (only if held). */

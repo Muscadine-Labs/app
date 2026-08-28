@@ -4,6 +4,15 @@ import path from "path";
 const nextConfig: NextConfig = {
   // Keep our AGENTS.md; Next 16.3 otherwise appends a generic rules block on `next dev`.
   agentRules: false,
+  async redirects() {
+    return [
+      {
+        source: '/transact',
+        destination: '/vaults',
+        permanent: true,
+      },
+    ];
+  },
   webpack: (config) => {
     config.externals.push("pino-pretty", "lokijs", "encoding");
     

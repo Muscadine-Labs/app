@@ -4,6 +4,7 @@ import { getDefaultConfig } from '@rainbow-me/rainbowkit'
 import { base as baseChain } from 'wagmi/chains'
 import { http, fallback } from 'wagmi'
 import { getAppUrl } from '@/lib/app-url'
+import { APP_NAME } from '@/lib/base-app'
 
 const alchemyApiKey = process.env.NEXT_PUBLIC_ALCHEMY_API_KEY
 const walletConnectProjectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID
@@ -26,14 +27,14 @@ const appUrl = getAppUrl()
 const alchemyUrl = `https://base-mainnet.g.alchemy.com/v2/${alchemyApiKey}`
 
 export const config = getDefaultConfig({
-  appName: 'Muscadine',
+  appName: APP_NAME,
   appDescription: 'Morpho vaults',
   appUrl,
   appIcon: `${appUrl}/favicon.png`,
   projectId: walletConnectProjectId,
   walletConnectParameters: {
     metadata: {
-      name: 'Muscadine',
+      name: APP_NAME,
       description: 'Morpho vaults',
       url: appUrl,
       icons: [`${appUrl}/favicon.png`],

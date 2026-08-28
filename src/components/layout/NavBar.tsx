@@ -243,16 +243,6 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                             {item.label}
                                         </Button>
                                     )}
-                                    {item.id === 'transactions' && (
-                                        <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            className={`min-w-fit hover:bg-transparent hover:text-[var(--primary)] transition-colors ${pathname === '/transact' ? 'text-[var(--primary)]' : ''}`}
-                                            onClick={() => router.push('/transact')}
-                                        >
-                                            {item.label}
-                                        </Button>
-                                    )}
                                 </div>
                             ))}
                         </nav>
@@ -444,17 +434,6 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                                 setIsMobileNavOpen(false);
                                             }}
                                             className={`w-full px-4 py-3 text-left hover:bg-[var(--surface-hover)] transition-colors cursor-pointer ${isActive(item) ? 'text-[var(--primary)] bg-[var(--primary-subtle)]' : 'text-[var(--foreground)]'}`}
-                                        >
-                                            {item.label}
-                                        </button>
-                                    )}
-                                    {item.id === 'transactions' && (
-                                        <button
-                                            onClick={() => {
-                                                router.push('/transact');
-                                                setIsMobileNavOpen(false);
-                                            }}
-                                            className={`w-full px-4 py-3 text-left hover:bg-[var(--surface-hover)] transition-colors cursor-pointer ${pathname === '/transact' ? 'text-[var(--primary)] bg-[var(--primary-subtle)]' : 'text-[var(--foreground)]'}`}
                                         >
                                             {item.label}
                                         </button>

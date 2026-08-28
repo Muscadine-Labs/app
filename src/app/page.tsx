@@ -10,7 +10,10 @@ import {
 } from '@/components/features/wallet';
 import { DashboardVaultTable } from '@/components/features/vault/VaultExplorerTable';
 import { useVaultListPreloader } from '@/hooks/useVaultDataFetch';
-import { useWalletStripNeedsFullWidth } from '@/hooks/useWalletStripNeedsFullWidth';
+import {
+  useIsDashboardSplitLayout,
+  useWalletStripNeedsFullWidth,
+} from '@/hooks/useWalletStripNeedsFullWidth';
 import { useWalletDisplayName } from '@/hooks/useWalletDisplayName';
 import { useWallet } from '@/contexts/WalletContext';
 import {
@@ -20,37 +23,37 @@ import {
   resolvePositionAssetsUsd,
 } from '@/lib/vault-utils';
 import {
-  buildDashboardAssetHoldings,
+  buildCashHoldings,
+  buildCryptoAssetHoldings,
   buildExtraWalletTokenHoldings,
   buildStockHoldings,
 } from '@/lib/assets';
+import {
+  DASHBOARD_CHART_DESKTOP_PX,
+  DASHBOARD_GAP_PX,
+  DASHBOARD_PANEL_VISIBLE_ROWS,
+  DASHBOARD_WALLET_STRIP_PX,
+  packDashboardHoldings,
+  type DashboardHoldingId,
+} from '@/lib/dashboard-layout';
 import { Vault } from '@/types/vault';
 import { BASE_CHAIN_ID } from '@/lib/constants';
 import type { VaultStrategy } from '@/lib/vaults';
 
 /** Chart height under the wallet. */
 const CHART_HEIGHT_CLASS = 'h-[300px] sm:h-[340px] min-[1000px]:h-[380px]';
-
-/** Visible rows before the list scrolls (exact count). */
-const PANEL_VISIBLE_ROWS = 4;
-
-const LIST_SCROLL_MAX = 'max-h-[16rem]';
-const VAULTS_SCROLL_MAX = 'max-h-[20rem]';
+const PANEL_SCROLL_MAX = 'max-h-[20rem]';
 
 function DashboardPanel({
   title,
-  subtitle,
   children,
   className = '',
   scrollable,
-  bodyMaxClass,
 }: {
   title: string;
-  subtitle?: string;
   children: ReactNode;
   className?: string;
   scrollable: boolean;
-  bodyMaxClass: string;
 }) {
   return (
     <div
@@ -58,12 +61,9 @@ function DashboardPanel({
     >
       <div className="px-3 sm:px-4 py-2.5 sm:py-3 border-b border-[var(--border)] shrink-0">
         <h2 className="text-sm sm:text-base text-[var(--foreground)]">{title}</h2>
-        {subtitle ? (
-          <p className="text-[10px] sm:text-xs text-[var(--foreground-muted)] mt-0.5">{subtitle}</p>
-        ) : null}
       </div>
       <div
-        className={`min-h-0 ${scrollable ? `overflow-y-auto ${bodyMaxClass}` : 'overflow-visible'}`}
+        className={`min-h-0 ${scrollable ? `overflow-y-auto ${PANEL_SCROLL_MAX}` : 'overflow-visible'}`}
       >
         {children}
       </div>
@@ -71,55 +71,44 @@ function DashboardPanel({
   );
 }
 
-function DashboardSideColumn({
-  className = '',
-  hasVaults,
-  depositedVaults,
-  hasTokens,
-  hasStocks,
-  tokenCount,
+function DashboardAssetPanel({
+  id,
+  cashCount,
+  cryptoCount,
   stockCount,
 }: {
-  className?: string;
-  hasVaults: boolean;
-  depositedVaults: Vault[];
-  hasTokens: boolean;
-  hasStocks: boolean;
-  tokenCount: number;
+  id: Exclude<DashboardHoldingId, 'vaults'>;
+  cashCount: number;
+  cryptoCount: number;
   stockCount: number;
 }) {
+  if (id === 'cash') {
+    return (
+      <DashboardPanel
+        title="Cash"
+        scrollable={cashCount > DASHBOARD_PANEL_VISIBLE_ROWS}
+      >
+        <DashboardTokensPanel variant="cash" />
+      </DashboardPanel>
+    );
+  }
+  if (id === 'crypto') {
+    return (
+      <DashboardPanel
+        title="Crypto"
+        scrollable={cryptoCount > DASHBOARD_PANEL_VISIBLE_ROWS}
+      >
+        <DashboardTokensPanel variant="crypto" />
+      </DashboardPanel>
+    );
+  }
   return (
-    <div className={`flex flex-col gap-3 sm:gap-4 min-w-0 w-full ${className}`}>
-      {hasVaults ? (
-        <DashboardPanel
-          title="Your Vaults"
-          scrollable={depositedVaults.length > PANEL_VISIBLE_ROWS}
-          bodyMaxClass={VAULTS_SCROLL_MAX}
-        >
-          <DashboardVaultTable vaults={depositedVaults} />
-        </DashboardPanel>
-      ) : null}
-      {hasTokens ? (
-        <DashboardPanel
-          title="Tokens"
-          subtitle="Wallet + vaults combined"
-          scrollable={tokenCount > PANEL_VISIBLE_ROWS}
-          bodyMaxClass={LIST_SCROLL_MAX}
-        >
-          <DashboardTokensPanel />
-        </DashboardPanel>
-      ) : null}
-      {hasStocks ? (
-        <DashboardPanel
-          title="Stocks"
-          subtitle="Base network"
-          scrollable={stockCount > PANEL_VISIBLE_ROWS}
-          bodyMaxClass={LIST_SCROLL_MAX}
-        >
-          <DashboardStocksPanel />
-        </DashboardPanel>
-      ) : null}
-    </div>
+    <DashboardPanel
+      title="Stocks"
+      scrollable={stockCount > DASHBOARD_PANEL_VISIBLE_ROWS}
+    >
+      <DashboardStocksPanel />
+    </DashboardPanel>
   );
 }
 
@@ -178,14 +167,12 @@ export default function Home() {
 
   const hasVaults = isConnected && depositedVaults.length > 0;
 
-  const tokenCount = useMemo(() => {
-    if (!isConnected || loading) return 0;
-    const curated = buildDashboardAssetHoldings(
+  const cashHoldings = useMemo(() => {
+    if (!isConnected || loading) return [];
+    return buildCashHoldings(
       tokenBalances,
       morphoHoldings.isLoading ? [] : morphoHoldings.positions
     );
-    const extras = buildExtraWalletTokenHoldings(tokenBalances);
-    return curated.length + extras.length;
   }, [
     isConnected,
     loading,
@@ -194,19 +181,56 @@ export default function Home() {
     tokenBalances,
   ]);
 
+  const cryptoHoldings = useMemo(() => {
+    if (!isConnected || loading) return [];
+    return buildCryptoAssetHoldings(
+      tokenBalances,
+      morphoHoldings.isLoading ? [] : morphoHoldings.positions
+    );
+  }, [
+    isConnected,
+    loading,
+    morphoHoldings.isLoading,
+    morphoHoldings.positions,
+    tokenBalances,
+  ]);
+
+  const extraCryptoCount = useMemo(() => {
+    if (!isConnected || loading) return 0;
+    return buildExtraWalletTokenHoldings(tokenBalances).length;
+  }, [isConnected, loading, tokenBalances]);
+
   const stockCount = useMemo(() => {
     if (!isConnected || loading) return 0;
     return buildStockHoldings(tokenBalances).length;
   }, [isConnected, loading, tokenBalances]);
 
-  const hasTokens = tokenCount > 0;
+  const cashCount = cashHoldings.length;
+  const cryptoCount = cryptoHoldings.length + extraCryptoCount;
+  const hasCash = cashCount > 0;
+  const hasCrypto = cryptoCount > 0;
   const hasStocks = stockCount > 0;
+  const vaultCount = hasVaults ? depositedVaults.length : 0;
+
+  const mobileHoldingIds = useMemo(() => {
+    const ids: DashboardHoldingId[] = [];
+    if (hasVaults) ids.push('vaults');
+    if (hasCash) ids.push('cash');
+    if (hasCrypto) ids.push('crypto');
+    if (hasStocks) ids.push('stocks');
+    return ids;
+  }, [hasVaults, hasCash, hasCrypto, hasStocks]);
 
   useVaultListPreloader(depositedVaults);
 
-  // Right column stacks vaults / tokens / stocks whenever any exist — avoids
-  // jumping Tokens out to a full-width pair row when Stocks appear.
-  const showRightColumn = hasVaults || hasTokens || hasStocks;
+  const isSplitLayout = useIsDashboardSplitLayout();
+  const showSideColumn = mobileHoldingIds.length > 0;
+
+  const assetGridProps = {
+    cashCount,
+    cryptoCount,
+    stockCount,
+  };
 
   const layoutKey = [
     totalUsdValue,
@@ -214,7 +238,8 @@ export default function Home() {
     morphoUsdValue,
     loading ? 'loading' : 'ready',
     morphoHoldings.isLoading ? 'morpho-loading' : 'morpho-ready',
-    showRightColumn ? 'right' : 'solo',
+    showSideColumn ? 'right' : 'solo',
+    mobileHoldingIds.join(','),
     address ?? 'none',
     nameLoading ? 'name-loading' : displayName,
   ].join('|');
@@ -222,27 +247,66 @@ export default function Home() {
   const wideWallet = useWalletStripNeedsFullWidth({
     viewportRef,
     stripRef: walletStripRef,
-    enabled: isConnected && showRightColumn,
+    enabled: isConnected && showSideColumn,
     layoutKey,
   });
 
   /**
-   * Desktop (≥1000px):
-   * - compact: two independent columns (wallet+chart | side) — avoids row-stretch gap
-   *   when the right column is taller than the wallet strip.
-   * - wide: wallet full-width, then chart | side (wallet strip too wide for half column).
-   * Mobile: single column stack (wallet → chart → side).
+   * Desktop (≥1000px): two independent columns so a short Your Vaults lets
+   * Cash / Crypto / Stocks move up into the leftover space.
+   * Wide wallet: wallet full-width, then chart | holdings.
+   * Mobile: wallet → chart → Vaults → Cash → Crypto → Stocks.
    */
-  const useWideDesktopLayout = showRightColumn && wideWallet;
+  const useWideDesktopLayout = showSideColumn && wideWallet && isSplitLayout;
 
-  const sideProps = {
-    hasVaults,
-    depositedVaults,
-    hasTokens,
-    hasStocks,
-    tokenCount,
+  const packedHoldings = useMemo(() => {
+    const leftBaseHeight = useWideDesktopLayout
+      ? DASHBOARD_CHART_DESKTOP_PX
+      : DASHBOARD_WALLET_STRIP_PX + DASHBOARD_GAP_PX + DASHBOARD_CHART_DESKTOP_PX;
+    return packDashboardHoldings({
+      leftBaseHeight,
+      vaultCount,
+      cashCount,
+      cryptoCount,
+      stockCount,
+    });
+  }, [
+    useWideDesktopLayout,
+    vaultCount,
+    cashCount,
+    cryptoCount,
     stockCount,
+  ]);
+
+  const renderHolding = (id: DashboardHoldingId) => {
+    if (id === 'vaults') {
+      return (
+        <DashboardPanel
+          key="vaults"
+          title="Your Vaults"
+          scrollable={depositedVaults.length > DASHBOARD_PANEL_VISIBLE_ROWS}
+        >
+          <DashboardVaultTable vaults={depositedVaults} />
+        </DashboardPanel>
+      );
+    }
+    return <DashboardAssetPanel key={id} id={id} {...assetGridProps} />;
   };
+
+  const holdingStack = (ids: DashboardHoldingId[]) => {
+    if (ids.length === 0) return null;
+    return (
+      <div className="flex flex-col gap-3 sm:gap-4 min-w-0 w-full">
+        {ids.map(renderHolding)}
+      </div>
+    );
+  };
+
+  const chartBlock = (
+    <div className={`rounded-lg ${CHART_HEIGHT_CLASS} flex flex-col min-w-0 w-full`}>
+      <PortfolioPositionChart key={address ?? 'disconnected'} />
+    </div>
+  );
 
   return (
     <div className="w-full bg-[var(--background)] h-full">
@@ -252,45 +316,40 @@ export default function Home() {
             <div
               ref={viewportRef}
               className="grid grid-cols-1 gap-3 sm:gap-4 min-w-0 items-start min-[1000px]:grid-cols-2 min-[1000px]:[grid-template-areas:var(--dash-areas)]"
-              style={{ ['--dash-areas' as string]: '"wallet wallet" "chart side"' } as CSSProperties}
+              style={
+                {
+                  ['--dash-areas' as string]: '"wallet wallet" "chart side"',
+                } as CSSProperties
+              }
             >
               <div className="min-w-0 min-[1000px]:[grid-area:wallet]">
                 <WalletOverview measureRef={walletStripRef} />
               </div>
-              <div
-                className={`rounded-lg ${CHART_HEIGHT_CLASS} flex flex-col min-w-0 w-full min-[1000px]:[grid-area:chart]`}
-              >
-                <PortfolioPositionChart key={address ?? 'disconnected'} />
+              <div className="flex flex-col gap-3 sm:gap-4 min-w-0 w-full min-[1000px]:[grid-area:chart]">
+                {chartBlock}
+                {holdingStack(packedHoldings.left)}
               </div>
-              <DashboardSideColumn
-                className="min-[1000px]:[grid-area:side]"
-                {...sideProps}
-              />
+              <div className="min-w-0 w-full min-[1000px]:[grid-area:side]">
+                {holdingStack(packedHoldings.right)}
+              </div>
             </div>
-          ) : showRightColumn ? (
+          ) : isSplitLayout && showSideColumn ? (
             <div
               ref={viewportRef}
               className="grid grid-cols-1 gap-3 sm:gap-4 min-w-0 items-start min-[1000px]:grid-cols-2"
             >
-              {/* Left column stacks tightly — do not share rows with the side column. */}
               <div className="flex flex-col gap-3 sm:gap-4 min-w-0">
                 <WalletOverview measureRef={walletStripRef} />
-                <div
-                  className={`rounded-lg ${CHART_HEIGHT_CLASS} flex flex-col min-w-0 w-full`}
-                >
-                  <PortfolioPositionChart key={address ?? 'disconnected'} />
-                </div>
+                {chartBlock}
+                {holdingStack(packedHoldings.left)}
               </div>
-              <DashboardSideColumn {...sideProps} />
+              {holdingStack(packedHoldings.right)}
             </div>
           ) : (
             <div ref={viewportRef} className="flex flex-col gap-3 sm:gap-4 min-w-0">
               <WalletOverview measureRef={walletStripRef} />
-              <div
-                className={`rounded-lg ${CHART_HEIGHT_CLASS} flex flex-col min-w-0 w-full`}
-              >
-                <PortfolioPositionChart key={address ?? 'disconnected'} />
-              </div>
+              {chartBlock}
+              {holdingStack(mobileHoldingIds)}
             </div>
           )}
         </div>

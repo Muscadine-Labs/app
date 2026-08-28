@@ -1,3 +1,6 @@
+export const VAULT_DETAIL_CHART_HEIGHT_CLASS = 'h-52 sm:h-56';
+export const VAULT_DETAIL_CHART_MIN_HEIGHT = 208;
+
 /** Recharts margin — left stays 0; YAxis `width` reserves label space. */
 export const CHART_MARGIN = { top: 8, right: 12, bottom: 8, left: 0 } as const;
 
