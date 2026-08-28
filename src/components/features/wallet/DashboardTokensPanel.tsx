@@ -7,12 +7,8 @@ import { useMemo } from 'react';
 import { useWallet } from '@/contexts/WalletContext';
 import { Skeleton } from '@/components/ui/Skeleton';
 import {
-  buildCashHoldings,
-  buildCryptoAssetHoldings,
-  buildExtraWalletTokenHoldings,
   getAssetRoute,
-  getAssetUiName,
-  getAssetUiSymbol,
+  type DashboardTokenHoldings,
 } from '@/lib/assets';
 import { sumPositivePnlRaw, sumPositivePnlUsd } from '@/lib/vault-utils';
 import DashboardAssetTable, {
@@ -31,76 +27,44 @@ function TokenGlyph({ symbol }: { symbol: string }) {
   );
 }
 
-function CashGlyph() {
-  return (
-    <div
-      className="w-7 h-7 rounded-full shrink-0 flex items-center justify-center text-xs font-semibold bg-[var(--primary-subtle)] text-[var(--primary)] border border-[var(--border)]"
-      aria-hidden
-    >
-      $
-    </div>
-  );
-}
-
 export default function DashboardTokensPanel({
-  variant = 'crypto',
+  holdings,
 }: {
-  variant?: 'cash' | 'crypto';
+  holdings: DashboardTokenHoldings;
 }) {
   const router = useRouter();
   const { isConnected } = useAccount();
-  const { tokenBalances, morphoHoldings, loading } = useWallet();
-
-  const cashHoldings = useMemo(
-    () => buildCashHoldings(tokenBalances, morphoHoldings.positions),
-    [tokenBalances, morphoHoldings.positions]
-  );
-
-  const cryptoHoldings = useMemo(
-    () => buildCryptoAssetHoldings(tokenBalances, morphoHoldings.positions),
-    [tokenBalances, morphoHoldings.positions]
-  );
-
-  const extraTokens = useMemo(
-    () => (variant === 'crypto' ? buildExtraWalletTokenHoldings(tokenBalances) : []),
-    [tokenBalances, variant]
-  );
-
-  const holdings = variant === 'cash' ? cashHoldings : cryptoHoldings;
+  const { morphoHoldings, loading } = useWallet();
 
   const rows: DashboardAssetRow[] = useMemo(() => {
-    const assetRows: DashboardAssetRow[] = holdings.map((holding) => {
-      const symbol = getAssetUiSymbol(holding.asset);
+    const assetRows: DashboardAssetRow[] = holdings.curated.map((holding) => {
       const vaultAddresses = holding.vaultParts.map((part) => part.address);
       return {
         key: holding.asset.slug,
-        name: getAssetUiName(holding.asset),
-        symbol,
-        icon:
-          holding.asset.slug === 'usdc' ? (
-            <CashGlyph />
-          ) : (
-            <Image
-              src={holding.logo}
-              alt={symbol}
-              width={28}
-              height={28}
-              className="rounded-full shrink-0"
-            />
-          ),
+        name: holding.asset.name,
+        symbol: holding.asset.displaySymbol,
+        icon: (
+          <Image
+            src={holding.logo}
+            alt={holding.asset.displaySymbol}
+            width={28}
+            height={28}
+            className="rounded-full shrink-0"
+          />
+        ),
         positionRaw: holding.totalRaw.toString(),
         positionDecimals: holding.asset.decimals,
-        positionSymbol: symbol,
+        positionSymbol: holding.asset.displaySymbol,
         positionUsd: holding.totalUsd,
         earnedRaw: sumPositivePnlRaw(morphoHoldings.positions, vaultAddresses).toString(),
         earnedDecimals: holding.asset.decimals,
-        earnedSymbol: symbol,
+        earnedSymbol: holding.asset.displaySymbol,
         earnedUsd: sumPositivePnlUsd(morphoHoldings.positions, vaultAddresses),
         onActivate: () => router.push(getAssetRoute(holding.asset.slug)),
       };
     });
 
-    const extraRows: DashboardAssetRow[] = extraTokens.map((token) => ({
+    const extraRows: DashboardAssetRow[] = holdings.extras.map((token) => ({
       key: `${token.address}-${token.symbol}`,
       name: token.symbol,
       symbol: token.symbol,
@@ -115,20 +79,35 @@ export default function DashboardTokensPanel({
       earnedUsd: 0,
     }));
 
-    return [...assetRows, ...extraRows];
-  }, [extraTokens, holdings, morphoHoldings.positions, router]);
+    const stockRows: DashboardAssetRow[] = holdings.stocks.map((holding) => ({
+      key: `${holding.address}-${holding.symbol}`,
+      name: holding.name,
+      symbol: holding.symbol,
+      icon: <TokenGlyph symbol={holding.symbol} />,
+      positionRaw: holding.raw.toString(),
+      positionDecimals: holding.decimals,
+      positionSymbol: holding.symbol,
+      positionUsd: holding.usd,
+      earnedRaw: '0',
+      earnedDecimals: holding.decimals,
+      earnedSymbol: holding.symbol,
+      earnedUsd: 0,
+    }));
+
+    return [...assetRows, ...extraRows, ...stockRows];
+  }, [holdings, morphoHoldings.positions, router]);
 
   if (!isConnected) {
     return (
       <div className="px-4 py-12 text-center">
         <p className="text-sm text-[var(--foreground-muted)]">
-          Connect a wallet to see {variant === 'cash' ? 'cash' : 'token'} balances.
+          Connect a wallet to see token balances.
         </p>
       </div>
     );
   }
 
-  if (loading || morphoHoldings.isLoading) {
+  if (loading) {
     return (
       <div className="px-4 py-8">
         <Skeleton width="100%" height="8rem" />
@@ -140,11 +119,7 @@ export default function DashboardTokensPanel({
     <DashboardAssetTable
       nameHeader="Asset"
       rows={rows}
-      emptyMessage={
-        variant === 'cash'
-          ? 'No USD / stablecoins in wallet or vaults yet.'
-          : 'No crypto in wallet or vaults yet.'
-      }
+      emptyMessage="No tokens in wallet or vaults yet."
     />
   );
 }

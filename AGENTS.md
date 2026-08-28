@@ -28,8 +28,7 @@ Instructions for AI agents working in this repo. Full architecture docs live in 
 ## Dashboard & positions
 
 - **Wallet strip:** Total / Wallet (liquid) / Vaults USD (`WalletOverview`).
-- **Cash / Crypto / Stocks:** Cash (USD) is USDC + other stables, shown as `$`. Crypto is BTC / ETH / extras above ~$0.02 dust. Stocks stay in the Stocks panel. Vaults sit beside the chart. Remaining groups pack into leftover column space (`packDashboardHoldings` in `dashboard-layout.ts`) so a short Your Vaults does not leave a hole. Tables match Your Vaults minus APY / TVL.
-- **Stocks panel:** tokenized equities (xStocks-style) listed **only when held** in the wallet.
+- **Tokens:** One dashboard Tokens table (USDC / BTC / ETH families + extras + held stocks). USDC is USDC only (not a cash/stables rollup). Vaults sit beside the chart; Tokens pack under Vaults when that shortens the page (`packDashboardHoldings`). Below 1000px: stack Vaults then Tokens. Table matches Your Vaults minus APY / TVL.
 - **Your Vaults** (dashboard): **v2** positions only (registry + external Morpho v2 vaults).
 - **Morpho Vaults total** includes **all** user v2 positions from Morpho (`/api/user/morpho-positions`), not only Muscadine registry vaults.
 - **External vaults** (not in `vaults.ts`): shown on dashboard / explorer wallet filters with an **External** label, **not clickable**. Navigation uses `isCuratedVaultAddress()`; `/vault/v2/{external}` redirects home.

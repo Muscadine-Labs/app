@@ -295,8 +295,8 @@ Morpho GraphQL is **server-only** (`fetchMorphoGraphQL()` in route handlers). Th
 
 | Path | Description |
 |------|-------------|
-| `/` | **Dashboard** — compact `WalletOverview` strip, portfolio chart, Your Vaults + Cash + Crypto + Stocks |
-| `/asset/[slug]` | Asset detail — combined wallet+vault holdings, price, related vaults (`usdc` shown as USD/Cash, `btc`, `eth`; `cbbtc` → `btc`) |
+| `/` | **Dashboard** — compact `WalletOverview` strip, portfolio chart, Your Vaults + Tokens |
+| `/asset/[slug]` | Asset detail — combined wallet+vault holdings, price, related vaults (`usdc`, `btc`, `eth`; `cbbtc` → `btc`) |
 | `/vaults` | **Vault explorer** — filter bar + table of registry vaults |
 | `/transact` | **Removed** — 308 redirect to `/vaults`. Deposit/withdraw is `VaultTransactModal` on vault detail. |
 | `/vault/v2/[address]` | V2 vault detail |
@@ -304,7 +304,7 @@ Morpho GraphQL is **server-only** (`fetchMorphoGraphQL()` in route handlers). Th
 | `/api/user/morpho-positions` | User Morpho v2 positions |
 | `/api/vault/v2/...` | V2 Morpho GraphQL proxies |
 
-**NavBar:** Dashboard → `/`, Vaults → `/vaults`. Settings: theme (light/dark) only.
+**NavBar:** Dashboard → `/`, Vaults → `/vaults`. Settings: theme (light/dark) only. Right sidebar (`LearnContent`) is Q&A links to Morpho docs (protocol, Vault V2, curator, Blue, Midnight) and [self-custody](https://muscadine.xyz/self-custody).
 
 **App title:** metadata in `layout.tsx` uses **Muscadine** (`APP_NAME` in `src/lib/base-app.ts`) so Base.dev / RainbowKit / WalletConnect match.
 
@@ -320,20 +320,19 @@ Adaptive layout (content-sized panels; empty sections omitted):
 |------|-----------|----------|
 | Wallet | `WalletOverview` | Full $ amounts; strip width measured live |
 | Chart | `PortfolioPositionChart` | Under wallet; ~300–380px height |
-| Side | Your Vaults | When held; sits beside the chart |
-| Asset row | Cash, Crypto, Stocks | Full-width 2-col grid under chart/vaults so groups fill both sides. Each shows total earned. |
+| Side | Your Vaults, Tokens | Vaults when held; Tokens is USDC/BTC/ETH + extras + held stocks |
 
 **Responsive wallet / vaults (`useWalletStripNeedsFullWidth`):** On desktop (`min-[1000px]`), compares wallet strip intrinsic width to half the dashboard. If it fits → vaults align with wallet; if too wide (big $ / narrow window) → wallet spans full width and vaults drop to align with the chart. Mobile always stacks (wallet → chart → side). Hysteresis avoids flicker on resize.
 
 **Important:** Portfolio chart includes **v2** positions from the API; **Your Vaults** is **v2-only**. Token rows combine liquid + vault exposure for that asset (ETH includes native ETH + WETH + WETH vaults); the asset page breaks this down.
 
 - **Your Vaults** lists v2 deposits only (`position.version === 'v2'`), sorted by USD. External (non-curated) vaults are shown but **not clickable** (no `/vault/v2/...` detail page). Hidden when empty.
-- **Layout:** Desktop uses two independent columns. Your Vaults sits beside the chart; if it is short, Cash / Crypto / Stocks move up into the leftover space (`packDashboardHoldings`). Wide wallet still uses `wallet|wallet / chart|side`. Mobile stacks wallet → chart → Vaults → Cash → Crypto → Stocks. Asset panels use the same table chrome as Your Vaults minus APY / TVL.
-- **Asset pages** (`/asset/usdc`, `/asset/btc`, `/asset/eth`): price, holdings breakdown (wallet vs vaults), curated + held Morpho vaults. `/asset/usdc` headlines as **USD / Cash** (`$`); breakdown still lists USDC (and other stables). Only **whitelisted** vault rows navigate; external stay list-only. BTC includes optional wrappers (LBTC, kBTC, …) **only when in wallet**. Stocks panel lists tokenized equities only when held. Helpers in `src/lib/assets.ts` (`/asset/cbbtc` redirects to `/asset/btc`).
+- **Layout:** Desktop uses two independent columns. Your Vaults sits beside the chart. `packDashboardHoldings` puts the next box on the column that keeps overall height shorter (so Tokens goes under Vaults instead of under the chart when the side column has a hole). Tokens only drops under the chart when the right column is already taller. Wide wallet still uses `wallet|wallet / chart|side`. Below 1000px stacks wallet → chart → Vaults → Tokens. The Tokens table matches Your Vaults minus APY / TVL.
+- **Asset pages** (`/asset/usdc`, `/asset/btc`, `/asset/eth`): price, holdings breakdown (wallet vs vaults), curated + held Morpho vaults. Only **whitelisted** vault rows navigate; external stay list-only. BTC includes optional wrappers (LBTC, kBTC, …) **only when in wallet**. Held stocks list in Tokens. Helpers in `src/lib/assets.ts` (`/asset/cbbtc` redirects to `/asset/btc`).
 - **Portfolio chart** (`PortfolioPositionChart.tsx`):
   1. Discovers vaults via `/api/user/morpho-positions?includeEmpty=true`.
   2. **`aggregatePortfolioHistory()`** in `portfolio-utils.ts` — forward-fill and sum USD.
-  - **Current holdings** in `WalletOverview` / Cash / Crypto / Your Vaults from **`WalletContext`** (`/api/user/morpho-positions`).
+  - **Current holdings** in `WalletOverview` / Tokens / Your Vaults from **`WalletContext`** (`/api/user/morpho-positions`).
 - Preloads vault API data for deposited vaults via `useVaultListPreloader`.
 - **Position display:** `formatPositionUsd` / `formatPositionTokenAmount` in `formatter.ts` — USDC **6**, cbBTC/ETH/WETH **8**. Transactions use full chain decimals via `formatBigIntForInput` / `formatAssetAmountForMax`. Chart axes stay compact (2/6).
 
@@ -427,7 +426,7 @@ src/
       vault/              # VaultExplorer*, VaultOverview, VaultPosition, VaultHistory, VaultTransactModal, VaultActionCard, VaultEarningsBreakdown, …
       wallet/             # WalletOverview, DashboardTokensPanel, PortfolioPositionChart, ConnectButton, …
       transactions/       # TransactionFlow, confirmation UI
-      learn/              # LearnContent
+      learn/              # LearnContent (sidebar Q&A → Morpho docs + self-custody)
     layout/               # AppLayout, NavBar, RightSidebar
     ui/                   # Button, Modal, Toast, Skeleton, Icon
     common/               # ErrorBoundary, CopiableAddress
@@ -437,7 +436,7 @@ src/
   contexts/               # See table above
   hooks/
   lib/
-    assets.ts             # ★ Asset registry (USDC→USD cash / BTC / ETH), combined wallet+vault holdings
+    assets.ts             # ★ Asset registry (USDC / BTC / ETH), combined wallet+vault holdings
     base-app.ts           # APP_NAME, BASE_APP_ID, Base App WebView detect
     portfolio-utils.ts    # ★ aggregatePortfolioHistory (dashboard)
     api-utils.ts          # Period/interval helpers; strip incomplete Morpho timeseries tails

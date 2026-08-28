@@ -10,7 +10,7 @@ export const DASHBOARD_CHART_DESKTOP_PX = 380;
 /** Compact wallet strip (name + totals). */
 export const DASHBOARD_WALLET_STRIP_PX = 80;
 
-export type DashboardHoldingId = 'vaults' | 'cash' | 'crypto' | 'stocks';
+export type DashboardHoldingId = 'vaults' | 'tokens';
 
 export function estimateDashboardPanelHeight(rowCount: number): number {
   const header = 52;
@@ -22,16 +22,19 @@ export function estimateDashboardPanelHeight(rowCount: number): number {
 
 /**
  * Pack holdings into two desktop columns.
- * Left already has wallet+chart (or just the chart in wide mode).
- * Shorter Your Vaults leaves a gap on the right — the next box moves up into it.
- * Overflow continues under the chart.
+ *
+ * Your Vaults always starts on the right (beside the chart). Later boxes go
+ * on the column that keeps overall page height shorter — so a 3-row Tokens
+ * table sits under Your Vaults instead of under the chart while the side
+ * column sits empty. Tokens only drop under the chart when the right column
+ * is already the taller one.
+ *
+ * Mobile does not use this; it stacks wallet → chart → Vaults → Tokens.
  */
 export function packDashboardHoldings(options: {
   leftBaseHeight: number;
   vaultCount: number;
-  cashCount: number;
-  cryptoCount: number;
-  stockCount: number;
+  tokensCount: number;
 }): { left: DashboardHoldingId[]; right: DashboardHoldingId[] } {
   const left: DashboardHoldingId[] = [];
   const right: DashboardHoldingId[] = [];
@@ -45,22 +48,10 @@ export function packDashboardHoldings(options: {
       height: estimateDashboardPanelHeight(options.vaultCount),
     });
   }
-  if (options.cashCount > 0) {
+  if (options.tokensCount > 0) {
     queue.push({
-      id: 'cash',
-      height: estimateDashboardPanelHeight(options.cashCount),
-    });
-  }
-  if (options.cryptoCount > 0) {
-    queue.push({
-      id: 'crypto',
-      height: estimateDashboardPanelHeight(options.cryptoCount),
-    });
-  }
-  if (options.stockCount > 0) {
-    queue.push({
-      id: 'stocks',
-      height: estimateDashboardPanelHeight(options.stockCount),
+      id: 'tokens',
+      height: estimateDashboardPanelHeight(options.tokensCount),
     });
   }
 
@@ -72,16 +63,18 @@ export function packDashboardHoldings(options: {
     }
 
     const nextRight = rightH + DASHBOARD_GAP_PX + item.height;
-    // Slack covers wallet-strip estimate error so a short vaults card still
-    // pulls the next box up instead of leaving a hole.
-    if (nextRight <= leftH + 24) {
+    const nextLeft = leftH + DASHBOARD_GAP_PX + item.height;
+    const pageIfRight = Math.max(leftH, nextRight);
+    const pageIfLeft = Math.max(nextLeft, rightH);
+
+    // Tie → right, so Tokens fills under vaults instead of the chart.
+    if (pageIfRight <= pageIfLeft) {
       right.push(item.id);
       rightH = nextRight;
-      continue;
+    } else {
+      left.push(item.id);
+      leftH = nextLeft;
     }
-
-    left.push(item.id);
-    leftH += DASHBOARD_GAP_PX + item.height;
   }
 
   return { left, right };

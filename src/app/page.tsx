@@ -6,7 +6,6 @@ import {
   WalletOverview,
   PortfolioPositionChart,
   DashboardTokensPanel,
-  DashboardStocksPanel,
 } from '@/components/features/wallet';
 import { DashboardVaultTable } from '@/components/features/vault/VaultExplorerTable';
 import { useVaultListPreloader } from '@/hooks/useVaultDataFetch';
@@ -23,10 +22,8 @@ import {
   resolvePositionAssetsUsd,
 } from '@/lib/vault-utils';
 import {
-  buildCashHoldings,
-  buildCryptoAssetHoldings,
-  buildExtraWalletTokenHoldings,
-  buildStockHoldings,
+  collectDashboardTokenHoldings,
+  countDashboardTokenHoldings,
 } from '@/lib/assets';
 import {
   DASHBOARD_CHART_DESKTOP_PX,
@@ -68,47 +65,6 @@ function DashboardPanel({
         {children}
       </div>
     </div>
-  );
-}
-
-function DashboardAssetPanel({
-  id,
-  cashCount,
-  cryptoCount,
-  stockCount,
-}: {
-  id: Exclude<DashboardHoldingId, 'vaults'>;
-  cashCount: number;
-  cryptoCount: number;
-  stockCount: number;
-}) {
-  if (id === 'cash') {
-    return (
-      <DashboardPanel
-        title="Cash"
-        scrollable={cashCount > DASHBOARD_PANEL_VISIBLE_ROWS}
-      >
-        <DashboardTokensPanel variant="cash" />
-      </DashboardPanel>
-    );
-  }
-  if (id === 'crypto') {
-    return (
-      <DashboardPanel
-        title="Crypto"
-        scrollable={cryptoCount > DASHBOARD_PANEL_VISIBLE_ROWS}
-      >
-        <DashboardTokensPanel variant="crypto" />
-      </DashboardPanel>
-    );
-  }
-  return (
-    <DashboardPanel
-      title="Stocks"
-      scrollable={stockCount > DASHBOARD_PANEL_VISIBLE_ROWS}
-    >
-      <DashboardStocksPanel />
-    </DashboardPanel>
   );
 }
 
@@ -167,12 +123,12 @@ export default function Home() {
 
   const hasVaults = isConnected && depositedVaults.length > 0;
 
-  const cashHoldings = useMemo(() => {
-    if (!isConnected || loading) return [];
-    return buildCashHoldings(
-      tokenBalances,
-      morphoHoldings.isLoading ? [] : morphoHoldings.positions
-    );
+  const tokenHoldings = useMemo(() => {
+    if (!isConnected || loading) {
+      return { curated: [], extras: [], stocks: [] };
+    }
+    const positions = morphoHoldings.isLoading ? [] : morphoHoldings.positions;
+    return collectDashboardTokenHoldings(tokenBalances, positions);
   }, [
     isConnected,
     loading,
@@ -181,56 +137,22 @@ export default function Home() {
     tokenBalances,
   ]);
 
-  const cryptoHoldings = useMemo(() => {
-    if (!isConnected || loading) return [];
-    return buildCryptoAssetHoldings(
-      tokenBalances,
-      morphoHoldings.isLoading ? [] : morphoHoldings.positions
-    );
-  }, [
-    isConnected,
-    loading,
-    morphoHoldings.isLoading,
-    morphoHoldings.positions,
-    tokenBalances,
-  ]);
+  const tokensCount = countDashboardTokenHoldings(tokenHoldings);
 
-  const extraCryptoCount = useMemo(() => {
-    if (!isConnected || loading) return 0;
-    return buildExtraWalletTokenHoldings(tokenBalances).length;
-  }, [isConnected, loading, tokenBalances]);
-
-  const stockCount = useMemo(() => {
-    if (!isConnected || loading) return 0;
-    return buildStockHoldings(tokenBalances).length;
-  }, [isConnected, loading, tokenBalances]);
-
-  const cashCount = cashHoldings.length;
-  const cryptoCount = cryptoHoldings.length + extraCryptoCount;
-  const hasCash = cashCount > 0;
-  const hasCrypto = cryptoCount > 0;
-  const hasStocks = stockCount > 0;
+  const hasTokens = tokensCount > 0;
   const vaultCount = hasVaults ? depositedVaults.length : 0;
 
   const mobileHoldingIds = useMemo(() => {
     const ids: DashboardHoldingId[] = [];
     if (hasVaults) ids.push('vaults');
-    if (hasCash) ids.push('cash');
-    if (hasCrypto) ids.push('crypto');
-    if (hasStocks) ids.push('stocks');
+    if (hasTokens) ids.push('tokens');
     return ids;
-  }, [hasVaults, hasCash, hasCrypto, hasStocks]);
+  }, [hasVaults, hasTokens]);
 
   useVaultListPreloader(depositedVaults);
 
   const isSplitLayout = useIsDashboardSplitLayout();
   const showSideColumn = mobileHoldingIds.length > 0;
-
-  const assetGridProps = {
-    cashCount,
-    cryptoCount,
-    stockCount,
-  };
 
   const layoutKey = [
     totalUsdValue,
@@ -252,10 +174,10 @@ export default function Home() {
   });
 
   /**
-   * Desktop (≥1000px): two independent columns so a short Your Vaults lets
-   * Cash / Crypto / Stocks move up into the leftover space.
-   * Wide wallet: wallet full-width, then chart | holdings.
-   * Mobile: wallet → chart → Vaults → Cash → Crypto → Stocks.
+   * Desktop (≥1000px): two independent columns. Vaults sit beside the chart;
+   * Tokens packs under Vaults when that keeps the page shorter (fills the
+   * hole). Wide wallet: wallet full-width, then chart | holdings.
+   * Below 1000px: wallet → chart → Vaults → Tokens.
    */
   const useWideDesktopLayout = showSideColumn && wideWallet && isSplitLayout;
 
@@ -266,17 +188,9 @@ export default function Home() {
     return packDashboardHoldings({
       leftBaseHeight,
       vaultCount,
-      cashCount,
-      cryptoCount,
-      stockCount,
+      tokensCount,
     });
-  }, [
-    useWideDesktopLayout,
-    vaultCount,
-    cashCount,
-    cryptoCount,
-    stockCount,
-  ]);
+  }, [useWideDesktopLayout, vaultCount, tokensCount]);
 
   const renderHolding = (id: DashboardHoldingId) => {
     if (id === 'vaults') {
@@ -290,7 +204,15 @@ export default function Home() {
         </DashboardPanel>
       );
     }
-    return <DashboardAssetPanel key={id} id={id} {...assetGridProps} />;
+    return (
+      <DashboardPanel
+        key="tokens"
+        title="Tokens"
+        scrollable={tokensCount > DASHBOARD_PANEL_VISIBLE_ROWS}
+      >
+        <DashboardTokensPanel holdings={tokenHoldings} />
+      </DashboardPanel>
+    );
   };
 
   const holdingStack = (ids: DashboardHoldingId[]) => {

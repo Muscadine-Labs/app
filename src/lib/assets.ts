@@ -55,7 +55,7 @@ export const ASSETS: Record<AssetSlug, AssetDefinition> = {
     name: 'USD Coin',
     decimals: 6,
     primaryLiquidSymbols: ['USDC'],
-    optionalLiquidSymbols: ['USDT', 'DAI', 'USDbC', 'USDBC', 'USDb'],
+    optionalLiquidSymbols: [],
     vaultSymbols: ['USDC'],
   },
   btc: {
@@ -115,19 +115,6 @@ export function getAssetRoute(slug: string): string {
 
 export function getAssetLogo(asset: AssetDefinition): string {
   return getVaultLogo(asset.displaySymbol);
-}
-
-/** Dashboard / asset-page headline for stables (USDC family → USD). */
-export function getAssetUiSymbol(asset: AssetDefinition): string {
-  return asset.slug === 'usdc' ? 'USD' : asset.displaySymbol;
-}
-
-export function getAssetUiName(asset: AssetDefinition): string {
-  return asset.slug === 'usdc' ? 'Cash' : asset.name;
-}
-
-export function isCashAsset(asset: AssetDefinition): boolean {
-  return asset.slug === 'usdc';
 }
 
 function normalizeSymbol(symbol: string): string {
@@ -519,7 +506,7 @@ export function buildAssetHolding(
 }
 
 /**
- * Curated families for dashboard Cash / Crypto panels — only when wallet holds
+ * Curated families for the dashboard Tokens panel — only when wallet holds
  * the asset (or a derivative) and/or has a vault position above dust (~$0.02).
  */
 export function buildDashboardAssetHoldings(
@@ -534,24 +521,6 @@ export function buildDashboardAssetHoldings(
         holding.totalUsd > DUST_USD || holding.vaultParts.length > 0
     )
     .sort((a, b) => b.totalUsd - a.totalUsd);
-}
-
-export function buildCashHoldings(
-  tokenBalances: TokenBalance[],
-  positions: WalletMorphoPosition[]
-): AssetHolding[] {
-  return buildDashboardAssetHoldings(tokenBalances, positions).filter(
-    (holding) => holding.asset.slug === 'usdc'
-  );
-}
-
-export function buildCryptoAssetHoldings(
-  tokenBalances: TokenBalance[],
-  positions: WalletMorphoPosition[]
-): AssetHolding[] {
-  return buildDashboardAssetHoldings(tokenBalances, positions).filter(
-    (holding) => holding.asset.slug !== 'usdc'
-  );
 }
 
 /** Stock-like tokens currently in the wallet (only if held). */
@@ -619,4 +588,28 @@ export function buildExtraWalletTokenHoldings(
       raw: token.balance,
     }))
     .sort((a, b) => b.usd - a.usd);
+}
+
+export interface DashboardTokenHoldings {
+  curated: AssetHolding[];
+  extras: WalletOnlyTokenHolding[];
+  stocks: StockHolding[];
+}
+
+/** One pass of everything the dashboard Tokens table shows. */
+export function collectDashboardTokenHoldings(
+  tokenBalances: TokenBalance[],
+  positions: WalletMorphoPosition[]
+): DashboardTokenHoldings {
+  return {
+    curated: buildDashboardAssetHoldings(tokenBalances, positions),
+    extras: buildExtraWalletTokenHoldings(tokenBalances),
+    stocks: buildStockHoldings(tokenBalances),
+  };
+}
+
+export function countDashboardTokenHoldings(
+  holdings: DashboardTokenHoldings
+): number {
+  return holdings.curated.length + holdings.extras.length + holdings.stocks.length;
 }
