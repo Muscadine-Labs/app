@@ -1,6 +1,6 @@
 {
   "name": "app",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "private": true,
   "engines": {
     "node": "24.x"
@@ -12,43 +12,38 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "@apollo/client": "^4.2.8",
-    "@base-org/account": "^2.5.7",
+    "@base-org/account": "^2.5.10",
     "@floating-ui/react": "^0.27.20",
     "@rainbow-me/rainbowkit": "^2.2.11",
-    "@tanstack/react-query": "^5.101.4",
+    "@tanstack/react-query": "^5.102.8",
     "@vercel/analytics": "^2.0.1",
-    "graphql": "^17.0.2",
-    "next": "^16.2.12",
-    "ox": "^0.14.33",
+    "next": "^16.3.3",
+    "ox": "^0.14.42",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "react-server-dom-parcel": "19.2.8",
     "react-server-dom-turbopack": "19.2.8",
     "react-server-dom-webpack": "19.2.8",
     "recharts": "^3.10.1",
-    "rxjs": "^7.8.2",
     "valtio": "^2.3.2",
-    "viem": "^2.55.8",
+    "viem": "^2.56.0",
     "wagmi": "^2.19.5"
   },
   "devDependencies": {
-    "@eslint/eslintrc": "^3.3.5",
-    "@tailwindcss/postcss": "^4.3.2",
-    "@types/node": "^26.1.0",
-    "@types/react": "^19.2.17",
-    "@types/react-dom": "^19.2.3",
-    "autoprefixer": "^10.5.2",
-    "eslint": "^9.39.4",
-    "eslint-config-next": "16.2.12",
-    "postcss": "8.5.16",
-    "tailwindcss": "^4.3.2",
+    "@eslint/eslintrc": "^3.3.6",
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/node": "^24.13.3",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.5",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "16.3.3",
+    "postcss": "8.5.26",
+    "tailwindcss": "^4.3.3",
     "typescript": "^6.0.3"
   },
   "overrides": {
     "wagmi": "$wagmi",
     "uuid": "^14.0.0",
-    "postcss": "8.5.16",
+    "postcss": "8.5.26",
     "ws": "8.21.0",
     "qr": "0.5.5"
   }

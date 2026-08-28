@@ -1,6 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useCallback } from 'react';
+import { logger } from '@/lib/logger';
 
 const TERMS_VERSION = '2.0.0'; // Increment this when terms change to force re-acceptance
 const STORAGE_KEY = 'advisory-agreement-accepted';
@@ -56,7 +57,7 @@ export function AdvisoryAgreementProvider({ children }: { children: React.ReactN
       setShouldShowModal(false);
       setShouldOpenWalletConnect(true); // Flag to open wallet connect modal after acceptance
     } catch (error) {
-      console.error('Failed to save advisory agreement acceptance:', error);
+      logger.error('Failed to save advisory agreement acceptance', error);
     }
   }, []);
 
@@ -69,7 +70,7 @@ export function AdvisoryAgreementProvider({ children }: { children: React.ReactN
       setIsAccepted(false);
       setShouldShowModal(false);
     } catch (error) {
-      console.error('Failed to clear advisory agreement acceptance:', error);
+      logger.error('Failed to clear advisory agreement acceptance', error);
     }
   }, []);
 

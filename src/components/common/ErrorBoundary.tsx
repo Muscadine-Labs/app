@@ -78,7 +78,11 @@ export class ErrorBoundary extends Component<Props, State> {
               Try again
             </Button>
             <Button
-              onClick={() => window.location.href = '/'}
+              onClick={() => {
+                // Error recovery needs a full reload; router.push leaves this fallback mounted.
+                // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+                window.location.assign(`${window.location.origin}/`);
+              }}
               variant="secondary"
               size="md"
             >

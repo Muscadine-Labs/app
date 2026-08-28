@@ -77,7 +77,7 @@ Never commit real keys. `.env.example` documents placeholders.
 | Wallet | wagmi **2.x**, RainbowKit 2, viem 2 |
 | Chain | Base only (`8453`) |
 | Server data | Next.js Route Handlers → Morpho GraphQL |
-| Client GraphQL | Apollo Client → `https://api.morpho.org/graphql` |
+| Client GraphQL | None — Morpho GraphQL is server-only via `fetchMorphoGraphQL()` |
 | V2 txs | Direct ERC-4626 via viem (`transactionUtilsV2.ts`); multi-step WETH/ETH via Morpho **Bundler3** (`bundler3.ts`) |
 | Charts | Recharts |
 | Analytics | `@vercel/analytics` |
@@ -103,7 +103,7 @@ Never commit real keys. `.env.example` documents placeholders.
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-**Reads:** Morpho GraphQL (server routes + some client Apollo usage).
+**Reads:** Morpho GraphQL (server routes via `fetchMorphoGraphQL()`).
 
 **Writes:** User wallet signs transactions built in-app — **not** via GraphQL.
 
@@ -277,15 +277,15 @@ If `complete` routes return **HTTP 400**, validate queries against `https://api.
 
 `next: { revalidate: MORPHO_GRAPHQL_REVALIDATE_SECONDS }` (60 seconds by default in `constants.ts`) + cache tags like `vault-{address}-{chainId}`.
 
-### Client Apollo
+### Client data
 
-`src/app/Providers.tsx` creates `ApolloClient` with same GraphQL URL for any client-side queries.
+Morpho GraphQL is **server-only** (`fetchMorphoGraphQL()` in route handlers). There is no client Apollo/GraphQL client.
 
 ---
 
 ## Morpho npm packages
 
-**Removed from `package.json`:** `@morpho-org/*` bundler/simulation SDKs (v1 path deleted). Morpho reads use **server `fetch`** to `api.morpho.org` and **Apollo Client** (`graphql@16`) on the client where needed.
+**Removed from `package.json`:** `@morpho-org/*` bundler/simulation SDKs (v1 path deleted), unused Apollo Client / `graphql`. Morpho reads use **server `fetch`** to `api.morpho.org`.
 
 **Not a dependency:** `@morpho-org/morpho-sdk` — optional future path for v2 writes via official SDK.
 
@@ -370,7 +370,7 @@ Chart tabs (order): **APY** → **Total Deposits** → **Share Price**. **Total 
 
 Provider tree (`src/app/Providers.tsx`):
 
-`ErrorBoundary` → `ApolloProvider` → `WagmiProvider` → `QueryClient` → `RainbowKit` → `ThemeProvider` → `AdvisoryAgreementProvider` → `ToastProvider` → `WalletProvider` → `VaultDataProvider` → `TransactionProvider`
+`ErrorBoundary` → `WagmiProvider` → `QueryClient` → `RainbowKit` → `ThemeProvider` → `AdvisoryAgreementProvider` → `ToastProvider` → `WalletProvider` → `VaultDataProvider` → `TransactionProvider`
 
 | Context | File | Role |
 |---------|------|------|
@@ -562,6 +562,8 @@ Do not bump without checking compatibility:
 |---------|------------|
 | `wagmi` | Stay on **2.x** — RainbowKit 2 requirement |
 | `eslint` | Stay on **9.x** (`eslint@^9.39`) — `eslint-config-next` breaks on 10 |
+| `ox` | Stay on **0.14.x** — `ox@1` is a breaking rewrite; used for ERC-8021 builder codes |
+| `valtio` | Keep a **root** `valtio` (2.x) — RainbowKit/WalletConnect `derive-valtio` must resolve `valtio/vanilla` under Turbopack |
 | `@morpho-org/*-wagmi` 4.x | Often requires wagmi 3 |
 
 ---
@@ -571,7 +573,7 @@ Do not bump without checking compatibility:
 - TypeScript, `@/` → `src/`
 - `'use client'` on interactive / wagmi components
 - Minimize scope; keep v1 and v2 paths separate
-- Use `logger` from `lib/logger.ts` instead of ad-hoc `console.log`
+- Use `logger` from `lib/logger.ts` instead of ad-hoc `console.log`. `error` / `warn` always log; `info` / `debug` are development-only.
 - Resolve vault version from `vaults.ts` / `getVaultVersion`
 - **Git commits:** only when the user explicitly asks
 - Match existing style in touched files; avoid drive-by refactors

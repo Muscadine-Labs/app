@@ -123,22 +123,6 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                         </a>
                                     </div>
 
-                                    {/* FAQ Section */}
-                                    <div className="px-4 mb-4">
-                                        <h3 className="text-xs font-semibold text-[var(--foreground-secondary)] uppercase tracking-wider mb-2">
-                                            FAQ
-                                        </h3>
-                                        <a
-                                            href="https://docs.muscadine.xyz"
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="block py-2 text-sm text-[var(--foreground)] hover:text-[var(--primary)] transition-colors cursor-pointer"
-                                            onClick={() => setIsMenuOpen(false)}
-                                        >
-                                            Documentation
-                                        </a>
-                                    </div>
-
                                     {/* Protocol Section */}
                                     <div className="px-4 mb-4">
                                         <h3 className="text-xs font-semibold text-[var(--foreground-secondary)] uppercase tracking-wider mb-2">

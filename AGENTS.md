@@ -15,7 +15,7 @@ Instructions for AI agents working in this repo. Full architecture docs live in 
 
 ## Key constraints
 
-- **wagmi must stay on 2.x** (RainbowKit 2 requirement). **eslint stays on 9.x**. Pin **`qr@0.5.5`** in `package.json` overrides (WalletConnect QR `border=0` crash with `qr@0.6.0`).
+- **wagmi must stay on 2.x** (RainbowKit 2 requirement). **eslint stays on 9.x**. Pin **`qr@0.5.5`** in `package.json` overrides (WalletConnect QR `border=0` crash with `qr@0.6.0`). Keep a **root `valtio`** (RainbowKit/Turbopack `valtio/vanilla` resolve). Keep **`ox` on 0.14.x**.
 - **Base only** (chain id 8453). **v1 MetaMorpho removed** — registry and writes are v2 Prime/Frontier only.
 - **Builder code** `bc_mwkqu9rd` on all vault txs via `src/lib/builder-code.ts`.
 - **v2 writes:** direct ERC-4626 ABIs in `src/lib/transactionUtilsV2.ts`; multi-step WETH/ETH via Morpho Bundler3 helpers in `src/lib/bundler3.ts` (no Morpho npm bundler SDK).
