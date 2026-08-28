@@ -2,7 +2,6 @@
 
 -manifest/favicon area currently is Muscadine on the browser. See if BAse app works better now, if its the same just change it back to Muscadine Vaults.
 
-
 **To work on another day:**
 
 **Future (optional):**
