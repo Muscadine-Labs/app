@@ -65,6 +65,8 @@ npm run lint
 
 Never commit real keys. `.env.example` documents placeholders.
 
+`package.json` **`allowScripts`** allowlists native/postinstall scripts for `bufferutil`, `keccak`, `unrs-resolver`, and `utf-8-validate` (transitive; WalletConnect `ws` + eslint-next resolver). Keep versions pinned to `package-lock.json`. Local npm 11.4 does not have `npm approve-scripts`; Vercel’s newer npm emits the pending-scripts warning without this field.
+
 ---
 
 ## Tech stack
