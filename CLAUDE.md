@@ -193,7 +193,7 @@ Base Bundler3 + GeneralAdapter1. Deposit/withdraw/redeem adapter calls use share
 
 **WETH Prime vault** (`BASE_WETH_ADDRESS` in `constants.ts`):
 
-- Deposit `preferredAsset`: `'ETH' | 'WETH' | 'ALL'` (wrap ETH, use WETH only, or combine). Gas reserve `ETH_GAS_RESERVE` (`0.0001 ETH`) left in wallet when wrapping.
+- Deposit `preferredAsset`: `'ETH' | 'WETH' | 'ALL'` (wrap ETH, use WETH only, or combine). **Default is WETH.** Gas reserve `ETH_GAS_RESERVE` (`0.0001 ETH`) left in wallet when wrapping.
 - Withdraw `preferredAsset`: `'ETH' | 'WETH'` (not `'ALL'`) — Bundler3 unwrap when ETH selected.
 
 **Force withdraw** (`src/lib/force-withdraw-v2.ts`): when requested assets exceed instant liquidity, plan `forceDeallocate` × N + `withdraw` or **`redeem` (MAX)** in vault `multicall`. Warning modal shows estimated penalty, risks, **Force withdraw**, and **Open vault on Morpho**. ETH unwrap (if selected) is a **second** Bundler3 tx after the vault exit. If underlying markets lack free cash, force plan is unavailable — user must reduce amount to instant liquidity, wait, or use Morpho.
@@ -295,8 +295,7 @@ Morpho GraphQL is **server-only** (`fetchMorphoGraphQL()` in route handlers). Th
 
 | Path | Description |
 |------|-------------|
-| `/` | **Dashboard** — compact `WalletOverview` strip, portfolio chart, Your Vaults + Tokens |
-| `/asset/[slug]` | Asset detail — combined wallet+vault holdings, price, related vaults (`usdc`, `btc`, `eth`; `cbbtc` → `btc`) |
+| `/` | **Dashboard** — compact `WalletOverview` strip, portfolio chart, Your Vaults |
 | `/vaults` | **Vault explorer** — filter bar + table of registry vaults |
 | `/transact` | **Removed** — 308 redirect to `/vaults`. Deposit/withdraw is the inline `VaultTransactPanel` on vault **My Position**. |
 | `/vault/v2/[address]` | V2 vault detail |
@@ -320,21 +319,20 @@ Adaptive layout (content-sized panels; empty sections omitted):
 |------|-----------|----------|
 | Wallet | `WalletOverview` | Full $ amounts; strip width measured live |
 | Chart | `PortfolioPositionChart` | Under wallet; ~300–380px height |
-| Side | Your Vaults, Tokens | Vaults when held; Tokens is USDC/BTC/ETH + extras + held stocks |
+| Side | Your Vaults | Vaults when held |
 
-**Responsive wallet / vaults (`useWalletStripNeedsFullWidth`):** On desktop (`min-[1000px]`), compares wallet strip intrinsic width to half the dashboard. If it fits → vaults align with wallet; if too wide (big $ / narrow window) → wallet spans full width and vaults drop to align with the chart. Mobile always stacks (wallet → chart → side). Hysteresis avoids flicker on resize.
+**Responsive wallet / vaults (`useWalletStripNeedsFullWidth`):** On desktop (`min-[1000px]`), compares wallet strip intrinsic width to half the dashboard. If it fits → vaults align with wallet; if too wide (big $ / narrow window) → wallet spans full width and vaults drop to align with the chart. Mobile always stacks (wallet → chart → vaults). Hysteresis avoids flicker on resize.
 
-**Important:** Portfolio chart includes **v2** positions from the API; **Your Vaults** is **v2-only**. Token rows combine liquid + vault exposure for that asset (ETH includes native ETH + WETH + WETH vaults); the asset page breaks this down.
+**Important:** Portfolio chart includes **v2** positions from the API; **Your Vaults** is **v2-only**.
 
 - **Your Vaults** lists v2 deposits only (`position.version === 'v2'`), sorted by USD. External (non-curated) vaults are shown but **not clickable** (no `/vault/v2/...` detail page). Hidden when empty.
-- **Layout:** Desktop uses two independent columns. Your Vaults sits beside the chart. `packDashboardHoldings` puts the next box on the column that keeps overall height shorter (so Tokens goes under Vaults instead of under the chart when the side column has a hole). Tokens only drops under the chart when the right column is already taller. Wide wallet still uses `wallet|wallet / chart|side`. Below 1000px stacks wallet → chart → Vaults → Tokens. The Tokens table matches Your Vaults minus APY / TVL.
-- **Asset pages** (`/asset/usdc`, `/asset/btc`, `/asset/eth`): price, holdings breakdown (wallet vs vaults), curated + held Morpho vaults. Only **whitelisted** vault rows navigate; external stay list-only. BTC includes optional wrappers (LBTC, kBTC, …) **only when in wallet**. Held stocks list in Tokens. Helpers in `src/lib/assets.ts` (`/asset/cbbtc` redirects to `/asset/btc`).
+- **Layout:** Desktop uses two independent columns. Your Vaults sits beside the chart. Wide wallet still uses `wallet|wallet / chart|side`. Below 1000px stacks wallet → chart → Vaults.
 - **Portfolio chart** (`PortfolioPositionChart.tsx`):
   1. Discovers vaults via `/api/user/morpho-positions?includeEmpty=true`.
   2. **`aggregatePortfolioHistory()`** in `portfolio-utils.ts` — forward-fill and sum USD.
-  - **Current holdings** in `WalletOverview` / Tokens / Your Vaults from **`WalletContext`** (`/api/user/morpho-positions`).
+  - **Current holdings** in `WalletOverview` / Your Vaults from **`WalletContext`** (`/api/user/morpho-positions`).
 - Preloads vault API data for deposited vaults via `useVaultListPreloader`.
-- **Position display:** `formatPositionUsd` / `formatPositionTokenAmount` in `formatter.ts` — USDC **6**, cbBTC/ETH/WETH **8**. Transactions use full chain decimals via `formatBigIntForInput` / `formatAssetAmountForMax`. Chart axes stay compact (2/6).
+- **Position display:** `formatPositionUsd` / `formatPositionTokenAmount` in `formatter.ts` — USDC **6**, cbBTC/ETH/WETH **8**. Transactions use full chain decimals via `formatBigIntForInput`. Chart axes stay compact (2/6).
 
 ### Vault explorer (`/vaults` — `src/app/vaults/page.tsx`)
 
@@ -357,7 +355,7 @@ Adaptive layout (content-sized panels; empty sections omitted):
 
 ### Vault detail (`/vault/v2/[address]`)
 
-Whitelisted registry vaults only — unknown / external addresses redirect home. Deposit/Withdraw is an inline `VaultTransactPanel` top-aligned with Your Position + Earned Interest (chart under those totals). Below 1000px: totals → chart → panel. Stats box: Network, APY, Past/Future rewards (no duplicate position or all-time earned). Mobile sticky Deposit/Withdraw on Overview jumps to My Position. Tab switches away from My Position are blocked while a tx is in preview/signing.
+Whitelisted registry vaults only — unknown / external addresses redirect home. Deposit/Withdraw is an inline `VaultTransactPanel` top-aligned with Your Position + Earned Interest (chart under those totals). Below 1000px: totals → chart → panel. Stats box: Network, APY, Past/Future rewards (no duplicate position or all-time earned). Past is the default when the user has a vault position; Future is the default when they do not. WETH vault deposits default to WETH (ETH and ETH+WETH remain selectable). Mobile sticky Deposit/Withdraw on Overview jumps to My Position. Tab switches away from My Position are blocked while a tx is in preview/signing.
 
 ### Vault detail charts (`VaultOverview.tsx`)
 
@@ -409,7 +407,6 @@ Same Risk Framework link appears in **NavBar** Muscadine dropdown (Protocol sect
 | `useClearStuckWalletUi` | `hooks/useClearStuckWalletUi.ts` | Clear leftover wallet overlays in Base App WebView |
 | `useVaultDataFetch` | `hooks/useVaultDataFetch.ts` | Fetch/cache vault API data, list preloader |
 | `useClientOnly` | `hooks/useClientOnly.ts` | `useIsClient()`, `useUnixTimestamp()` — SSR-safe patterns |
-| `onClickOutside` | `hooks/onClickOutside.ts` | Dropdown dismiss |
 
 ---
 
@@ -419,12 +416,11 @@ Same Risk Framework link appears in **NavBar** Muscadine dropdown (Protocol sect
 src/
   app/
     page.tsx              # Dashboard
-    asset/[slug]/page.tsx # Asset detail (wallet+vault breakdown)
     vaults/page.tsx       # Vault explorer
   components/
     features/
       vault/              # VaultExplorer*, VaultOverview, VaultPosition, VaultHistory, VaultTransactPanel, VaultEarningsBreakdown, …
-      wallet/             # WalletOverview, DashboardTokensPanel, PortfolioPositionChart, ConnectButton, …
+      wallet/             # WalletOverview, PortfolioPositionChart, ConnectButton, …
       transactions/       # TransactionFlow, confirmation UI
       learn/              # LearnContent (sidebar Q&A → Morpho docs + self-custody)
     layout/               # AppLayout, NavBar, RightSidebar
@@ -436,7 +432,6 @@ src/
   contexts/               # See table above
   hooks/
   lib/
-    assets.ts             # ★ Asset registry (USDC / BTC / ETH), combined wallet+vault holdings
     base-app.ts           # APP_NAME, BASE_APP_ID, Base App WebView detect
     portfolio-utils.ts    # ★ aggregatePortfolioHistory (dashboard)
     api-utils.ts          # Period/interval helpers; strip incomplete Morpho timeseries tails
@@ -463,7 +458,7 @@ src/
 
 **Statuses:** `idle` → `preview` → `signing` | `approving` → `confirming` → `success` | `error`
 
-**Progress steps** (`types/transactions.ts`): `signing`, `approving`, `confirming` — shared by v1 and v2.
+**Progress steps** (`types/transactions.ts`): `signing`, `approving`, `confirming`.
 
 **Rules:**
 
@@ -616,7 +611,6 @@ Do not bump without checking compatibility:
 | Task | Where to look |
 |------|----------------|
 | Dashboard layout | `src/app/page.tsx` |
-| Asset pages (wallet+vault) | `src/app/asset/[slug]/page.tsx`, `src/lib/assets.ts` |
 | Portfolio history chart | `PortfolioPositionChart.tsx`, `portfolio-utils.ts` (`aggregatePortfolioHistory`) |
 | Morpho timeseries tail fix | `api-utils.ts` (`stripIncomplete*`, `finalizePositionHistory`), used in vault `history` + `position-history` routes |
 | Position table formatting | `formatter.ts` (`formatPositionUsd`, `formatPositionTokenAmount`) |

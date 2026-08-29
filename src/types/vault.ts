@@ -134,20 +134,6 @@ export const getVaultLogo = (symbol: string): string => {
     return VAULT_LOGO_MAP[symbol] || VAULT_LOGO_MAP[symbol.toUpperCase()] || '/usdc-logo.svg';
 };
 
-// Vault status colors
-export const VAULT_STATUS_COLORS = {
-    active: 'text-[var(--success)]',
-    paused: 'text-[var(--warning)]',
-    deprecated: 'text-[var(--foreground-muted)]',
-} as const;
-
-// Risk level colors
-export const RISK_LEVEL_COLORS = {
-    low: 'bg-[var(--success-subtle)] text-[var(--success)]',
-    medium: 'bg-[var(--warning-subtle)] text-[var(--warning)]',
-    high: 'bg-[var(--danger-subtle)] text-[var(--danger)]',
-} as const;
-
 // Account types for transaction flow
 export type AccountType = 'wallet' | 'vault';
 

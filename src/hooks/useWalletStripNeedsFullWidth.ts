@@ -9,7 +9,7 @@ import {
 } from 'react';
 
 /** Matches dashboard `min-[1000px]:grid-cols-2` breakpoint. */
-export const DASHBOARD_SPLIT_MQ = '(min-width: 1000px)';
+const DASHBOARD_SPLIT_MQ = '(min-width: 1000px)';
 
 /** Tailwind `gap-4` between grid columns at the split breakpoint. */
 const GRID_GAP_PX = 16;

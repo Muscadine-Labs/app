@@ -86,6 +86,48 @@ export const TOKEN_ADDRESSES_LOWER = {
   wstETH: TOKEN_ADDRESSES.wstETH.toLowerCase(),
 } as const;
 
+/** Symbols whose USD price must only apply to the canonical Base address. */
+const MAJOR_SYMBOL_PRICES = new Set([
+  'ETH',
+  'WETH',
+  'USDC',
+  'USDT',
+  'DAI',
+  'CBBTC',
+  'BTC',
+  'CBETH',
+  'WSTETH',
+  'STETH',
+  'WBTC',
+]);
+
+function resolveTokenUsdPrice(
+  token: { address: string; symbol: string },
+  tokenPrices: Record<string, number>
+): number {
+  if (token.address === 'ETH') return tokenPrices.eth || 0;
+  const addressLower = token.address.toLowerCase();
+  if (addressLower === TOKEN_ADDRESSES_LOWER.cbBTC) return tokenPrices.cbbtc || 0;
+  if (addressLower === TOKEN_ADDRESSES_LOWER.USDC) return tokenPrices.usdc || 1;
+  if (addressLower === TOKEN_ADDRESSES_LOWER.WETH) {
+    return tokenPrices.weth || tokenPrices.eth || 0;
+  }
+  if (addressLower === TOKEN_ADDRESSES_LOWER.cbETH) return tokenPrices.cbeth || 0;
+  if (addressLower === TOKEN_ADDRESSES_LOWER.wstETH) return tokenPrices.wsteth || 0;
+
+  const symbol = token.symbol.trim().toUpperCase();
+  if (symbol === 'STETH') return tokenPrices.steth || 0;
+  if (MAJOR_SYMBOL_PRICES.has(symbol)) return 0;
+  const mapped = tokenPrices[symbol.toLowerCase()];
+  return typeof mapped === 'number' && Number.isFinite(mapped) ? mapped : 0;
+}
+
+function isVaultShareTokenAddress(address: string, positionAddresses: Set<string>): boolean {
+  if (address === 'ETH') return false;
+  if (findVaultByAddress(address)) return true;
+  return positionAddresses.has(address.toLowerCase());
+}
+
 // Token metadata cache - persists across component remounts
 // Token metadata rarely changes, so we cache it to avoid repeated RPC calls
 const tokenMetadataCache = new Map<string, { decimals: number; symbol: string; name?: string; timestamp: number }>();
@@ -647,15 +689,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     // When Alchemy fails, enabling the wagmi reads is enough — they fetch on the next render.
     // Refetching here is a no-op because `enabled` is still false on this tick.
 
-    const symbols = new Set<string>(['ETH', 'USDC', 'CBBTC', 'CBETH', 'WSTETH']);
-    tokens.forEach((token) => {
-      const symbol = token.symbol.toUpperCase();
-      if (symbol === 'WETH' || symbol === 'CBETH' || symbol === 'WSTETH') {
-        symbols.add(symbol);
-      } else if (symbol !== 'USDC' && symbol !== 'CBBTC') {
-        symbols.add(symbol);
-      }
-    });
+    const symbols = new Set<string>(['ETH', 'USDC', 'CBBTC', 'CBETH', 'WSTETH', 'STETH', 'WETH']);
 
     const prices = await fetchTokenPrices(Array.from(symbols));
     if (fetchId !== walletDataFetchIdRef.current) return;
@@ -820,35 +854,16 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   
   const cbethDecimalsValue = cbethDecimals || 18;
   const cbethFormatted = cbethBalance ? formatUnits(cbethBalance, cbethDecimalsValue) : '0';
-  const cbethUsdValue = parseFloat(cbethFormatted) * (tokenPrices.cbeth || tokenPrices.eth || 0);
+  const cbethUsdValue = parseFloat(cbethFormatted) * (tokenPrices.cbeth || 0);
   
   const wstethDecimalsValue = wstethDecimals || 18;
   const wstethFormatted = wstethBalance ? formatUnits(wstethBalance, wstethDecimalsValue) : '0';
-  const wstethUsdValue = parseFloat(wstethFormatted) * (tokenPrices.wsteth || tokenPrices.eth || 0);
+  const wstethUsdValue = parseFloat(wstethFormatted) * (tokenPrices.wsteth || 0);
 
   // Build token balances array - combine ETH, manually fetched tokens, and Alchemy tokens
   // Calculate USD values for Alchemy tokens
   const alchemyBalancesWithPrices = alchemyTokenBalances.map(token => {
-    const addressLower = token.address.toLowerCase();
-    let price = 0;
-    
-    // Use address-based matching for major tokens (same as detection)
-    if (addressLower === TOKEN_ADDRESSES_LOWER.cbBTC) {
-      price = tokenPrices.cbbtc || 0;
-    } else if (addressLower === TOKEN_ADDRESSES_LOWER.USDC) {
-      price = tokenPrices.usdc || 1;
-    } else if (addressLower === TOKEN_ADDRESSES_LOWER.WETH) {
-      price = tokenPrices.weth || tokenPrices.eth || 0;
-    } else if (addressLower === TOKEN_ADDRESSES_LOWER.cbETH) {
-      price = tokenPrices.cbeth || tokenPrices.eth || 0;
-    } else if (addressLower === TOKEN_ADDRESSES_LOWER.wstETH) {
-      price = tokenPrices.wsteth || tokenPrices.eth || 0;
-    } else {
-      // Try to find price by symbol (case insensitive)
-      const symbolUpper = token.symbol.toUpperCase();
-      price = tokenPrices[symbolUpper.toLowerCase()] || tokenPrices[token.symbol.toLowerCase()] || 0;
-    }
-    
+    const price = resolveTokenUsdPrice(token, tokenPrices);
     const usdValue = parseFloat(token.formatted) * price;
     
     return {
@@ -913,10 +928,15 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     }] : []),
   ];
 
-  // Remove duplicates and filter to only non-zero balances (for total calculation)
+  // Remove duplicates, skip Morpho vault share tokens (already in Vaults USD),
+  // and drop impostor-priced dust from the liquid total.
+  const vaultShareAddresses = new Set(
+    morphoHoldings.positions.map((position) => position.vault.address.toLowerCase())
+  );
   const allValidTokenBalances = allTokenBalances
-    .filter((token, index, self) => 
-      token.balance > BigInt(0) && 
+    .filter((token, index, self) =>
+      token.balance > BigInt(0) &&
+      !isVaultShareTokenAddress(token.address, vaultShareAddresses) &&
       index === self.findIndex(t => t.address.toLowerCase() === token.address.toLowerCase())
     );
 

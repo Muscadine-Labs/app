@@ -29,7 +29,9 @@ export default function VaultV2Page() {
     transactStatus === 'preview' ||
     transactStatus === 'signing' ||
     transactStatus === 'approving' ||
-    transactStatus === 'confirming';
+    transactStatus === 'confirming' ||
+    transactStatus === 'success' ||
+    transactStatus === 'error';
 
   const handleTabChange = (tab: string) => {
     if (transactBusy && tab !== 'position') return;
@@ -58,7 +60,7 @@ export default function VaultV2Page() {
 
   const showMobileSticky = activeTab === 'overview';
   const pageShellClassName = `w-full bg-[var(--background)] flex flex-col p-4 sm:p-6 md:p-8 ${
-    showMobileSticky ? 'pb-24 md:pb-8' : 'pb-8'
+    showMobileSticky ? 'pb-24 min-[1000px]:pb-8' : 'pb-8'
   } min-h-full`;
 
   if (!vault || (isLoading && !vaultData)) {
@@ -154,7 +156,7 @@ export default function VaultV2Page() {
       </div>
 
       {showMobileSticky ? (
-        <div className="md:hidden fixed inset-x-0 bottom-0 z-40 border-t border-[var(--border)] bg-[var(--background)]/95 backdrop-blur-sm">
+        <div className="min-[1000px]:hidden fixed inset-x-0 bottom-0 z-40 border-t border-[var(--border)] bg-[var(--background)]/95 backdrop-blur-sm">
           <div className="flex gap-2 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
             <Button onClick={() => openTransact('deposit')} variant="primary" size="md" fullWidth>
               Deposit

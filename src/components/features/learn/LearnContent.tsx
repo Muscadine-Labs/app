@@ -62,7 +62,7 @@ export default function LearnContent() {
       </ul>
 
       <a
-        href="https://muscadine.xyz/"
+        href="https://docs.morpho.org/learn/"
         target="_blank"
         rel="noopener noreferrer"
         className="inline-flex items-center gap-2 text-sm font-medium text-[var(--primary)] hover:underline"

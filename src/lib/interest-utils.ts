@@ -1,5 +1,5 @@
 import type { Transaction } from '@/types/api';
-import { morphoAmountToRaw } from '@/lib/asset-decimals';
+import { morphoAmountToRaw, rawAmountToDecimal } from '@/lib/asset-decimals';
 import { chartTokenAmountToRaw } from '@/lib/formatter';
 
 export type ActivityFlowEvent = {
@@ -104,34 +104,59 @@ export const EARNINGS_PERIOD_SECONDS = {
 
 export type EarningsPeriodId = keyof typeof EARNINGS_PERIOD_SECONDS;
 
+export type PositionHistoryPoint = {
+  timestamp: number;
+  assets: number;
+  assetsRaw?: string;
+};
+
 export function firstPositivePositionTimestamp(
-  history: ReadonlyArray<{ timestamp: number; assets: number }>
+  history: ReadonlyArray<PositionHistoryPoint>
 ): number | null {
   let first: number | null = null;
   for (const point of history) {
-    if (point.assets > 0 && (first === null || point.timestamp < first)) {
+    const hasAssets =
+      point.assets > 0 ||
+      (point.assetsRaw !== undefined && point.assetsRaw !== '0');
+    if (hasAssets && (first === null || point.timestamp < first)) {
       first = point.timestamp;
     }
   }
   return first;
 }
 
-export function assetsAtOrBefore(
-  history: ReadonlyArray<{ timestamp: number; assets: number }>,
-  timestamp: number
-): number {
+export function assetsRawAtOrBefore(
+  history: ReadonlyArray<PositionHistoryPoint>,
+  timestamp: number,
+  decimals: number
+): bigint {
   const sorted = [...history].sort((a, b) => a.timestamp - b.timestamp);
-  let last = 0;
+  let lastAssets = 0;
+  let lastRaw: bigint | null = null;
   for (const point of sorted) {
-    if (point.timestamp <= timestamp) last = point.assets;
-    else break;
+    if (point.timestamp <= timestamp) {
+      lastAssets = point.assets;
+      if (point.assetsRaw !== undefined) {
+        try {
+          lastRaw = BigInt(point.assetsRaw);
+        } catch {
+          lastRaw = null;
+        }
+      } else {
+        lastRaw = null;
+      }
+    } else {
+      break;
+    }
   }
-  return last;
+  if (lastRaw !== null) return lastRaw;
+  return chartTokenAmountToRaw(lastAssets, decimals);
 }
 
 /**
- * Interest accrued during a window. Hidden when the wallet had no position
- * at the start of that window (first deposit is too recent).
+ * Interest accrued during a window. Hidden only when this wallet has never
+ * had a position. If the first deposit is inside the window, earned is from
+ * that deposit through now (so Past year still shows for newer positions).
  */
 export function periodInterestRaw(options: {
   nowTs: number;
@@ -141,8 +166,7 @@ export function periodInterestRaw(options: {
   currentPositionRaw: bigint;
   events: ReadonlyArray<ActivityFlowEvent>;
 }): { hidden: boolean; earnedRaw: bigint } {
-  const startTs = options.nowTs - options.periodSeconds;
-  if (options.firstPositionTs === null || options.firstPositionTs > startTs) {
+  if (options.firstPositionTs === null) {
     return { hidden: true, earnedRaw: BigInt(0) };
   }
 
@@ -150,6 +174,7 @@ export function periodInterestRaw(options: {
     positionValueRaw: options.currentPositionRaw,
     netDepositRaw: netDepositRawAtTime(options.events, options.nowTs),
   });
+  const startTs = options.nowTs - options.periodSeconds;
   const { interestRaw: startInterest } = splitPositionValueAtPoint({
     positionValueRaw: options.startPositionRaw,
     netDepositRaw: netDepositRawAtTime(options.events, startTs),
@@ -172,6 +197,7 @@ const PAST_PERIODS: Array<{ id: EarningsPeriodId; label: string }> = [
 ];
 
 const PROJECTED_PERIODS: Array<{ days: number; label: string }> = [
+  { days: 7, label: 'Projected weekly earnings' },
   { days: 30, label: 'Projected monthly earnings' },
   { days: 365, label: 'Projected yearly earnings' },
 ];
@@ -181,27 +207,29 @@ export function buildPastEarningsRows(options: {
   decimals: number;
   assetPriceUsd: number;
   currentAssetsRaw: bigint;
-  history: ReadonlyArray<{ timestamp: number; assets: number }>;
+  history: ReadonlyArray<PositionHistoryPoint>;
   events: ReadonlyArray<ActivityFlowEvent> | null;
 }): EarningsDisplayRow[] {
   const { nowTs, decimals, assetPriceUsd, currentAssetsRaw, history, events } = options;
   if (nowTs <= 0 || !events || events.length === 0) return [];
-  const firstPositionTs = firstPositivePositionTimestamp(history);
+  const firstFromHistory = firstPositivePositionTimestamp(history);
+  const firstFromEvents = events[0]?.timestamp ?? null;
+  const firstPositionTs =
+    firstFromHistory ?? (firstFromEvents && firstFromEvents > 0 ? firstFromEvents : null);
 
   return PAST_PERIODS.flatMap((row) => {
     const periodSeconds = EARNINGS_PERIOD_SECONDS[row.id];
     const startTs = nowTs - periodSeconds;
-    const startAssets = assetsAtOrBefore(history, startTs);
     const result = periodInterestRaw({
       nowTs,
       periodSeconds,
       firstPositionTs,
-      startPositionRaw: chartTokenAmountToRaw(startAssets, decimals),
+      startPositionRaw: assetsRawAtOrBefore(history, startTs, decimals),
       currentPositionRaw: currentAssetsRaw,
       events,
     });
     if (result.hidden) return [];
-    const earnedDecimal = Number(result.earnedRaw) / 10 ** decimals;
+    const earnedDecimal = rawAmountToDecimal(result.earnedRaw, decimals);
     return [{ label: row.label, raw: result.earnedRaw, usd: earnedDecimal * assetPriceUsd }];
   });
 }
@@ -215,7 +243,7 @@ export function buildProjectedEarningsRows(options: {
   const { currentAssetsRaw, netApy, decimals, assetPriceUsd } = options;
   return PROJECTED_PERIODS.map((row) => {
     const raw = projectedInterestRaw(currentAssetsRaw, netApy, row.days);
-    const earnedDecimal = Number(raw) / 10 ** decimals;
+    const earnedDecimal = rawAmountToDecimal(raw, decimals);
     return { label: row.label, raw, usd: earnedDecimal * assetPriceUsd };
   });
 }

@@ -130,6 +130,8 @@ export function TransactionFlow({
   const [isCheckingLiquidity, setIsCheckingLiquidity] = useState(false);
   const currentStepRef = useRef(0);
   const forcePlanRef = useRef<ForceWithdrawPlan | null>(null);
+  const executingRef = useRef(false);
+  const confirmLockRef = useRef(false);
 
   const shouldClearFlowState = (status === 'idle' || status === 'preview') && !partialFailure;
   const effectiveCurrentTxHash = shouldClearFlowState ? null : currentTxHash;
@@ -147,19 +149,31 @@ export function TransactionFlow({
   }, [fromAccount, morphoHoldings.positions, transactionType]);
 
   const vaultShareBalance = vaultPosition?.shares || null;
+  const vaultShareBalanceBn = useMemo((): bigint | null => {
+    if (!vaultShareBalance) return null;
+    try {
+      return BigInt(vaultShareBalance);
+    } catch {
+      return null;
+    }
+  }, [vaultShareBalance]);
 
   // Use convertToAssets via RPC to get exact asset amount from shares for max withdrawal check
   const { data: exactAssetAmount } = useReadContract({
-    address: (transactionType === 'withdraw' && vaultShareBalance && fromAccount?.type === 'vault' 
+    address: (transactionType === 'withdraw' && vaultShareBalanceBn !== null && fromAccount?.type === 'vault' 
       ? (fromAccount as VaultAccount).address 
       : undefined) as `0x${string}`,
     abi: ERC4626_ABI,
     functionName: 'convertToAssets',
-    args: vaultShareBalance && fromAccount?.type === 'vault'
-      ? [BigInt(vaultShareBalance)]
+    args: vaultShareBalanceBn !== null && fromAccount?.type === 'vault'
+      ? [vaultShareBalanceBn]
       : undefined,
     query: {
-      enabled: transactionType === 'withdraw' && fromAccount?.type === 'vault' && !!vaultShareBalance && BigInt(vaultShareBalance) > BigInt(0),
+      enabled:
+        transactionType === 'withdraw' &&
+        fromAccount?.type === 'vault' &&
+        vaultShareBalanceBn !== null &&
+        vaultShareBalanceBn > BigInt(0),
     },
   });
 
@@ -333,6 +347,8 @@ export function TransactionFlow({
 
   const executeTransaction = useCallback(async () => {
     if (!fromAccount || !toAccount || !amount || !transactionType) return;
+    if (executingRef.current) return;
+    executingRef.current = true;
 
     const assetToUse = derivedAsset || (fromAccount.type === 'vault' 
       ? { symbol: (fromAccount as VaultAccount).symbol, decimals: (fromAccount as VaultAccount).assetDecimals ?? 18 }
@@ -341,6 +357,7 @@ export function TransactionFlow({
       : null);
 
     if (!assetToUse) {
+      executingRef.current = false;
       const errorMessage = 'Unable to determine asset type. Please try again.';
       setStatus('error', errorMessage);
       showErrorToast(errorMessage, 5000);
@@ -348,6 +365,7 @@ export function TransactionFlow({
     }
 
     if (!walletClient || !publicClient) {
+      executingRef.current = false;
       const errorMessage = 'Wallet not connected. Please connect your wallet and try again.';
       setStatus('error', errorMessage);
       showErrorToast(errorMessage, 5000);
@@ -513,8 +531,6 @@ export function TransactionFlow({
             onProgress
           );
         }
-      } else if (transactionType === 'transfer') {
-        throw new Error('Vault-to-vault transfers are not supported');
       } else {
         throw new Error('Invalid transaction type');
       }
@@ -522,9 +538,11 @@ export function TransactionFlow({
       setCurrentTxHash(txHash);
       setPartialFailure(false);
       completeSuccessfulTransaction(txHash);
+      executingRef.current = false;
       setIsExecuting(false);
 
     } catch (err) {
+      executingRef.current = false;
       setIsExecuting(false);
       if (isCancellationError(err)) {
         if (partialFailure || currentStepRef.current > 0) {
@@ -570,134 +588,141 @@ export function TransactionFlow({
 
   const handleConfirm = async () => {
     if (!fromAccount || !toAccount || !amount || !transactionType) return;
-
-    const assetToUse = derivedAsset || (fromAccount.type === 'vault' 
-      ? { symbol: (fromAccount as VaultAccount).symbol, decimals: (fromAccount as VaultAccount).assetDecimals ?? 18 }
-      : toAccount.type === 'vault'
-      ? { symbol: (toAccount as VaultAccount).symbol, decimals: (toAccount as VaultAccount).assetDecimals ?? 18 }
-      : null);
-
-    if (!assetToUse) {
-      const errorMessage = 'Unable to determine asset type. Please try again.';
-      setStatus('error', errorMessage);
-      showErrorToast(errorMessage, 5000);
+    if (executingRef.current || isExecuting || isCheckingLiquidity || confirmLockRef.current) {
       return;
     }
+    confirmLockRef.current = true;
+    try {
+      const assetToUse = derivedAsset || (fromAccount.type === 'vault' 
+        ? { symbol: (fromAccount as VaultAccount).symbol, decimals: (fromAccount as VaultAccount).assetDecimals ?? 18 }
+        : toAccount.type === 'vault'
+        ? { symbol: (toAccount as VaultAccount).symbol, decimals: (toAccount as VaultAccount).assetDecimals ?? 18 }
+        : null);
 
-    if (!walletClient || !publicClient) {
-      const errorMessage = 'Wallet not connected. Please connect your wallet and try again.';
-      setStatus('error', errorMessage);
-      showErrorToast(errorMessage, 5000);
-      return;
-    }
-
-    if (!partialFailure && transactionType === 'withdraw' && fromAccount.type === 'vault') {
-      const vaultAccount = fromAccount as VaultAccount;
-      setIsCheckingLiquidity(true);
-      try {
-        const requested = parseTransactionAmount(amount, assetToUse.decimals);
-        const instant =
-          (await fetchInstantLiquidityAssets(vaultAccount.address, BASE_CHAIN_ID)) ??
-          (() => {
-            const cached = getVaultData(vaultAccount.address);
-            const raw =
-              cached?.liquidityBreakdown?.instantLiquidityAssets ?? cached?.liquidityAssets;
-            return raw ? BigInt(raw) : null;
-          })();
-
-        await fetchVaultData(vaultAccount.address, BASE_CHAIN_ID, true);
-
-        if (instant !== null && exceedsInstantLiquidity(requested, instant, assetToUse.decimals)) {
-          const simulationSucceeded = await simulateVaultWithdraw(
-            publicClient as PublicClient,
-            walletClient as WalletClient,
-            vaultAccount.address as Address,
-            requested,
-            shouldUseWithdrawAll
-          );
-
-          if (!simulationSucceeded) {
-            const userAddress = walletClient.account?.address as Address | undefined;
-            let forcePlan: ForceWithdrawPlan | null = null;
-            let forceOk = false;
-
-            if (userAddress) {
-              try {
-                forcePlan = await planForceWithdrawV2(
-                  publicClient as PublicClient,
-                  vaultAccount.address as Address,
-                  requested,
-                  instant,
-                  userAddress,
-                  { useRedeemExit: shouldUseWithdrawAll }
-                );
-                if (forcePlan) {
-                  forceOk = await simulateForceWithdrawPlan(
-                    publicClient as PublicClient,
-                    forcePlan,
-                    userAddress
-                  );
-                  if (!forceOk) forcePlan = null;
-                }
-              } catch (planErr) {
-                logger.warn('Force withdraw planning failed', {
-                  vaultAddress: vaultAccount.address,
-                  error: planErr instanceof Error ? planErr.message : String(planErr),
-                });
-                forcePlan = null;
-                forceOk = false;
-              }
-            }
-
-            forcePlanRef.current = forceOk && forcePlan ? forcePlan : null;
-
-            setLiquidityWarningContext({
-              morphoVaultUrl: getMorphoVaultUrl(BASE_CHAIN_ID, vaultAccount.address),
-              requestedAmountLabel: formatAssetAmount(
-                requested,
-                assetToUse.decimals,
-                assetToUse.symbol
-              ),
-              instantLiquidityLabel: formatAssetAmount(
-                instant,
-                assetToUse.decimals,
-                assetToUse.symbol
-              ),
-              estimatedPenaltyLabel: forcePlan
-                ? formatForcePenaltyAmount(
-                    forcePlan.estimatedPenaltyAssets,
-                    assetToUse.decimals,
-                    assetToUse.symbol
-                  )
-                : null,
-              penaltyRateLabel: forcePlan
-                ? formatPenaltyRatePercent(forcePlan.maxPenaltyWad)
-                : null,
-              expectedOutLabel: forcePlan
-                ? formatAssetAmount(
-                    forcePlan.expectedAssetsOut,
-                    assetToUse.decimals,
-                    assetToUse.symbol
-                  )
-                : null,
-              forceWithdrawAvailable: Boolean(forceOk && forcePlan),
-              mayLeaveShareDust:
-                shouldUseWithdrawAll && Boolean(forcePlan && forcePlan.exitMode === 'withdraw'),
-            });
-            setLiquidityWarningOpen(true);
-            return;
-          }
-        }
-      } catch (err) {
-        logger.error('Liquidity pre-check failed; continuing without warning gate', err, {
-          vaultAddress: vaultAccount.address,
-        });
-      } finally {
-        setIsCheckingLiquidity(false);
+      if (!assetToUse) {
+        const errorMessage = 'Unable to determine asset type. Please try again.';
+        setStatus('error', errorMessage);
+        showErrorToast(errorMessage, 5000);
+        return;
       }
-    }
 
-    await executeTransaction();
+      if (!walletClient || !publicClient) {
+        const errorMessage = 'Wallet not connected. Please connect your wallet and try again.';
+        setStatus('error', errorMessage);
+        showErrorToast(errorMessage, 5000);
+        return;
+      }
+
+      if (!partialFailure && transactionType === 'withdraw' && fromAccount.type === 'vault') {
+        const vaultAccount = fromAccount as VaultAccount;
+        setIsCheckingLiquidity(true);
+        try {
+          const requested = parseTransactionAmount(amount, assetToUse.decimals);
+          const instant =
+            (await fetchInstantLiquidityAssets(vaultAccount.address, BASE_CHAIN_ID)) ??
+            (() => {
+              const cached = getVaultData(vaultAccount.address);
+              const raw =
+                cached?.liquidityBreakdown?.instantLiquidityAssets ?? cached?.liquidityAssets;
+              return raw ? BigInt(raw) : null;
+            })();
+
+          await fetchVaultData(vaultAccount.address, BASE_CHAIN_ID, true);
+
+          if (instant !== null && exceedsInstantLiquidity(requested, instant, assetToUse.decimals)) {
+            const simulationSucceeded = await simulateVaultWithdraw(
+              publicClient as PublicClient,
+              walletClient as WalletClient,
+              vaultAccount.address as Address,
+              requested,
+              shouldUseWithdrawAll
+            );
+
+            if (!simulationSucceeded) {
+              const userAddress = walletClient.account?.address as Address | undefined;
+              let forcePlan: ForceWithdrawPlan | null = null;
+              let forceOk = false;
+
+              if (userAddress) {
+                try {
+                  forcePlan = await planForceWithdrawV2(
+                    publicClient as PublicClient,
+                    vaultAccount.address as Address,
+                    requested,
+                    instant,
+                    userAddress,
+                    { useRedeemExit: shouldUseWithdrawAll }
+                  );
+                  if (forcePlan) {
+                    forceOk = await simulateForceWithdrawPlan(
+                      publicClient as PublicClient,
+                      forcePlan,
+                      userAddress
+                    );
+                    if (!forceOk) forcePlan = null;
+                  }
+                } catch (planErr) {
+                  logger.warn('Force withdraw planning failed', {
+                    vaultAddress: vaultAccount.address,
+                    error: planErr instanceof Error ? planErr.message : String(planErr),
+                  });
+                  forcePlan = null;
+                  forceOk = false;
+                }
+              }
+
+              forcePlanRef.current = forceOk && forcePlan ? forcePlan : null;
+
+              setLiquidityWarningContext({
+                morphoVaultUrl: getMorphoVaultUrl(BASE_CHAIN_ID, vaultAccount.address),
+                requestedAmountLabel: formatAssetAmount(
+                  requested,
+                  assetToUse.decimals,
+                  assetToUse.symbol
+                ),
+                instantLiquidityLabel: formatAssetAmount(
+                  instant,
+                  assetToUse.decimals,
+                  assetToUse.symbol
+                ),
+                estimatedPenaltyLabel: forcePlan
+                  ? formatForcePenaltyAmount(
+                      forcePlan.estimatedPenaltyAssets,
+                      assetToUse.decimals,
+                      assetToUse.symbol
+                    )
+                  : null,
+                penaltyRateLabel: forcePlan
+                  ? formatPenaltyRatePercent(forcePlan.maxPenaltyWad)
+                  : null,
+                expectedOutLabel: forcePlan
+                  ? formatAssetAmount(
+                      forcePlan.expectedAssetsOut,
+                      assetToUse.decimals,
+                      assetToUse.symbol
+                    )
+                  : null,
+                forceWithdrawAvailable: Boolean(forceOk && forcePlan),
+                mayLeaveShareDust:
+                  shouldUseWithdrawAll && Boolean(forcePlan && forcePlan.exitMode === 'withdraw'),
+              });
+              setLiquidityWarningOpen(true);
+              return;
+            }
+          }
+        } catch (err) {
+          logger.error('Liquidity pre-check failed; continuing without warning gate', err, {
+            vaultAddress: vaultAccount.address,
+          });
+        } finally {
+          setIsCheckingLiquidity(false);
+        }
+      }
+
+      await executeTransaction();
+    } finally {
+      confirmLockRef.current = false;
+    }
   };
 
   const handleLiquidityWarningForceWithdraw = async () => {
@@ -790,9 +815,9 @@ export function TransactionFlow({
           assetSymbol={assetSymbol}
           assetDecimals={derivedAsset?.decimals}
           transactionType={transactionType}
-          isLoading={isSigning || isApproving || isConfirming || isCheckingLiquidity}
+          isLoading={isSigning || isApproving || isConfirming || isCheckingLiquidity || isExecuting}
           progressSteps={walletSteps}
-          showProgress={isSigning || isApproving || isConfirming || (isError && partialFailure)}
+          showProgress={!embedded && (isSigning || isApproving || isConfirming || (isError && partialFailure))}
           isSuccess={isSuccess}
           isPartialFailure={isError && partialFailure}
           errorMessage={isError && partialFailure ? error ?? undefined : undefined}
@@ -808,6 +833,7 @@ export function TransactionFlow({
               setCurrentStepIndex(0);
               currentStepRef.current = 0;
               setIsExecuting(false);
+              executingRef.current = false;
               setPartialFailure(false);
             } else if (isSuccess) {
               if (onSuccessComplete) {

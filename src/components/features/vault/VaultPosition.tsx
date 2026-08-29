@@ -13,6 +13,7 @@ import {
   formatVaultDetailTokenAmount,
 } from '@/lib/formatter';
 import { calculateYAxisDomain } from '@/lib/vault-utils';
+import { rawAmountToDecimal } from '@/lib/asset-decimals';
 import { CHART_MARGIN, getChartYAxisWidth, withLeadingChartTick, VAULT_DETAIL_CHART_HEIGHT_CLASS, VAULT_DETAIL_CHART_MIN_HEIGHT } from '@/lib/chart-utils';
 import {
   buildActivityFlowEvents,
@@ -85,14 +86,18 @@ export default function VaultPosition({
     assets: number;
     assetsUsd: number;
     shares: number;
+    assetsRaw?: string;
   }>>([]);
   const [hourly30dPositionHistory, setHourly30dPositionHistory] = useState<Array<{
     timestamp: number;
     assets: number;
     assetsUsd: number;
     shares: number;
+    assetsRaw?: string;
   }>>([]);
   const [activityFlowEvents, setActivityFlowEvents] = useState<ActivityFlowEvent[] | null>(null);
+  const [activityLoading, setActivityLoading] = useState(false);
+  const [activityError, setActivityError] = useState(false);
 
   const { data: sharesRaw } = useReadContract({
     address: address ? vaultData.address as `0x${string}` : undefined,
@@ -149,7 +154,7 @@ export default function VaultPosition({
 
   const userVaultTotalUsd = useMemo(() => {
     if (currentAssetsRaw === undefined) return 0;
-    const assetsDecimal = Number(currentAssetsRaw) / 10 ** depositAssetDecimals;
+    const assetsDecimal = rawAmountToDecimal(currentAssetsBigInt, depositAssetDecimals);
     const symbolUpper = vaultData.symbol.toUpperCase();
     let assetPrice = 0;
     if (symbolUpper === 'USDC') {
@@ -160,7 +165,7 @@ export default function VaultPosition({
       assetPrice = btcPrice || 0;
     }
     return assetsDecimal * assetPrice;
-  }, [currentAssetsRaw, depositAssetDecimals, vaultData.symbol, ethPrice, btcPrice]);
+  }, [currentAssetsRaw, currentAssetsBigInt, depositAssetDecimals, vaultData.symbol, ethPrice, btcPrice]);
 
   useLockPageScroll(isTimeFrameMenuOpen);
 
@@ -319,9 +324,14 @@ export default function VaultPosition({
 
     const fetchActivity = async () => {
       if (!address) {
-        setActivityFlowEvents(null);
+        setActivityFlowEvents([]);
+        setActivityLoading(false);
+        setActivityError(false);
         return;
       }
+
+      setActivityLoading(true);
+      setActivityError(false);
 
       try {
         const response = await fetch(
@@ -331,20 +341,28 @@ export default function VaultPosition({
 
         if (!response.ok) {
           setActivityFlowEvents(null);
+          setActivityError(true);
+          setActivityLoading(false);
           return;
         }
 
         const data = await response.json().catch(() => ({}));
         if (data.error || !Array.isArray(data.deposits) || !Array.isArray(data.withdrawals)) {
           setActivityFlowEvents(null);
+          setActivityError(true);
+          setActivityLoading(false);
           return;
         }
 
         const events = buildActivityFlowEvents(data.deposits, data.withdrawals);
-        setActivityFlowEvents(events.length > 0 ? events : null);
+        setActivityFlowEvents(events);
+        setActivityError(false);
+        setActivityLoading(false);
       } catch (error) {
         if (error instanceof Error && error.name === 'AbortError') return;
         setActivityFlowEvents(null);
+        setActivityError(true);
+        setActivityLoading(false);
       }
     };
 
@@ -470,8 +488,6 @@ export default function VaultPosition({
       return filteredChartData;
     }
 
-    const scale = 10 ** depositAssetDecimals;
-
     return filteredChartData.map((item) => {
       const positionValueRaw = chartTokenAmountToRaw(item.valueToken, depositAssetDecimals);
       const netDepositRaw = netDepositRawAtTime(activityFlowEvents, item.timestamp);
@@ -480,8 +496,8 @@ export default function VaultPosition({
         netDepositRaw,
       });
 
-      const depositedToken = Number(depositedRaw) / scale;
-      const interestToken = Number(interestRaw) / scale;
+      const depositedToken = rawAmountToDecimal(depositedRaw, depositAssetDecimals);
+      const interestToken = rawAmountToDecimal(interestRaw, depositAssetDecimals);
       const totalValue = valueType === 'usd' ? item.valueUsd : item.valueToken;
 
       if (valueType === 'usd') {
@@ -663,13 +679,15 @@ export default function VaultPosition({
           assetPriceUsd={getAssetPrice}
           isConnected={isConnected}
           earningsLoading={earnedInterest.isLoading}
+          activityLoading={activityLoading}
+          activityError={activityError}
         />
       }
     >
       {isConnected && address ? (
-        <div>
+        <div className="h-full min-h-0 flex flex-col">
           {loading ? (
-            <div className="bg-[var(--surface-elevated)] rounded-lg p-2 sm:p-3">
+            <div className={`bg-[var(--surface-elevated)] rounded-lg p-2 sm:p-3 ${VAULT_DETAIL_CHART_HEIGHT_CLASS} flex flex-col`}>
               {/* Controls Row Skeleton */}
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-3">
                 <div className="flex items-center gap-2">
@@ -683,7 +701,7 @@ export default function VaultPosition({
                 </div>
               </div>
               {/* Chart Skeleton */}
-              <div className={`${VAULT_DETAIL_CHART_HEIGHT_CLASS} p-3`}>
+              <div className="flex-1 min-h-0 p-3">
                 <div className="h-full flex flex-col justify-between">
                   {/* Y-axis labels area */}
                   <div className="flex justify-between mb-2">
@@ -710,9 +728,9 @@ export default function VaultPosition({
               </div>
             </div>
           ) : fullUserDepositHistory.length > 0 ? (
-            <div className="bg-[var(--surface-elevated)] rounded-lg p-2 sm:p-4">
+            <div className={`bg-[var(--surface-elevated)] rounded-lg p-2 sm:p-4 ${VAULT_DETAIL_CHART_HEIGHT_CLASS} flex flex-col`}>
               {/* Controls Row */}
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4 shrink-0">
                 {/* Time Frame Selector - Desktop: Buttons, Mobile: Hamburger Menu */}
                 <div className="relative">
                   {/* Desktop: Show buttons */}
@@ -805,7 +823,7 @@ export default function VaultPosition({
                   </button>
                 </div>
               </div>
-              <div className={`w-full min-w-0 ${VAULT_DETAIL_CHART_HEIGHT_CLASS}`}>
+              <div className="w-full min-w-0 flex-1 min-h-0">
                 <ResponsiveContainer width="100%" height="100%" minHeight={VAULT_DETAIL_CHART_MIN_HEIGHT} debounce={50}>
                   <AreaChart data={chartData} margin={CHART_MARGIN}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" />

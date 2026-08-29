@@ -1,4 +1,3 @@
-import { formatUnits } from 'viem';
 import { TOKEN_ADDRESSES_LOWER, type TokenBalance } from '@/contexts/WalletContext';
 import { VAULTS } from '@/lib/vaults';
 import type { Account } from '@/types/vault';
@@ -31,6 +30,9 @@ export function findTokenBySymbol(
   if (symbol === 'WETH') {
     return tokenBalances.find((t) => t.address.toLowerCase() === TOKEN_ADDRESSES_LOWER.WETH);
   }
+  if (symbol === 'ETH') {
+    return tokenBalances.find((t) => t.address === 'ETH');
+  }
   return tokenBalances.find((t) => t.symbol.toUpperCase() === symbol.toUpperCase());
 }
 
@@ -41,18 +43,10 @@ export function isWethVault(vaultAddress: string, symbol: string): boolean {
   );
 }
 
-export function isCbBtcVault(vaultAddress: string, symbol: string): boolean {
-  return (
-    symbol.toUpperCase() === 'CBBTC' ||
-    vaultAddress.toLowerCase() === VAULTS.cbBTC_VAULT_V2.address.toLowerCase()
-  );
-}
-
-export function getTokenBalanceAmount(
+export function getTokenBalanceRaw(
   symbol: string,
   tokenBalances: TokenBalance[]
-): number {
+): bigint {
   const token = findTokenBySymbol(symbol, tokenBalances);
-  if (!token) return 0;
-  return parseFloat(formatUnits(token.balance, token.decimals));
+  return token?.balance ?? BigInt(0);
 }

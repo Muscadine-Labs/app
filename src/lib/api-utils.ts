@@ -301,6 +301,8 @@ export interface PositionHistoryItem {
   assets: number;
   assetsUsd: number;
   shares: number;
+  /** Underlying assets in smallest units, when the API still has them. */
+  assetsRaw?: string;
 }
 
 export interface CurrentPositionLike {
@@ -361,6 +363,7 @@ export function finalizePositionHistory(
       assets: 0,
       assetsUsd: 0,
       shares: 0,
+      assetsRaw: '0',
     },
   ];
 }

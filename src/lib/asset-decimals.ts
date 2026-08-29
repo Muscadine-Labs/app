@@ -1,3 +1,5 @@
+import { formatUnits } from 'viem';
+
 /**
  * Canonical asset-decimal helpers for underlying vault/wallet tokens.
  * Prefer Morpho/API `assetDecimals` when available; fall back to symbol.
@@ -88,22 +90,54 @@ export function tokenAmountToRaw(amount: number, decimals: number): string {
   return BigInt(Math.trunc(scaled)).toString();
 }
 
+function integerStringFromNumber(amount: number): string {
+  if (!Number.isFinite(amount) || amount <= 0) return '0';
+  if (Number.isSafeInteger(amount)) return String(amount);
+  const rounded = Math.round(amount);
+  if (Number.isSafeInteger(rounded) && rounded > 0) return String(rounded);
+  // Avoid `1e+21` — BigInt() rejects scientific notation.
+  const asInt = amount.toLocaleString('en-US', {
+    useGrouping: false,
+    maximumFractionDigits: 0,
+  });
+  try {
+    const parsed = BigInt(asInt);
+    return parsed > BigInt(0) ? parsed.toString() : '0';
+  } catch {
+    return '0';
+  }
+}
+
 /**
  * Morpho GraphQL position fields (`assets`, `pnl`, etc.) are already in smallest-token units.
  */
 export function morphoAmountToRaw(amount: number | string | null | undefined): string {
   if (amount === null || amount === undefined) return '0';
   if (typeof amount === 'string') {
-    const trimmed = amount.includes('.') ? amount.split('.')[0] : amount;
+    const trimmed = amount.trim();
     if (!trimmed || trimmed === '0') return '0';
+    if (/[eE]/.test(trimmed)) {
+      return integerStringFromNumber(Number(trimmed));
+    }
+    const whole = trimmed.includes('.') ? trimmed.split('.')[0] : trimmed;
+    if (!whole || whole === '0') return '0';
     try {
-      return BigInt(trimmed).toString();
+      return BigInt(whole).toString();
     } catch {
       return '0';
     }
   }
-  if (!Number.isFinite(amount) || amount <= 0) return '0';
-  return BigInt(Math.round(amount)).toString();
+  return integerStringFromNumber(amount);
+}
+
+/** Convert a raw token amount to a decimal number via string (safer than Number(bigint)). */
+export function rawAmountToDecimal(raw: bigint, decimals: number): number {
+  if (raw <= BigInt(0) || decimals < 0) return 0;
+  try {
+    return Number(formatUnits(raw, decimals));
+  } catch {
+    return 0;
+  }
 }
 
 export function morphoAmountToDecimal(
@@ -112,21 +146,14 @@ export function morphoAmountToDecimal(
 ): number {
   const raw = morphoAmountToRaw(amount);
   if (raw === '0') return 0;
-  return Number(BigInt(raw)) / 10 ** decimals;
+  try {
+    return rawAmountToDecimal(BigInt(raw), decimals);
+  } catch {
+    return 0;
+  }
 }
 
 /** Morpho vault share balances are 18-decimal fixed-point integers (string or large number). */
 export function normalizeMorphoShares(shares: number | string | null | undefined): string {
-  if (shares === null || shares === undefined) return '0';
-  if (typeof shares === 'string') {
-    const trimmed = shares.includes('.') ? shares.split('.')[0] : shares;
-    if (!trimmed || trimmed === '0') return '0';
-    try {
-      return BigInt(trimmed).toString();
-    } catch {
-      return '0';
-    }
-  }
-  if (!Number.isFinite(shares) || shares <= 0) return '0';
-  return BigInt(Math.trunc(shares)).toString();
+  return morphoAmountToRaw(shares);
 }

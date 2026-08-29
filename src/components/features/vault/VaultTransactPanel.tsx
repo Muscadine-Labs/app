@@ -40,6 +40,8 @@ interface VaultTransactPanelProps {
   assetPriceUsd: number;
   isConnected: boolean;
   earningsLoading: boolean;
+  activityLoading: boolean;
+  activityError: boolean;
 }
 
 function amountUsdValue(
@@ -93,9 +95,13 @@ export function VaultTransactPanel({
   assetPriceUsd,
   isConnected,
   earningsLoading,
+  activityLoading,
+  activityError,
 }: VaultTransactPanelProps) {
   const { btc: btcPrice, eth: ethPrice } = usePrices();
-  const [rewardsMode, setRewardsMode] = useState<RewardsMode>('future');
+  const [rewardsModeOverride, setRewardsModeOverride] = useState<RewardsMode | null>(
+    null
+  );
   const tx = useScopedVaultTransaction({
     vaultAddress: vaultData.address,
     vaultName: vaultData.name,
@@ -159,7 +165,10 @@ export function VaultTransactPanel({
     [assetPriceUsd, currentAssetsRaw, events, history, nowTs, positionDecimals]
   );
 
-  const futureRows = useMemo(() => {
+  const rewardsMode: RewardsMode =
+    rewardsModeOverride ?? (currentAssetsRaw > BigInt(0) ? 'past' : 'future');
+
+  const futureProjection = useMemo(() => {
     const decimals = tx.derivedAsset?.decimals ?? positionDecimals;
     const typedRaw = parseTransactionAmount(
       tx.amount.trim().replace(/\.$/, ''),
@@ -175,12 +184,15 @@ export function VaultTransactPanel({
         projectedAssets = BigInt(0);
       }
     }
-    return buildProjectedEarningsRows({
-      currentAssetsRaw: projectedAssets,
-      netApy: vaultData.apy,
-      decimals: positionDecimals,
-      assetPriceUsd,
-    });
+    return {
+      typedRaw,
+      rows: buildProjectedEarningsRows({
+        currentAssetsRaw: projectedAssets,
+        netApy: vaultData.apy,
+        decimals: positionDecimals,
+        assetPriceUsd,
+      }),
+    };
   }, [
     assetPriceUsd,
     currentAssetsRaw,
@@ -190,6 +202,8 @@ export function VaultTransactPanel({
     tx.effectiveActiveTab,
     vaultData.apy,
   ]);
+  const futureRows = futureProjection.rows;
+  const includesTypedAmount = futureProjection.typedRaw > BigInt(0);
 
   const logo = getVaultLogo(vaultData.symbol);
   const actionLabel = tx.effectiveActiveTab === 'deposit' ? 'Deposit' : 'Withdraw';
@@ -242,15 +256,15 @@ export function VaultTransactPanel({
                 {isWethVault(vaultData.address, vaultData.symbol) &&
                   tx.effectiveActiveTab === 'deposit' && (
                     <select
-                      value={tx.preferredAsset || 'ALL'}
+                      value={tx.preferredAsset || 'WETH'}
                       onChange={(e) =>
                         tx.setPreferredAsset(e.target.value as 'ETH' | 'WETH' | 'ALL')
                       }
                       className="text-xs px-2 py-1 bg-[var(--surface-elevated)] border border-[var(--border-subtle)] rounded text-[var(--foreground-muted)] focus:outline-none cursor-pointer"
                     >
-                      <option value="ALL">ETH + WETH</option>
-                      <option value="ETH">ETH</option>
                       <option value="WETH">WETH</option>
+                      <option value="ETH">ETH</option>
+                      <option value="ALL">ETH + WETH</option>
                     </select>
                   )}
                 {isWethVault(vaultData.address, vaultData.symbol) &&
@@ -333,23 +347,24 @@ export function VaultTransactPanel({
             <div className="flex items-center gap-1 pt-2 mt-1 border-t border-[var(--border-subtle)]">
               <button
                 type="button"
-                onClick={() => setRewardsMode('past')}
+                onClick={() => setRewardsModeOverride('past')}
                 className={tabClass(rewardsMode === 'past')}
               >
                 Past rewards
               </button>
               <button
                 type="button"
-                onClick={() => setRewardsMode('future')}
+                onClick={() => setRewardsModeOverride('future')}
                 className={tabClass(rewardsMode === 'future')}
               >
                 Future rewards
               </button>
             </div>
 
-            {earningsLoading ? (
-              <p className="py-2 text-xs text-[var(--foreground-muted)]">Loading rewards…</p>
-            ) : rewardsMode === 'past' ? (
+            {rewardsMode === 'past' ? (
+              earningsLoading || activityLoading ? (
+                <p className="py-2 text-xs text-[var(--foreground-muted)]">Loading rewards…</p>
+              ) : (
               <>
                 {pastRows.map((row) => (
                   <StatsRow
@@ -373,22 +388,39 @@ export function VaultTransactPanel({
                 ))}
                 {pastRows.length === 0 ? (
                   <p className="pb-2 text-[10px] text-[var(--foreground-muted)] leading-relaxed">
-                    Past week, month, and year hide until you had a position at the start of that
-                    window.
+                    {activityError
+                      ? 'Past rewards could not be loaded. Try again in a moment.'
+                      : !events || events.length === 0
+                        ? 'No deposit or withdraw activity yet, so past periods are hidden.'
+                        : 'No past rewards in this window yet.'}
                   </p>
                 ) : null}
               </>
+              )
             ) : (
               <>
                 {futureRows.map((row) => (
                   <StatsRow
                     key={row.label}
                     label={row.label}
-                    value={formatCurrency(Math.max(0, row.usd))}
+                    value={
+                      <span className="flex flex-col items-end">
+                        <span>
+                          {formatVaultDetailTokenAmount(
+                            row.raw.toString(),
+                            positionDecimals,
+                            vaultData.symbol
+                          )}
+                        </span>
+                        <span className="text-xs font-normal text-[var(--foreground-muted)]">
+                          {formatCurrency(Math.max(0, row.usd))}
+                        </span>
+                      </span>
+                    }
                   />
                 ))}
                 <p className="pb-2 text-[10px] text-[var(--foreground-muted)] leading-relaxed">
-                  {tx.amount && parseFloat(tx.amount) > 0
+                  {includesTypedAmount
                     ? tx.effectiveActiveTab === 'deposit'
                       ? 'Includes this deposit, if current net APY holds. Not a guarantee.'
                       : 'After this withdrawal, if current net APY holds. Not a guarantee.'
@@ -437,7 +469,7 @@ export function VaultTransactPanel({
           <TransactionFlow
             embedded
             onSuccessComplete={handleSuccessComplete}
-            onReturnToIdle={tx.handleResetToIdle}
+            onReturnToIdle={tx.handleReturnToIdle}
           />
         </div>
       </Modal>

@@ -11,6 +11,7 @@ const SYMBOL_TO_COINGECKO_ID: Record<string, string> = {
   'CBBTC': 'bitcoin', // cbBTC maps to Bitcoin price
   'CBETH': 'coinbase-wrapped-staked-eth', // cbETH - Coinbase Wrapped Staked ETH
   'WSTETH': 'wrapped-steth', // wstETH - Wrapped Lido Staked ETH
+  'STETH': 'staked-ether', // stETH - Lido staked ETH
 };
 
 // Input validation helpers

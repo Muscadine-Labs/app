@@ -102,7 +102,6 @@ export function TransactionConfirmation({
   const getTransactionTypeLabel = () => {
     if (transactionType === 'deposit') return 'Deposit';
     if (transactionType === 'withdraw') return 'Withdraw';
-    if (transactionType === 'transfer') return 'Transfer';
     return 'Transaction';
   };
 
@@ -127,7 +126,7 @@ export function TransactionConfirmation({
     fromAccount.type === 'wallet' &&
     toAccount.type === 'vault' &&
     isWethVault((toAccount as VaultAccount).address, assetSymbol) &&
-    (preferredAsset === 'ETH' || preferredAsset === 'ALL' || preferredAsset === undefined);
+    (preferredAsset === 'ETH' || preferredAsset === 'ALL');
 
   // Get current date for transaction details
   const getCurrentDate = () => {

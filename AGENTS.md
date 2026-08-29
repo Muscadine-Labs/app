@@ -22,13 +22,12 @@ Instructions for AI agents working in this repo. Full architecture docs live in 
 - Registry: `src/lib/vaults.ts` — fields include `strategy` (`prime` | `frontier`), `vaultSymbol` (e.g. `mpUSDC`, `mfUSDC`).
 - Use `findVaultByAddress` / `isCuratedVaultAddress` from `src/lib/vault-utils.ts` — never infer vault by asset symbol alone.
 - Use `logger` from `src/lib/logger.ts`, not `console.log`.
-- **Token display decimals:** UI via `getDisplayFractionDigits` — USDC **6**, cbBTC/ETH/WETH **8**. Prefer raw `bigint` amounts. **Transactions** always use full token decimals (`formatBigIntForInput`, `formatAssetAmountForMax` — ETH 18, cbBTC 8, USDC 6). Chart axes stay compact.
+- **Token display decimals:** UI via `getDisplayFractionDigits` — USDC **6**, cbBTC/ETH/WETH **8**. Prefer raw `bigint` amounts. **Transactions** always use full token decimals (`formatBigIntForInput` — ETH 18, cbBTC 8, USDC 6). Chart axes stay compact.
 - **No developer / over-balance bypass mode** — `VaultVersionContext` removed. Explorer filters default to All for everyone; transact blocks amounts over balance.
 
 ## Dashboard & positions
 
 - **Wallet strip:** Total / Wallet (liquid) / Vaults USD (`WalletOverview`).
-- **Tokens:** One dashboard Tokens table (USDC / BTC / ETH families + extras + held stocks). USDC is USDC only (not a cash/stables rollup). Vaults sit beside the chart; Tokens pack under Vaults when that shortens the page (`packDashboardHoldings`). Below 1000px: stack Vaults then Tokens. Table matches Your Vaults minus APY / TVL.
 - **Your Vaults** (dashboard): **v2** positions only (registry + external Morpho v2 vaults).
 - **Morpho Vaults total** includes **all** user v2 positions from Morpho (`/api/user/morpho-positions`), not only Muscadine registry vaults.
 - **External vaults** (not in `vaults.ts`): shown on dashboard / explorer wallet filters with an **External** label, **not clickable**. Navigation uses `isCuratedVaultAddress()`; `/vault/v2/{external}` redirects home.

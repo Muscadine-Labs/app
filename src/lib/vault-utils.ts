@@ -3,6 +3,7 @@ import { Vault } from '@/types/vault';
 import {
   DEFAULT_MORPHO_ASSET_SYMBOL,
   getAssetDecimalsForSymbol,
+  morphoAmountToDecimal,
   resolveMorphoAssetSymbol,
 } from '@/lib/asset-decimals';
 import { BASE_CHAIN_ID } from '@/lib/constants';
@@ -107,7 +108,7 @@ export function resolvePositionAssetsUsd(
 
   if (position.assets) {
     try {
-      const assetsDecimal = Number(position.assets) / Math.pow(10, decimals);
+      const assetsDecimal = morphoAmountToDecimal(position.assets, decimals);
       let price = options?.assetPriceUsd ?? 0;
       if (price <= 0 && symbol === 'USDC') price = 1;
       if (assetsDecimal > 0 && price > 0) {
@@ -290,10 +291,6 @@ export function getVaultVersion(
   void _address;
   void _hint;
   return 'v2';
-}
-
-export function validateVaultAddress(address: string): boolean {
-  return findVaultByAddress(address) !== null;
 }
 
 export function getVaultRoute(address: string): string {
