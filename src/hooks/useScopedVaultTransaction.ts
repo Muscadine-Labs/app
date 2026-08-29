@@ -95,6 +95,7 @@ export function useScopedVaultTransaction({
 
   const [activeTab, setActiveTab] = useState<VaultTransactionTab>(initialTab);
   const initializedRef = useRef(false);
+  const vaultKeyRef = useRef(vaultAddress);
 
   const vaultPosition = useMemo(
     () =>
@@ -165,6 +166,13 @@ export function useScopedVaultTransaction({
   );
 
   useEffect(() => {
+    if (vaultKeyRef.current !== vaultAddress) {
+      vaultKeyRef.current = vaultAddress;
+      initializedRef.current = false;
+    }
+  }, [vaultAddress]);
+
+  useEffect(() => {
     if (!isOpen) {
       initializedRef.current = false;
       return;
@@ -173,8 +181,11 @@ export function useScopedVaultTransaction({
     if (initializedRef.current) return;
     initializedRef.current = true;
 
+    const inFlight =
+      status !== 'idle' && status !== 'success' && status !== 'error';
+    if (inFlight) return;
+
     reset();
-    setActiveTab(initialTab);
     setAmount('');
     applyTabAccounts(initialTab);
 
@@ -187,6 +198,7 @@ export function useScopedVaultTransaction({
     initialTab,
     vaultAddress,
     isConnected,
+    status,
     reset,
     setAmount,
     applyTabAccounts,

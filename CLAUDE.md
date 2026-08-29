@@ -298,7 +298,7 @@ Morpho GraphQL is **server-only** (`fetchMorphoGraphQL()` in route handlers). Th
 | `/` | **Dashboard** — compact `WalletOverview` strip, portfolio chart, Your Vaults + Tokens |
 | `/asset/[slug]` | Asset detail — combined wallet+vault holdings, price, related vaults (`usdc`, `btc`, `eth`; `cbbtc` → `btc`) |
 | `/vaults` | **Vault explorer** — filter bar + table of registry vaults |
-| `/transact` | **Removed** — 308 redirect to `/vaults`. Deposit/withdraw is `VaultTransactModal` on vault detail. |
+| `/transact` | **Removed** — 308 redirect to `/vaults`. Deposit/withdraw is the inline `VaultTransactPanel` on vault **My Position**. |
 | `/vault/v2/[address]` | V2 vault detail |
 | `/api/prices` | Price proxy/cache |
 | `/api/user/morpho-positions` | User Morpho v2 positions |
@@ -357,7 +357,7 @@ Adaptive layout (content-sized panels; empty sections omitted):
 
 ### Vault detail (`/vault/v2/[address]`)
 
-Whitelisted registry vaults only — unknown / external addresses redirect home. In-app Deposit/Withdraw via `VaultTransactModal`. Desktop: compact `VaultActionCard` beside the chart on **My Position** (History tab uses tab-row buttons). Overview has no Manage card. Mobile: sticky Deposit/Withdraw bar. **My Position** shows total earned above the chart; past periods and future estimates are info popovers in `VaultEarningsBreakdown`.
+Whitelisted registry vaults only — unknown / external addresses redirect home. Deposit/Withdraw is an inline `VaultTransactPanel` top-aligned with Your Position + Earned Interest (chart under those totals). Below 1000px: totals → chart → panel. Stats box: Network, APY, Past/Future rewards (no duplicate position or all-time earned). Mobile sticky Deposit/Withdraw on Overview jumps to My Position. Tab switches away from My Position are blocked while a tx is in preview/signing.
 
 ### Vault detail charts (`VaultOverview.tsx`)
 
@@ -423,7 +423,7 @@ src/
     vaults/page.tsx       # Vault explorer
   components/
     features/
-      vault/              # VaultExplorer*, VaultOverview, VaultPosition, VaultHistory, VaultTransactModal, VaultActionCard, VaultEarningsBreakdown, …
+      vault/              # VaultExplorer*, VaultOverview, VaultPosition, VaultHistory, VaultTransactPanel, VaultEarningsBreakdown, …
       wallet/             # WalletOverview, DashboardTokensPanel, PortfolioPositionChart, ConnectButton, …
       transactions/       # TransactionFlow, confirmation UI
       learn/              # LearnContent (sidebar Q&A → Morpho docs + self-custody)
@@ -470,7 +470,7 @@ src/
 - Approval txs use `approving`; only the main vault op should set `confirming` with the hash users care about.
 - After success, balances refresh via `refreshBalancesWithPolling` in `TransactionFlow`.
 
-**Vault transact modal** (`VaultTransactModal.tsx` + `useScopedVaultTransaction`): Deposit/Withdraw tabs, amount, MAX, WETH asset preference. Amounts that exceed available balance block Continue. `/transact` redirects to `/vaults`.
+**Vault transact panel** (`VaultTransactPanel.tsx` + `useScopedVaultTransaction`): amount entry stays inline on My Position. After Deposit/Withdraw, review/confirm is the same popup (`Modal` + `TransactionFlow`) as before so addresses and steps are readable. Amounts over balance block the CTA. `/transact` redirects to `/vaults`.
 
 **Transact tabs:** Tab highlight uses `activeTab` (user selection). `effectiveActiveTab` infers deposit vs withdraw from From/To when both accounts are set (WETH prefs, max amount). `handleTabChange` resets accounts per tab; do not no-op on `tab === activeTab` alone — use `accountsMatchTransactionTab()` so mismatched From/To does not block clicks.
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback, useRef, type ReactNode } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useAccount, useReadContract } from 'wagmi';
 import { MorphoVaultData } from '@/types/vault';
 import {
@@ -32,8 +32,10 @@ import { useVaultEarnedInterest } from '@/hooks/useVaultEarnedInterest';
 import { useLockPageScroll } from '@/hooks/useLockPageScroll';
 import { VaultChartWithAction } from './VaultChartWithAction';
 import { VaultEarningsBreakdown } from './VaultEarningsBreakdown';
+import { VaultTransactPanel } from './VaultTransactPanel';
 import { resolveAssetDecimals } from '@/lib/asset-decimals';
 import { BASE_CHAIN_ID } from '@/lib/constants';
+import type { VaultTransactionTab } from '@/hooks/useScopedVaultTransaction';
 
 const VAULT_READ_QUERY = {
   refetchInterval: false as const,
@@ -42,7 +44,8 @@ const VAULT_READ_QUERY = {
 
 interface VaultPositionProps {
   vaultData: MorphoVaultData;
-  chartAction?: ReactNode;
+  transactTab: VaultTransactionTab;
+  onTransactTabChange: (tab: VaultTransactionTab) => void;
 }
 
 type TimeFrame = 'all' | '1Y' | '90D' | '30D' | '7D';
@@ -63,7 +66,11 @@ const formatDate = (timestamp: number) => {
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 };
 
-export default function VaultPosition({ vaultData, chartAction }: VaultPositionProps) {
+export default function VaultPosition({
+  vaultData,
+  transactTab,
+  onTransactTabChange,
+}: VaultPositionProps) {
   const { address, isConnected } = useAccount();
   const { btc: btcPrice, eth: ethPrice } = usePrices();
   const { error: showErrorToast } = useToast();
@@ -599,58 +606,66 @@ export default function VaultPosition({ vaultData, chartAction }: VaultPositionP
   );
 
   return (
-    <div className="space-y-5">
-      {/* Position Value */}
-      <div className="flex flex-col sm:flex-row sm:items-start gap-5 sm:gap-10">
-        {/* Your Position — on-chain convertToAssets (matches withdraw / MAX) */}
-        <div className="flex-1 min-w-0">
-          <p className="text-xs text-[var(--foreground-secondary)] mb-1">Your Position</p>
-          {!isConnected ? (
-            <p className="text-sm text-[var(--foreground-muted)]">Connect wallet</p>
-          ) : positionRawValue === null ? (
-            <Skeleton width="8rem" height="2rem" />
-          ) : (() => {
-            try {
-              return BigInt(positionRawValue) <= BigInt(0);
-            } catch {
-              return false;
-            }
-          })() ? (
-            <p className="text-sm text-[var(--foreground-muted)]">No holdings</p>
-          ) : (
-            <>
-              <p className="text-xl sm:text-2xl font-bold text-[var(--foreground)]">
-                {formatVaultDetailTokenAmount(
-                  positionRawValue,
-                  depositAssetDecimals,
-                  vaultData.symbol
-                )}
-              </p>
-              <p className="text-xs text-[var(--foreground-secondary)] mt-1">
-                {formatPositionUsd(userVaultTotalUsd)}
-              </p>
-            </>
-          )}
-        </div>
+    <VaultChartWithAction
+      header={
+        <div className="flex items-start justify-between gap-6">
+          <div className="min-w-0">
+            <p className="text-xs text-[var(--foreground-secondary)] mb-1">Your Position</p>
+            {!isConnected ? (
+              <p className="text-sm text-[var(--foreground-muted)]">Connect wallet</p>
+            ) : positionRawValue === null ? (
+              <Skeleton width="8rem" height="2rem" />
+            ) : (() => {
+              try {
+                return BigInt(positionRawValue) <= BigInt(0);
+              } catch {
+                return false;
+              }
+            })() ? (
+              <p className="text-sm text-[var(--foreground-muted)]">No holdings</p>
+            ) : (
+              <>
+                <p className="text-xl sm:text-2xl font-bold text-[var(--foreground)]">
+                  {formatVaultDetailTokenAmount(
+                    positionRawValue,
+                    depositAssetDecimals,
+                    vaultData.symbol
+                  )}
+                </p>
+                <p className="text-xs text-[var(--foreground-secondary)] mt-1">
+                  {formatPositionUsd(userVaultTotalUsd)}
+                </p>
+              </>
+            )}
+          </div>
 
-        <VaultEarningsBreakdown
-          symbol={vaultData.symbol}
-          decimals={interestDecimals}
-          allTimeRaw={earnedInterest.earnedInterestRaw || '0'}
-          allTimeUsd={earnedInterest.earnedInterestUsd}
+          <VaultEarningsBreakdown
+            symbol={vaultData.symbol}
+            decimals={interestDecimals}
+            allTimeRaw={earnedInterest.earnedInterestRaw || '0'}
+            allTimeUsd={earnedInterest.earnedInterestUsd}
+            isConnected={isConnected}
+            isLoading={earnedInterest.isLoading}
+          />
+        </div>
+      }
+      action={
+        <VaultTransactPanel
+          key={vaultData.address}
+          vaultData={vaultData}
+          initialTab={transactTab}
+          onTabChange={onTransactTabChange}
+          positionDecimals={depositAssetDecimals}
           currentAssetsRaw={currentAssetsBigInt}
           history={userPositionHistory}
           events={activityFlowEvents}
           nowTs={now}
           assetPriceUsd={getAssetPrice}
-          netApy={vaultData.apy}
           isConnected={isConnected}
-          isLoading={earnedInterest.isLoading}
+          earningsLoading={earnedInterest.isLoading}
         />
-      </div>
-
-      {/* Chart */}
-      <VaultChartWithAction action={chartAction}>
+      }
+    >
       {isConnected && address ? (
         <div>
           {loading ? (
@@ -912,6 +927,5 @@ export default function VaultPosition({ vaultData, chartAction }: VaultPositionP
         </div>
       )}
       </VaultChartWithAction>
-    </div>
   );
 }

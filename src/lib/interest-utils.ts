@@ -1,5 +1,6 @@
 import type { Transaction } from '@/types/api';
 import { morphoAmountToRaw } from '@/lib/asset-decimals';
+import { chartTokenAmountToRaw } from '@/lib/formatter';
 
 export type ActivityFlowEvent = {
   timestamp: number;
@@ -158,7 +159,73 @@ export function periodInterestRaw(options: {
   return { hidden: false, earnedRaw: earned };
 }
 
-/** Estimate interest over `days` if `netApy` (decimal, e.g. 0.05) holds. */
+export type EarningsDisplayRow = {
+  label: string;
+  raw: bigint;
+  usd: number;
+};
+
+const PAST_PERIODS: Array<{ id: EarningsPeriodId; label: string }> = [
+  { id: 'week', label: 'Past week' },
+  { id: 'month', label: 'Past month' },
+  { id: 'year', label: 'Past year' },
+];
+
+const PROJECTED_PERIODS: Array<{ days: number; label: string }> = [
+  { days: 30, label: 'Projected monthly earnings' },
+  { days: 365, label: 'Projected yearly earnings' },
+];
+
+export function buildPastEarningsRows(options: {
+  nowTs: number;
+  decimals: number;
+  assetPriceUsd: number;
+  currentAssetsRaw: bigint;
+  history: ReadonlyArray<{ timestamp: number; assets: number }>;
+  events: ReadonlyArray<ActivityFlowEvent> | null;
+}): EarningsDisplayRow[] {
+  const { nowTs, decimals, assetPriceUsd, currentAssetsRaw, history, events } = options;
+  if (nowTs <= 0 || !events || events.length === 0) return [];
+  const firstPositionTs = firstPositivePositionTimestamp(history);
+
+  return PAST_PERIODS.flatMap((row) => {
+    const periodSeconds = EARNINGS_PERIOD_SECONDS[row.id];
+    const startTs = nowTs - periodSeconds;
+    const startAssets = assetsAtOrBefore(history, startTs);
+    const result = periodInterestRaw({
+      nowTs,
+      periodSeconds,
+      firstPositionTs,
+      startPositionRaw: chartTokenAmountToRaw(startAssets, decimals),
+      currentPositionRaw: currentAssetsRaw,
+      events,
+    });
+    if (result.hidden) return [];
+    const earnedDecimal = Number(result.earnedRaw) / 10 ** decimals;
+    return [{ label: row.label, raw: result.earnedRaw, usd: earnedDecimal * assetPriceUsd }];
+  });
+}
+
+export function buildProjectedEarningsRows(options: {
+  currentAssetsRaw: bigint;
+  netApy: number;
+  decimals: number;
+  assetPriceUsd: number;
+}): EarningsDisplayRow[] {
+  const { currentAssetsRaw, netApy, decimals, assetPriceUsd } = options;
+  return PROJECTED_PERIODS.map((row) => {
+    const raw = projectedInterestRaw(currentAssetsRaw, netApy, row.days);
+    const earnedDecimal = Number(raw) / 10 ** decimals;
+    return { label: row.label, raw, usd: earnedDecimal * assetPriceUsd };
+  });
+}
+
+const PROJECTED_GROWTH_SCALE = 1_000_000_000n;
+
+/**
+ * Estimate interest over `days` if `netApy` holds, with annual compounding:
+ * position × ((1 + APY)^(days/365) − 1).
+ */
 export function projectedInterestRaw(
   currentAssetsRaw: bigint,
   netApy: number,
@@ -172,10 +239,9 @@ export function projectedInterestRaw(
   ) {
     return BigInt(0);
   }
-  const apyMillionths = BigInt(Math.round(netApy * 1_000_000));
-  if (apyMillionths <= BigInt(0)) return BigInt(0);
-  return (
-    (currentAssetsRaw * apyMillionths * BigInt(days)) /
-    BigInt(365 * 1_000_000)
-  );
+  const growth = Math.pow(1 + netApy, days / 365) - 1;
+  if (!Number.isFinite(growth) || growth <= 0) return BigInt(0);
+  const growthScaled = BigInt(Math.round(growth * Number(PROJECTED_GROWTH_SCALE)));
+  if (growthScaled <= BigInt(0)) return BigInt(0);
+  return (currentAssetsRaw * growthScaled) / PROJECTED_GROWTH_SCALE;
 }

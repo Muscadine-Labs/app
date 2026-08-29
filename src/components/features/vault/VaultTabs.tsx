@@ -1,12 +1,8 @@
 'use client';
 
-import type { ReactNode } from 'react';
-
 interface VaultTabsProps {
   activeTab: string;
   onTabChange: (tab: string) => void;
-  /** Optional actions rendered on the right of the tab row (desktop). */
-  actions?: ReactNode;
 }
 
 const TABS = [
@@ -15,7 +11,7 @@ const TABS = [
   { id: 'history', label: 'History' },
 ];
 
-export default function VaultTabs({ activeTab, onTabChange, actions }: VaultTabsProps) {
+export default function VaultTabs({ activeTab, onTabChange }: VaultTabsProps) {
   return (
     <div className="mb-5 border-b border-[var(--border-subtle)] px-4 sm:px-6 md:px-0">
       <div className="flex items-center gap-3 min-w-0">
@@ -37,11 +33,6 @@ export default function VaultTabs({ activeTab, onTabChange, actions }: VaultTabs
             </button>
           ))}
         </div>
-        {actions ? (
-          <div className="hidden md:flex items-center gap-2 shrink-0 pb-0.5">
-            {actions}
-          </div>
-        ) : null}
       </div>
     </div>
   );
