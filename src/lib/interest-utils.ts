@@ -220,7 +220,7 @@ export function buildProjectedEarningsRows(options: {
   });
 }
 
-const PROJECTED_GROWTH_SCALE = 1_000_000_000n;
+const PROJECTED_GROWTH_SCALE = BigInt(1_000_000_000);
 
 /**
  * Estimate interest over `days` if `netApy` holds, with annual compounding:
