@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useState, useCallback, useMemo } from 'react';
 import { Account, VaultAccount } from '../types/vault';
 
-export type TransactionType = 'deposit' | 'withdraw' | 'transfer';
+export type TransactionType = 'deposit' | 'withdraw';
 
 export type TransactionStatus = 
   | 'idle'
@@ -22,7 +22,7 @@ export interface TransactionState {
   error: string | null;
   txHash: string | null;
   transactionType: TransactionType | null;
-  preferredAsset?: 'ETH' | 'WETH' | 'ALL'; // For WETH vault deposits/withdrawals ('ALL' means use both ETH+WETH)
+  preferredAsset?: 'ETH' | 'WETH' | 'ALL'; // WETH vaults: deposit defaults to WETH; 'ALL' combines ETH+WETH
 }
 
 interface TransactionContextType extends TransactionState {

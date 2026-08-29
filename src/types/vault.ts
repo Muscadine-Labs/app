@@ -25,7 +25,7 @@ export interface Vault {
     chainId: number;
     version?: 'v1' | 'v2';
     strategy?: VaultStrategy;
-    /** True when vault is in the Muscadine registry (has detail/transact pages). */
+    /** True when vault is in the Muscadine registry (has a detail page). */
     isCurated?: boolean;
     
     // Financial Metrics
@@ -118,6 +118,7 @@ export interface MorphoVaultData extends Vault {
 // Vault symbol to logo mapping
 export const VAULT_LOGO_MAP: Record<string, string> = {
     'USDC': '/usdc-logo.svg',
+    'USD': '/usdc-logo.svg',
     'WETH': '/eth-logo.svg',
     'ETH': '/eth-logo.svg',
     'CBTC': '/btc-logo.svg',
@@ -132,20 +133,6 @@ export const getVaultLogo = (symbol: string): string => {
     // Try exact match first, then uppercase
     return VAULT_LOGO_MAP[symbol] || VAULT_LOGO_MAP[symbol.toUpperCase()] || '/usdc-logo.svg';
 };
-
-// Vault status colors
-export const VAULT_STATUS_COLORS = {
-    active: 'text-[var(--success)]',
-    paused: 'text-[var(--warning)]',
-    deprecated: 'text-[var(--foreground-muted)]',
-} as const;
-
-// Risk level colors
-export const RISK_LEVEL_COLORS = {
-    low: 'bg-[var(--success-subtle)] text-[var(--success)]',
-    medium: 'bg-[var(--warning-subtle)] text-[var(--warning)]',
-    high: 'bg-[var(--danger-subtle)] text-[var(--danger)]',
-} as const;
 
 // Account types for transaction flow
 export type AccountType = 'wallet' | 'vault';

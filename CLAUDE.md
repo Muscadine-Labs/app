@@ -4,7 +4,7 @@ Comprehensive context for AI assistants and developers. This is the canonical �
 
 **Product:** Web app for Muscadine vaults on **Base (chain id 8453)** — deposit, withdraw, portfolio view, vault analytics. **v2 Prime and Frontier** vaults for USDC, cbBTC, and WETH. **v1 MetaMorpho removed** from registry and codebase (v2-only writes).
 
-**Version:** `package.json` → `1.3.0`
+**Version:** `package.json` → `1.3.1`
 
 ---
 
@@ -65,6 +65,8 @@ npm run lint
 
 Never commit real keys. `.env.example` documents placeholders.
 
+`package.json` **`allowScripts`** allowlists native/postinstall scripts for `bufferutil`, `keccak`, `unrs-resolver`, and `utf-8-validate` (transitive; WalletConnect `ws` + eslint-next resolver). Keep versions pinned to `package-lock.json`. Local npm 11.4 does not have `npm approve-scripts`; Vercel’s newer npm emits the pending-scripts warning without this field.
+
 ---
 
 ## Tech stack
@@ -77,7 +79,7 @@ Never commit real keys. `.env.example` documents placeholders.
 | Wallet | wagmi **2.x**, RainbowKit 2, viem 2 |
 | Chain | Base only (`8453`) |
 | Server data | Next.js Route Handlers → Morpho GraphQL |
-| Client GraphQL | Apollo Client → `https://api.morpho.org/graphql` |
+| Client GraphQL | None — Morpho GraphQL is server-only via `fetchMorphoGraphQL()` |
 | V2 txs | Direct ERC-4626 via viem (`transactionUtilsV2.ts`); multi-step WETH/ETH via Morpho **Bundler3** (`bundler3.ts`) |
 | Charts | Recharts |
 | Analytics | `@vercel/analytics` |
@@ -103,7 +105,7 @@ Never commit real keys. `.env.example` documents placeholders.
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-**Reads:** Morpho GraphQL (server routes + some client Apollo usage).
+**Reads:** Morpho GraphQL (server routes via `fetchMorphoGraphQL()`).
 
 **Writes:** User wallet signs transactions built in-app — **not** via GraphQL.
 
@@ -193,7 +195,7 @@ Base Bundler3 + GeneralAdapter1. Deposit/withdraw/redeem adapter calls use share
 
 **WETH Prime vault** (`BASE_WETH_ADDRESS` in `constants.ts`):
 
-- Deposit `preferredAsset`: `'ETH' | 'WETH' | 'ALL'` (wrap ETH, use WETH only, or combine). Gas reserve `ETH_GAS_RESERVE` (`0.0001 ETH`) left in wallet when wrapping.
+- Deposit `preferredAsset`: `'ETH' | 'WETH' | 'ALL'` (wrap ETH, use WETH only, or combine). **Default is WETH.** Gas reserve `ETH_GAS_RESERVE` (`0.0001 ETH`) left in wallet when wrapping.
 - Withdraw `preferredAsset`: `'ETH' | 'WETH'` (not `'ALL'`) — Bundler3 unwrap when ETH selected.
 
 **Force withdraw** (`src/lib/force-withdraw-v2.ts`): when requested assets exceed instant liquidity, plan `forceDeallocate` × N + `withdraw` or **`redeem` (MAX)** in vault `multicall`. Warning modal shows estimated penalty, risks, **Force withdraw**, and **Open vault on Morpho**. ETH unwrap (if selected) is a **second** Bundler3 tx after the vault exit. If underlying markets lack free cash, force plan is unavailable — user must reduce amount to instant liquidity, wait, or use Morpho.
@@ -277,15 +279,15 @@ If `complete` routes return **HTTP 400**, validate queries against `https://api.
 
 `next: { revalidate: MORPHO_GRAPHQL_REVALIDATE_SECONDS }` (60 seconds by default in `constants.ts`) + cache tags like `vault-{address}-{chainId}`.
 
-### Client Apollo
+### Client data
 
-`src/app/Providers.tsx` creates `ApolloClient` with same GraphQL URL for any client-side queries.
+Morpho GraphQL is **server-only** (`fetchMorphoGraphQL()` in route handlers). There is no client Apollo/GraphQL client.
 
 ---
 
 ## Morpho npm packages
 
-**Removed from `package.json`:** `@morpho-org/*` bundler/simulation SDKs (v1 path deleted). Morpho reads use **server `fetch`** to `api.morpho.org` and **Apollo Client** (`graphql@16`) on the client where needed.
+**Removed from `package.json`:** `@morpho-org/*` bundler/simulation SDKs (v1 path deleted), unused Apollo Client / `graphql`. Morpho reads use **server `fetch`** to `api.morpho.org`.
 
 **Not a dependency:** `@morpho-org/morpho-sdk` — optional future path for v2 writes via official SDK.
 
@@ -295,18 +297,17 @@ If `complete` routes return **HTTP 400**, validate queries against `https://api.
 
 | Path | Description |
 |------|-------------|
-| `/` | **Dashboard** — compact `WalletOverview` strip, portfolio chart (~⅖), Tokens + Your Vaults panels |
-| `/asset/[slug]` | Asset detail — combined wallet+vault holdings, price, related vaults (`usdc`, `btc`, `eth`; `cbbtc` → `btc`) |
+| `/` | **Dashboard** — compact `WalletOverview` strip, portfolio chart, Your Vaults |
 | `/vaults` | **Vault explorer** — filter bar + table of registry vaults |
-| `/transact` | Deposit/withdraw flow (`TransactionContext` + `TransactionFlow`) |
+| `/transact` | **Removed** — 308 redirect to `/vaults`. Deposit/withdraw is the inline `VaultTransactPanel` on vault **My Position**. |
 | `/vault/v2/[address]` | V2 vault detail |
 | `/api/prices` | Price proxy/cache |
 | `/api/user/morpho-positions` | User Morpho v2 positions |
 | `/api/vault/v2/...` | V2 Morpho GraphQL proxies |
 
-**NavBar:** Dashboard → `/`, Vaults → `/vaults`, Transact → `/transact`. Settings: theme (light/dark) only.
+**NavBar:** Dashboard → `/`, Vaults → `/vaults`. Settings: theme (light/dark) only. Right sidebar (`LearnContent`) is Q&A links to Morpho docs (protocol, Vault V2, curator, Blue, Midnight) and [self-custody](https://muscadine.xyz/self-custody).
 
-**App title:** metadata in `layout.tsx` uses **Muscadine Vaults** (not “Muscadine Earn”).
+**App title:** metadata in `layout.tsx` uses **Muscadine** (`APP_NAME` in `src/lib/base-app.ts`) so Base.dev / RainbowKit / WalletConnect match.
 
 ---
 
@@ -320,22 +321,20 @@ Adaptive layout (content-sized panels; empty sections omitted):
 |------|-----------|----------|
 | Wallet | `WalletOverview` | Full $ amounts; strip width measured live |
 | Chart | `PortfolioPositionChart` | Under wallet; ~300–380px height |
-| Right | Vaults → Tokens / Stocks | Vaults when held; else Tokens/Stocks fill the right |
-| Lower | Tokens \| Stocks | Only when both exist (peer row from `min-[700px]`) |
+| Side | Your Vaults | Vaults when held |
 
-**Responsive wallet / vaults (`useWalletStripNeedsFullWidth`):** On desktop (`min-[1000px]`), compares wallet strip intrinsic width to half the dashboard. If it fits → vaults align with wallet; if too wide (big $ / narrow window) → wallet spans full width and vaults drop to align with the chart. Mobile always stacks (wallet → chart → side). Hysteresis avoids flicker on resize.
+**Responsive wallet / vaults (`useWalletStripNeedsFullWidth`):** On desktop (`min-[1000px]`), compares wallet strip intrinsic width to half the dashboard. If it fits → vaults align with wallet; if too wide (big $ / narrow window) → wallet spans full width and vaults drop to align with the chart. Mobile always stacks (wallet → chart → vaults). Hysteresis avoids flicker on resize.
 
-**Important:** Portfolio chart includes **v2** positions from the API; **Your Vaults** is **v2-only**. Token rows combine liquid + vault exposure for that asset (ETH includes native ETH + WETH + WETH vaults); the asset page breaks this down.
+**Important:** Portfolio chart includes **v2** positions from the API; **Your Vaults** is **v2-only**.
 
 - **Your Vaults** lists v2 deposits only (`position.version === 'v2'`), sorted by USD. External (non-curated) vaults are shown but **not clickable** (no `/vault/v2/...` detail page). Hidden when empty.
-- **Layout:** Desktop grid areas switch between `wallet|side / chart|side` and `wallet|wallet / chart|side`. Tokens + Stocks share a peer row below when both exist.
-- **Asset pages** (`/asset/usdc`, `/asset/btc`, `/asset/eth`): price, holdings breakdown (wallet vs vaults), curated + held Morpho vaults. Only **whitelisted** vault rows navigate; external stay list-only. BTC includes optional wrappers (LBTC, kBTC, …) **only when in wallet**. Stocks panel lists tokenized equities only when held. Helpers in `src/lib/assets.ts` (`/asset/cbbtc` redirects to `/asset/btc`).
+- **Layout:** Desktop uses two independent columns. Your Vaults sits beside the chart. Wide wallet still uses `wallet|wallet / chart|side`. Below 1000px stacks wallet → chart → Vaults.
 - **Portfolio chart** (`PortfolioPositionChart.tsx`):
   1. Discovers vaults via `/api/user/morpho-positions?includeEmpty=true`.
   2. **`aggregatePortfolioHistory()`** in `portfolio-utils.ts` — forward-fill and sum USD.
-  - **Current holdings** in `WalletOverview` / Tokens / Your Vaults from **`WalletContext`** (`/api/user/morpho-positions`).
+  - **Current holdings** in `WalletOverview` / Your Vaults from **`WalletContext`** (`/api/user/morpho-positions`).
 - Preloads vault API data for deposited vaults via `useVaultListPreloader`.
-- **Position display:** `formatPositionUsd` / `formatPositionTokenAmount` in `formatter.ts` — USDC **6**, cbBTC/ETH/WETH **8**. Transactions use full chain decimals via `formatBigIntForInput` / `formatAssetAmountForMax`. Chart axes stay compact (2/6).
+- **Position display:** `formatPositionUsd` / `formatPositionTokenAmount` in `formatter.ts` — USDC **6**, cbBTC/ETH/WETH **8**. Transactions use full chain decimals via `formatBigIntForInput`. Chart axes stay compact (2/6).
 
 ### Vault explorer (`/vaults` — `src/app/vaults/page.tsx`)
 
@@ -358,7 +357,7 @@ Adaptive layout (content-sized panels; empty sections omitted):
 
 ### Vault detail (`/vault/v2/[address]`)
 
-Whitelisted registry vaults only — unknown / external addresses redirect home. In-app Deposit/Withdraw via `VaultTransactModal`.
+Whitelisted registry vaults only — unknown / external addresses redirect home. Deposit/Withdraw is an inline `VaultTransactPanel` top-aligned with Your Position + Earned Interest (chart under those totals). Below 1000px: totals → chart → panel. Stats box: Network, APY, Past/Future rewards (no duplicate position or all-time earned). Past is the default when the user has a vault position; Future is the default when they do not. WETH vault deposits default to WETH (ETH and ETH+WETH remain selectable). Mobile sticky Deposit/Withdraw on Overview jumps to My Position. Tab switches away from My Position are blocked while a tx is in preview/signing.
 
 ### Vault detail charts (`VaultOverview.tsx`)
 
@@ -370,13 +369,13 @@ Chart tabs (order): **APY** → **Total Deposits** → **Share Price**. **Total 
 
 Provider tree (`src/app/Providers.tsx`):
 
-`ErrorBoundary` → `ApolloProvider` → `WagmiProvider` → `QueryClient` → `RainbowKit` → `ThemeProvider` → `AdvisoryAgreementProvider` → `ToastProvider` → `WalletProvider` → `VaultDataProvider` → `TransactionProvider`
+`ErrorBoundary` → `WagmiProvider` → `QueryClient` → `RainbowKit` → `ThemeProvider` → `AdvisoryAgreementProvider` → `ToastProvider` → `WalletProvider` → `VaultDataProvider` → `TransactionProvider`
 
 | Context | File | Role |
 |---------|------|------|
 | `WalletContext` | `contexts/WalletContext.tsx` | Alchemy liquid balances; Morpho positions via `/api/user/morpho-positions`; refresh after txs |
 | `VaultDataContext` | `contexts/VaultDataContext.tsx` | Cached vault metadata from `/api/vault/.../complete` |
-| `TransactionContext` | `contexts/TransactionContext.tsx` | Transact page: from/to accounts, amount, status, `preferredAsset` |
+| `TransactionContext` | `contexts/TransactionContext.tsx` | Vault transact modal: from/to accounts, amount, status, `preferredAsset` |
 | `PriceContext` | `contexts/PriceContext.tsx` | Asset USD prices |
 | `ToastContext` | `contexts/ToastContext.tsx` | Toasts |
 | `ThemeContext` | `contexts/ThemeContext.tsx` | Light/dark |
@@ -406,10 +405,10 @@ Same Risk Framework link appears in **NavBar** Muscadine dropdown (Protocol sect
 
 | Hook | File | Purpose |
 |------|------|---------|
-| `useVaultEarnedInterest` | `hooks/useVaultEarnedInterest.ts` | Earned interest for curated vaults |
+| `useVaultEarnedInterest` | `hooks/useVaultEarnedInterest.ts` | All-time earned interest for curated vaults |
+| `useClearStuckWalletUi` | `hooks/useClearStuckWalletUi.ts` | Clear leftover wallet overlays in Base App WebView |
 | `useVaultDataFetch` | `hooks/useVaultDataFetch.ts` | Fetch/cache vault API data, list preloader |
 | `useClientOnly` | `hooks/useClientOnly.ts` | `useIsClient()`, `useUnixTimestamp()` — SSR-safe patterns |
-| `onClickOutside` | `hooks/onClickOutside.ts` | Dropdown dismiss |
 
 ---
 
@@ -419,24 +418,23 @@ Same Risk Framework link appears in **NavBar** Muscadine dropdown (Protocol sect
 src/
   app/
     page.tsx              # Dashboard
-    asset/[slug]/page.tsx # Asset detail (wallet+vault breakdown)
     vaults/page.tsx       # Vault explorer
   components/
     features/
-      vault/              # VaultExplorer*, VaultOverview, VaultPosition, VaultHistory, …
-      wallet/             # WalletOverview, DashboardTokensPanel, PortfolioPositionChart, ConnectButton, …
-      transactions/       # TransactionFlow, AccountSelector, confirmation UI
-      learn/              # LearnContent
+      vault/              # VaultExplorer*, VaultOverview, VaultPosition, VaultHistory, VaultTransactPanel, VaultEarningsBreakdown, …
+      wallet/             # WalletOverview, PortfolioPositionChart, ConnectButton, …
+      transactions/       # TransactionFlow, confirmation UI
+      learn/              # LearnContent (sidebar Q&A → Morpho docs + self-custody)
     layout/               # AppLayout, NavBar, RightSidebar
     ui/                   # Button, Modal, Toast, Skeleton, Icon
     common/               # ErrorBoundary, CopiableAddress
   config/
     wagmi.ts              # Base + Alchemy + RainbowKit wallets
-    navigation.tsx        # Nav links (Vaults → page; transact)
+    navigation.tsx        # Nav links (Dashboard, Vaults)
   contexts/               # See table above
   hooks/
   lib/
-    assets.ts             # ★ Asset registry (USDC/cbBTC/ETH), combined wallet+vault holdings
+    base-app.ts           # APP_NAME, BASE_APP_ID, Base App WebView detect
     portfolio-utils.ts    # ★ aggregatePortfolioHistory (dashboard)
     api-utils.ts          # Period/interval helpers; strip incomplete Morpho timeseries tails
     transactionUtilsV2.ts # ★ V2 on-chain (ERC-4626 + Bundler3 for WETH/ETH)
@@ -444,7 +442,7 @@ src/
     transactionUtils.ts   # Errors, shared tx helpers
     vaults.ts             # ★ Vault registry (v2 Prime + Frontier)
     vault-utils.ts        # Routes, sortVaultsForDisplay, resolvePositionAssetsUsd, isCuratedVaultAddress
-    interest-utils.ts     # Earned interest from activity
+    interest-utils.ts     # Earned interest from activity; period + projected estimates
     asset-decimals.ts     # Morpho amount normalization
     constants.ts          # Chain, WETH, cache TTLs, GENERAL_ADAPTER
     abis.ts               # Shared ERC20 balance + ERC4626 convertToAssets
@@ -462,14 +460,14 @@ src/
 
 **Statuses:** `idle` → `preview` → `signing` | `approving` → `confirming` → `success` | `error`
 
-**Progress steps** (`types/transactions.ts`): `signing`, `approving`, `confirming` — shared by v1 and v2.
+**Progress steps** (`types/transactions.ts`): `signing`, `approving`, `confirming`.
 
 **Rules:**
 
 - Approval txs use `approving`; only the main vault op should set `confirming` with the hash users care about.
 - After success, balances refresh via `refreshBalancesWithPolling` in `TransactionFlow`.
 
-**Transact page** (`app/transact/page.tsx`): Deposit/Withdraw tabs, account pickers, amount, MAX, WETH asset preference, deep links. Registry vaults from `VAULTS` + `sortVaultsForDisplay`. Amounts that exceed available balance block Continue.
+**Vault transact panel** (`VaultTransactPanel.tsx` + `useScopedVaultTransaction`): amount entry stays inline on My Position. After Deposit/Withdraw, review/confirm is the same popup (`Modal` + `TransactionFlow`) as before so addresses and steps are readable. Amounts over balance block the CTA. `/transact` redirects to `/vaults`.
 
 **Transact tabs:** Tab highlight uses `activeTab` (user selection). `effectiveActiveTab` infers deposit vs withdraw from From/To when both accounts are set (WETH prefs, max amount). `handleTabChange` resets accounts per tab; do not no-op on `tab === activeTab` alone — use `accountsMatchTransactionTab()` so mismatched From/To does not block clicks.
 
@@ -494,13 +492,15 @@ src/
 
 ## Base App
 
-Standard web app on Base — no Farcaster manifest or mini-app SDK. Register on [base.dev](https://base.dev) with primary URL **`https://app.muscadine.xyz`** (no separate `miniapp.*` subdomain).
+Standard web app on Base — no Farcaster manifest or mini-app SDK. Register on [base.dev](https://base.dev) with primary URL **`https://app.muscadine.xyz`** (no separate `miniapp.*` subdomain). Listing **name** should be **Muscadine** so in-app search matches by name, not only the URL.
 
 | Piece | Location |
 |-------|----------|
-| `base:app_id` meta tag | `src/lib/base-app.ts` → `layout.tsx` |
+| `APP_NAME` / `BASE_APP_ID` | `src/lib/base-app.ts` |
+| `base:app_id` meta tag | `layout.tsx` `metadata.other` **and** explicit `<meta name="base:app_id">` (id `6925cdc1547fca5d08131407`) |
 | `appUrl` / `appIcon` for Base Account UI | `getAppUrl()` + `/favicon.png` in wagmi config |
 | Builder code (ERC-8021) | `src/lib/builder-code.ts` → `transactionUtilsV2.ts` |
+| Base App WebView | `isBaseAppWebView()` — Connect uses injected/Coinbase, not WalletConnect. Layout `dvh`. Do not CSS-elevate RainbowKit dialog siblings. |
 
 Optional later: [Base Notifications API](https://docs.base.org/apps/technical-guides/base-notifications) (wallet-address based; no Farcaster).
 
@@ -520,6 +520,7 @@ Optional later: [Base Notifications API](https://docs.base.org/apps/technical-gu
 
 - Webpack/Turbopack aliases for `wagmi` and `@tanstack/react-query` (singleton React Query context)
 - Externals: `pino-pretty`, `lokijs`, `encoding`
+- Redirect: `/transact` → `/vaults` (308)
 
 ---
 
@@ -562,6 +563,8 @@ Do not bump without checking compatibility:
 |---------|------------|
 | `wagmi` | Stay on **2.x** — RainbowKit 2 requirement |
 | `eslint` | Stay on **9.x** (`eslint@^9.39`) — `eslint-config-next` breaks on 10 |
+| `ox` | Stay on **0.14.x** — `ox@1` is a breaking rewrite; used for ERC-8021 builder codes |
+| `valtio` | Keep a **root** `valtio` (2.x) — RainbowKit/WalletConnect `derive-valtio` must resolve `valtio/vanilla` under Turbopack |
 | `@morpho-org/*-wagmi` 4.x | Often requires wagmi 3 |
 
 ---
@@ -571,7 +574,7 @@ Do not bump without checking compatibility:
 - TypeScript, `@/` → `src/`
 - `'use client'` on interactive / wagmi components
 - Minimize scope; keep v1 and v2 paths separate
-- Use `logger` from `lib/logger.ts` instead of ad-hoc `console.log`
+- Use `logger` from `lib/logger.ts` instead of ad-hoc `console.log`. `error` / `warn` always log; `info` / `debug` are development-only.
 - Resolve vault version from `vaults.ts` / `getVaultVersion`
 - **Git commits:** only when the user explicitly asks
 - Match existing style in touched files; avoid drive-by refactors
@@ -610,7 +613,6 @@ Do not bump without checking compatibility:
 | Task | Where to look |
 |------|----------------|
 | Dashboard layout | `src/app/page.tsx` |
-| Asset pages (wallet+vault) | `src/app/asset/[slug]/page.tsx`, `src/lib/assets.ts` |
 | Portfolio history chart | `PortfolioPositionChart.tsx`, `portfolio-utils.ts` (`aggregatePortfolioHistory`) |
 | Morpho timeseries tail fix | `api-utils.ts` (`stripIncomplete*`, `finalizePositionHistory`), used in vault `history` + `position-history` routes |
 | Position table formatting | `formatter.ts` (`formatPositionUsd`, `formatPositionTokenAmount`) |

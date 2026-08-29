@@ -1,4 +1,4 @@
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import { Figtree, Funnel_Display, Outfit, Tinos } from 'next/font/google'
 import './globals.css'
 import { AppLayout } from '@/components/layout/AppLayout'
@@ -9,7 +9,7 @@ import { config } from '@/config/wagmi'
 import { PriceProvider } from '@/contexts/PriceContext'
 import { Analytics } from '@vercel/analytics/react'
 import { getAppUrl } from '@/lib/app-url'
-import { BASE_APP_ID } from '@/lib/base-app'
+import { APP_NAME, BASE_APP_ID } from '@/lib/base-app'
 
 const appUrl = getAppUrl()
 
@@ -39,11 +39,17 @@ const tinos = Tinos({
   variable: '--font-tinos',
 })
 
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
+}
+
 export const metadata: Metadata = {
   metadataBase: new URL(appUrl),
-  title: 'Muscadine Vaults',
+  title: APP_NAME,
   description: 'Deposit into curated Morpho vaults on Base. Track portfolio, APY, and allocations.',
-  applicationName: 'Muscadine Vaults',
+  applicationName: APP_NAME,
   icons: {
     icon: '/favicon.png',
     shortcut: '/favicon.png',
@@ -55,14 +61,14 @@ export const metadata: Metadata = {
   openGraph: {
     type: 'website',
     url: appUrl,
-    siteName: 'Muscadine Vaults',
-    title: 'Muscadine Vaults',
+    siteName: APP_NAME,
+    title: APP_NAME,
     description: 'Curated Morpho vaults on Base — deposit, withdraw, and track your portfolio.',
-    images: [{ url: '/favicon.png', width: 512, height: 512, alt: 'Muscadine Vaults' }],
+    images: [{ url: '/favicon.png', width: 512, height: 512, alt: APP_NAME }],
   },
   twitter: {
     card: 'summary',
-    title: 'Muscadine Vaults',
+    title: APP_NAME,
     description: 'Curated Morpho vaults on Base.',
     images: ['/favicon.png'],
   },
@@ -81,6 +87,9 @@ export default async function RootLayout({
 
   return (
     <html lang="en">
+      <head>
+        <meta name="base:app_id" content={BASE_APP_ID} />
+      </head>
       <body className={`${figtree.className} ${funnelDisplay.variable} ${outfit.variable} ${tinos.variable}`}>
           <Providers initialState={initialState}>
               <PriceProvider>

@@ -7,8 +7,6 @@ import { RainbowKitProvider, darkTheme } from '@rainbow-me/rainbowkit'
 import { config } from '@/config/wagmi'
 import { base } from 'wagmi/chains'
 import '@rainbow-me/rainbowkit/styles.css'
-import { ApolloClient, HttpLink, InMemoryCache } from "@apollo/client";
-import { ApolloProvider } from '@apollo/client/react'
 import { VaultDataProvider } from '../contexts/VaultDataContext'
 import { WalletProvider } from '../contexts/WalletContext'
 import { TransactionProvider } from '../contexts/TransactionContext'
@@ -19,18 +17,24 @@ import { ErrorBoundary } from '../components/common/ErrorBoundary'
 import { AdvisoryAgreementModal } from '../components/features/wallet/AdvisoryAgreementModal'
 import { logger } from '../lib/logger'
 
-export const client = new ApolloClient({
-    link: new HttpLink({ uri: "https://api.morpho.org/graphql" }),
-    cache: new InMemoryCache(),
-  });
-
 type Props = {
   children: ReactNode
   initialState?: Parameters<typeof WagmiProvider>[0]['initialState']
 }
 
 export function Providers({ children, initialState }: Props) {
-  const [queryClient] = useState(() => new QueryClient())
+  const [queryClient] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: {
+          queries: {
+            staleTime: 30_000,
+            refetchOnWindowFocus: false,
+            retry: 1,
+          },
+        },
+      })
+  )
 
   return (
     <ErrorBoundary
@@ -40,41 +44,39 @@ export function Providers({ children, initialState }: Props) {
         });
       }}
     >
-      <ApolloProvider client={client}>
-        <WagmiProvider
-          config={config}
-          initialState={initialState} // undefined in dev is fine
-          reconnectOnMount={true} // Automatically reconnect on mount (page reload) - defaults to true but explicit for clarity
-        >
-          <QueryClientProvider client={queryClient}>
-            <RainbowKitProvider
-              initialChain={base}
-              theme={darkTheme({
-                accentColor: 'var(--primary)',
-                accentColorForeground: 'white',
-                borderRadius: 'medium',
-                fontStack: 'system',
-                overlayBlur: 'small',
-              })}
-            >
-              <ThemeProvider>
-                <AdvisoryAgreementProvider>
-                  <ToastProvider>
-                    <WalletProvider>
-                      <VaultDataProvider>
-                        <TransactionProvider>
-                          <AdvisoryAgreementModal />
-                          {children}
-                        </TransactionProvider>
-                      </VaultDataProvider>
-                    </WalletProvider>
-                  </ToastProvider>
-                </AdvisoryAgreementProvider>
-              </ThemeProvider>
-            </RainbowKitProvider>
-          </QueryClientProvider>
-        </WagmiProvider>
-      </ApolloProvider>
+      <WagmiProvider
+        config={config}
+        initialState={initialState} // undefined in dev is fine
+        reconnectOnMount={true} // Automatically reconnect on mount (page reload) - defaults to true but explicit for clarity
+      >
+        <QueryClientProvider client={queryClient}>
+          <RainbowKitProvider
+            initialChain={base}
+            theme={darkTheme({
+              accentColor: 'var(--primary)',
+              accentColorForeground: 'white',
+              borderRadius: 'medium',
+              fontStack: 'system',
+              overlayBlur: 'small',
+            })}
+          >
+            <ThemeProvider>
+              <AdvisoryAgreementProvider>
+                <ToastProvider>
+                  <WalletProvider>
+                    <VaultDataProvider>
+                      <TransactionProvider>
+                        <AdvisoryAgreementModal />
+                        {children}
+                      </TransactionProvider>
+                    </VaultDataProvider>
+                  </WalletProvider>
+                </ToastProvider>
+              </AdvisoryAgreementProvider>
+            </ThemeProvider>
+          </RainbowKitProvider>
+        </QueryClientProvider>
+      </WagmiProvider>
     </ErrorBoundary>
   )
 }

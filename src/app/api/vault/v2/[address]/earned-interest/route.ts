@@ -4,6 +4,7 @@ import {
   morphoAmountToDecimal,
   morphoAmountToRaw,
   normalizeMorphoShares,
+  rawAmountToDecimal,
   resolveAssetDecimals,
   resolveMorphoAssetSymbol,
 } from '@/lib/asset-decimals';
@@ -183,8 +184,8 @@ export async function GET(
         deposits,
         withdrawals,
       });
-      const earnedDecimal = Number(earnedRaw) / 10 ** resolvedDecimals;
-      const currentAssetsDecimal = Number(assetsRaw) / 10 ** resolvedDecimals;
+      const earnedDecimal = rawAmountToDecimal(earnedRaw, resolvedDecimals);
+      const currentAssetsDecimal = rawAmountToDecimal(assetsRaw, resolvedDecimals);
       const positionAssetsDecimal = position
         ? morphoAmountToDecimal(position.assets, resolvedDecimals)
         : 0;
@@ -257,7 +258,7 @@ export async function GET(
     }
 
     if (hasPosition) {
-      const currentAssetsDecimal = Number(currentAssetsRaw) / 10 ** resolvedDecimals;
+      const currentAssetsDecimal = rawAmountToDecimal(currentAssetsRaw, resolvedDecimals);
       return NextResponse.json({
         earnedInterest: 0,
         earnedInterestUsd: 0,

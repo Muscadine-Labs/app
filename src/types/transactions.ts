@@ -1,5 +1,5 @@
 /**
- * Shared transaction types for consistent progress tracking across v1 and v2 flows
+ * Shared transaction types for consistent progress tracking.
  */
 
 export type TransactionProgressStep = 

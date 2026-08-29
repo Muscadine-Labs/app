@@ -62,7 +62,7 @@ interface VaultDataContextType {
   getVaultError: (address: string) => string | null;
   isStaleData: (address: string) => boolean;
   preloadVaults: (vaults: Vault[]) => Promise<void>;
-  /** Preload all registry vaults once per app session (transact account pickers). */
+  /** Preload all registry vaults once per app session (explorer + vault detail). */
   preloadRegistryVaults: () => Promise<void>;
 }
 

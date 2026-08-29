@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import type { GraphQLError } from '@/types/api';
 import { logger } from '@/lib/logger';
 import { isValidEthereumAddress, findVaultByAddress } from '@/lib/vault-utils';
-import { getAssetDecimalsForSymbol } from '@/lib/asset-decimals';
+import { getAssetDecimalsForSymbol, morphoAmountToRaw, rawAmountToDecimal } from '@/lib/asset-decimals';
 import { isValidChainId, isValidPeriod, MIN_VALID_TIMESTAMP, PERIOD_SECONDS, INTERVAL_MAP, INTERVAL_SECONDS, finalizePositionHistory, fetchMorphoGraphQL, readMorphoGraphQLResponse, MORPHO_RATE_LIMIT_BODY } from '@/lib/api-utils';
 import { MORPHO_GRAPHQL_REVALIDATE_SECONDS } from '@/lib/constants';
 
@@ -216,11 +216,14 @@ export async function GET(
     const rawHistory = Array.from(timestamps)
       .sort((a, b) => a - b)
       .map((timestamp) => {
-        const assetsRaw = (assetsMap.get(timestamp) ?? 0) as number;
+        const assetsRawValue = (assetsMap.get(timestamp) ?? 0) as number | string;
         const assetsUsd = (assetsUsdMap.get(timestamp) ?? 0) as number;
         const sharesRaw = (sharesMap.get(timestamp) ?? 0) as number;
-        
-        const assetsDecimal = assetsRaw / Math.pow(10, assetDecimals);
+        const assetsRaw = morphoAmountToRaw(assetsRawValue);
+        const assetsDecimal = rawAmountToDecimal(
+          assetsRaw === '0' ? BigInt(0) : BigInt(assetsRaw),
+          assetDecimals
+        );
         const sharesDecimal = sharesRaw / 1e18;
         
         return {
@@ -229,6 +232,7 @@ export async function GET(
           assets: assetsDecimal,
           assetsUsd,
           shares: sharesDecimal,
+          assetsRaw,
         };
       })
       .filter(item => item.timestamp >= MIN_VALID_TIMESTAMP);

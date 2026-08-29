@@ -9,7 +9,7 @@ import {
 } from 'react';
 
 /** Matches dashboard `min-[1000px]:grid-cols-2` breakpoint. */
-export const DASHBOARD_SPLIT_MQ = '(min-width: 1000px)';
+const DASHBOARD_SPLIT_MQ = '(min-width: 1000px)';
 
 /** Tailwind `gap-4` between grid columns at the split breakpoint. */
 const GRID_GAP_PX = 16;
@@ -141,4 +141,19 @@ export function useWalletStripNeedsFullWidth({
   }, [enabled, layoutKey, viewportRef, stripRef]);
 
   return wide;
+}
+
+/** Desktop two-column dashboard (`min-[1000px]`). Mobile stays a single stack. */
+export function useIsDashboardSplitLayout(): boolean {
+  const [split, setSplit] = useState(false);
+
+  useIsomorphicLayoutEffect(() => {
+    const mql = window.matchMedia(DASHBOARD_SPLIT_MQ);
+    const update = () => setSplit(mql.matches);
+    update();
+    mql.addEventListener('change', update);
+    return () => mql.removeEventListener('change', update);
+  }, []);
+
+  return split;
 }

@@ -13,7 +13,7 @@ import {
   maxSharePriceE27FromQuote,
   minSharePriceE27FromQuote,
 } from './bundler3';
-import { BASE_WETH_ADDRESS, ETH_GAS_RESERVE, GENERAL_ADAPTER_ADDRESS } from './constants';
+import { BASE_WETH_ADDRESS, ETH_GAS_RESERVE_WEI, GENERAL_ADAPTER_ADDRESS } from './constants';
 import type { ForceWithdrawPlan } from './force-withdraw-v2';
 import { VAULT_V2_FORCE_ABI } from './force-withdraw-v2';
 import type { TransactionProgressCallback } from '../types/transactions';
@@ -164,7 +164,7 @@ function getWethReceivedFromReceipt(
   return total;
 }
 
-const gasReserveWei = parseUnits(ETH_GAS_RESERVE.toString(), 18);
+const gasReserveWei = ETH_GAS_RESERVE_WEI;
 
 function emitTransactionPlan(
   onProgress: TransactionProgressCallback | undefined,
@@ -473,7 +473,7 @@ export async function depositToVaultV2(
       ? availableEth - gasReserveWei 
       : BigInt(0);
 
-    const assetPreference = preferredAsset || 'ALL';
+    const assetPreference = preferredAsset || 'WETH';
 
     if (assetPreference === 'ETH') {
       if (amountBigInt > availableEthAfterReserve) {

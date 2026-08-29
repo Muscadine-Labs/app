@@ -144,14 +144,6 @@ export function AdvisoryAgreementModal() {
                 >
                   Risk Analytics
                 </a>
-                <a
-                  href="https://docs.muscadine.xyz"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="block py-1 sm:py-1.5 text-xs sm:text-sm text-[var(--foreground)] hover:text-[var(--primary)] transition-colors cursor-pointer"
-                >
-                  Documentation
-                </a>
               </div>
             </div>
           </div>

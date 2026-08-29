@@ -31,7 +31,7 @@ interface TransactionConfirmationProps {
   txHash?: string | null;
   onCancel: () => void;
   onConfirm: () => void;
-  /** When set, success completion uses this instead of navigating to /transact. */
+  /** When set, success completion uses this instead of staying on the confirmation screen. */
   onSuccessComplete?: () => void;
   /** Softer layout when rendered inside the vault transact modal. */
   embedded?: boolean;
@@ -93,8 +93,6 @@ export function TransactionConfirmation({
       reset();
       if (onSuccessComplete) {
         onSuccessComplete();
-      } else {
-        router.push('/transact');
       }
     } else {
       onCancel();
@@ -104,7 +102,6 @@ export function TransactionConfirmation({
   const getTransactionTypeLabel = () => {
     if (transactionType === 'deposit') return 'Deposit';
     if (transactionType === 'withdraw') return 'Withdraw';
-    if (transactionType === 'transfer') return 'Transfer';
     return 'Transaction';
   };
 
@@ -129,7 +126,7 @@ export function TransactionConfirmation({
     fromAccount.type === 'wallet' &&
     toAccount.type === 'vault' &&
     isWethVault((toAccount as VaultAccount).address, assetSymbol) &&
-    (preferredAsset === 'ETH' || preferredAsset === 'ALL' || preferredAsset === undefined);
+    (preferredAsset === 'ETH' || preferredAsset === 'ALL');
 
   // Get current date for transaction details
   const getCurrentDate = () => {

@@ -61,22 +61,6 @@ export function formatCurrency(
 }
 
 /**
- * Formats a raw BigInt token amount from a smart contract into a readable string.
- * @param value - The BigInt or string value from the contract.
- * @param decimals - The token's decimals (e.g., 18 for ETH, 6 for USDC).
- * @param options - Intl.NumberFormat options for the final display.
- * @returns A formatted token amount string.
- */
-export function formatTokenAmount(
-  value: bigint | string,
-  decimals: number,
-  options: Intl.NumberFormatOptions = {}
-): string {
-  const decimalValue = formatUnits(BigInt(value), decimals);
-  return formatNumber(decimalValue, options);
-}
-
-/**
  * Smart currency formatter that shows the most appropriate format based on value size.
  * @param value - The number or string to format.
  * @param options - Optional formatting options (e.g., { alwaysTwoDecimals: true }).
@@ -113,7 +97,7 @@ export function formatSmartCurrency(
  */
 export function getDisplayFractionDigits(symbol: string): number {
   const normalized = symbol.toUpperCase();
-  if (normalized === 'USDC') return 6;
+  if (normalized === 'USDC' || normalized === 'USD') return 6;
   if (
     normalized === 'ETH' ||
     normalized === 'WETH' ||
@@ -124,16 +108,6 @@ export function getDisplayFractionDigits(symbol: string): number {
     return 8;
   }
   return getAssetDecimalsForSymbol(symbol);
-}
-
-/** @deprecated Prefer getDisplayFractionDigits — same native decimals. */
-export function getPositionDisplayFractionDigits(symbol: string): number {
-  return getDisplayFractionDigits(symbol);
-}
-
-/** @deprecated Prefer getDisplayFractionDigits — same native decimals. */
-export function getVaultV2TokenFractionDigits(symbol: string): number {
-  return getDisplayFractionDigits(symbol);
 }
 
 /** Vault detail My Position / earned interest — native decimals. */
@@ -342,11 +316,6 @@ export function formatChartTokenAxisValue(
   return formatted.replace(` ${symbol}`, '').trim();
 }
 
-/** Compact USD label for chart y-axis ticks. */
-export function formatChartUsdAxisTick(value: number): string {
-  return formatChartUsdAxisValue(value);
-}
-
 /** Token amount for vault charts with fixed trailing zeros. */
 export function formatVaultChartTokenAmount(
   value: number,
@@ -382,15 +351,6 @@ export function formatSharePriceTokenAmount(
 /** Share price in USD — standard currency formatting. */
 export function formatSharePriceUsd(value: number): string {
   return formatCurrency(value);
-}
-
-/** Y-axis tick for vault chart token mode. */
-export function formatVaultChartTokenAxisTick(
-  value: number,
-  assetDecimals: number,
-  symbol: string
-): string {
-  return formatChartTokenAxisValue(value, assetDecimals, symbol);
 }
 
 /** Vault detail page: deposits + earned interest (native decimals, fixed trailing zeros). */
@@ -542,47 +502,6 @@ export function formatAssetBalance(
     : formatted;
   
   return includeSymbol ? `${trimmed} ${symbol}` : trimmed;
-}
-
-/**
- * Formats available balance for display in input fields.
- * Shows "Available: X SYMBOL" format.
- * @param balance - The balance value (string or number).
- * @param symbol - The asset symbol.
- * @param assetDecimals - Optional asset decimals for vault assets.
- * @returns Formatted string (e.g., "Available: 1.2345 ETH" or "Available: 1.23 USDC").
- */
-export function formatAvailableBalance(
-  balance: string | number,
-  symbol: string,
-  assetDecimals?: number
-): string {
-  const formatted = formatAssetBalance(balance, symbol, assetDecimals, true);
-  return `Available: ${formatted}`;
-}
-
-/**
- * Formats asset amount for MAX button (input field).
- * Returns just the number without symbol, suitable for input fields.
- * For input fields, we preserve full precision to avoid rounding issues.
- * @param amount - The amount as a number.
- * @param symbol - The asset symbol.
- * @param assetDecimals - Optional asset decimals.
- * @returns Formatted string suitable for input field with full precision (e.g., "1.234567890123456789").
- */
-export function formatAssetAmountForMax(
-  amount: number,
-  symbol: string,
-  assetDecimals?: number
-): string {
-  if (amount <= 0) return '0';
-
-  // Transaction / MAX input: always full token decimals
-  const precision = assetDecimals ?? getAssetDecimalsForSymbol(symbol);
-  const formatted = amount.toFixed(precision);
-
-  // Remove trailing zeros and unnecessary decimal point
-  return formatted.replace(/\.?0+$/, '') || '0';
 }
 
 /**

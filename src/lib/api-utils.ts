@@ -1,5 +1,6 @@
 import { logger } from '@/lib/logger';
 import {
+  BASE_CHAIN_ID,
   MORPHO_FETCH_TIMEOUT_MS,
   MORPHO_GRAPHQL_REVALIDATE_SECONDS,
   MORPHO_GRAPHQL_URL,
@@ -31,7 +32,7 @@ export type ValidPeriod = typeof VALID_PERIODS[number];
 // Validation helpers
 export function isValidChainId(chainId: string): boolean {
   const id = parseInt(chainId, 10);
-  return !isNaN(id) && id > 0 && id <= 2147483647;
+  return Number.isInteger(id) && id === BASE_CHAIN_ID;
 }
 
 export function isValidPeriod(period: string): period is ValidPeriod {
@@ -62,6 +63,20 @@ type MorphoCacheEntry = {
 };
 
 const morphoResponseCache = new Map<string, MorphoCacheEntry>();
+const MORPHO_MEMORY_CACHE_MAX_ENTRIES = 50;
+
+function pruneMorphoResponseCache(now: number) {
+  for (const [key, entry] of morphoResponseCache) {
+    if (entry.expiresAt <= now) {
+      morphoResponseCache.delete(key);
+    }
+  }
+  while (morphoResponseCache.size >= MORPHO_MEMORY_CACHE_MAX_ENTRIES) {
+    const oldestKey = morphoResponseCache.keys().next().value;
+    if (oldestKey === undefined) break;
+    morphoResponseCache.delete(oldestKey);
+  }
+}
 
 function morphoMemoryCacheTtlMs(): number {
   return MORPHO_MEMORY_CACHE_MS;
@@ -144,6 +159,7 @@ export async function fetchMorphoGraphQL(
 ): Promise<Response> {
   const cacheKey = morphoCacheKey(body);
   const now = Date.now();
+  pruneMorphoResponseCache(now);
   const skipMemoryCache =
     options?.skipMemoryCache === true || options?.revalidate === 0;
   const cached = skipMemoryCache ? undefined : morphoResponseCache.get(cacheKey);
@@ -285,6 +301,8 @@ export interface PositionHistoryItem {
   assets: number;
   assetsUsd: number;
   shares: number;
+  /** Underlying assets in smallest units, when the API still has them. */
+  assetsRaw?: string;
 }
 
 export interface CurrentPositionLike {
@@ -345,6 +363,7 @@ export function finalizePositionHistory(
       assets: 0,
       assetsUsd: 0,
       shares: 0,
+      assetsRaw: '0',
     },
   ];
 }

@@ -2,11 +2,21 @@ import type { NextConfig } from "next";
 import path from "path";
 
 const nextConfig: NextConfig = {
+  // Keep our AGENTS.md; Next 16.3 otherwise appends a generic rules block on `next dev`.
+  agentRules: false,
+  async redirects() {
+    return [
+      {
+        source: '/transact',
+        destination: '/vaults',
+        permanent: true,
+      },
+    ];
+  },
   webpack: (config) => {
     config.externals.push("pino-pretty", "lokijs", "encoding");
     
-    // Force resolution of wagmi to the root node_modules to prevent context duplication issues
-    // with @morpho-org/simulation-sdk-wagmi
+    // Force singleton resolution of wagmi / React Query (avoids duplicate context)
     config.resolve.alias = {
       ...config.resolve.alias,
       'wagmi': path.join(process.cwd(), 'node_modules/wagmi'),

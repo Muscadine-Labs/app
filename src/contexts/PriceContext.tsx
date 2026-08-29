@@ -28,33 +28,51 @@ export function PriceProvider({ children }: { children: ReactNode }) {
           cachedData = localStorage.getItem('crypto-prices');
           cachedTimestamp = localStorage.getItem('crypto-prices-timestamp');
         }
-        
+
         const now = Date.now();
         const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
+        const parseCachedPrices = (raw: string | null) => {
+          if (!raw) return null;
+          try {
+            const parsed = JSON.parse(raw) as { btc?: number | null; eth?: number | null };
+            if (parsed && typeof parsed === 'object') return parsed;
+          } catch {
+            // Ignore corrupt localStorage
+          }
+          return null;
+        };
+
+        const cachedPrices = parseCachedPrices(cachedData);
+        const cachedAt = cachedTimestamp ? parseInt(cachedTimestamp, 10) : NaN;
+
         // If we have cached data that's still fresh, return it immediately
-        if (cachedData && cachedTimestamp && (now - parseInt(cachedTimestamp)) < CACHE_DURATION) {
-          return JSON.parse(cachedData);
+        if (cachedPrices && Number.isFinite(cachedAt) && now - cachedAt < CACHE_DURATION) {
+          return cachedPrices;
         }
 
         // Fetch fresh data from API (now using dynamic symbols)
         const response = await fetch('/api/prices?symbols=BTC,ETH');
         if (!response.ok) {
           // If API fails but we have cached data (even stale), use it
-          if (cachedData) {
-            return JSON.parse(cachedData);
+          if (cachedPrices) {
+            return cachedPrices;
           }
           throw new Error('Failed to fetch prices');
         }
-        
+
         const freshData = await response.json();
-        
+        if (!freshData || typeof freshData !== 'object' || freshData.error) {
+          if (cachedPrices) return cachedPrices;
+          throw new Error('Failed to fetch prices');
+        }
+
         // Cache the fresh data in localStorage (only on client)
         if (typeof window !== 'undefined') {
           localStorage.setItem('crypto-prices', JSON.stringify(freshData));
           localStorage.setItem('crypto-prices-timestamp', now.toString());
         }
-        
+
         return freshData;
       },
       staleTime: 5 * 60 * 1000, // 5 minutes

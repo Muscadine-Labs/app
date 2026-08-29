@@ -12,16 +12,14 @@ export const GENERAL_ADAPTER_ADDRESS = '0xb98c948CFA24072e58935BC004a8A7b376AE74
 
 // Cache durations (in milliseconds)
 export const CACHE_DURATION_PRICES = 10 * 60 * 1000; // 10 minutes
-export const CACHE_DURATION_ACTIVITY = 60 * 1000; // 1 minute
 
 // Transaction configuration
 /** ETH kept in wallet when wrapping for WETH vault deposits (matches transactionUtilsV2). */
 export const ETH_GAS_RESERVE = 0.0001;
+/** 0.0001 ETH in wei — same reserve as `ETH_GAS_RESERVE`. */
+export const ETH_GAS_RESERVE_WEI = BigInt(100_000_000_000_000);
 /** Delay before follow-up balance refresh after tx (Morpho indexer lag). */
 export const POST_TX_BALANCE_REFRESH_DELAY_MS = 5000;
-
-// Request timeouts
-export const REQUEST_TIMEOUT_MS = 30000; // 30 seconds
 
 // Morpho GraphQL API
 export const MORPHO_GRAPHQL_URL = 'https://api.morpho.org/graphql' as const;
@@ -39,6 +37,6 @@ export const MORPHO_PRELOAD_BATCH_SIZE = 2;
 export const MORPHO_FETCH_ERROR_COOLDOWN_MS = 60_000;
 
 // Price API configuration
-export const STABLECOIN_SYMBOLS = ['USDC'] as const;
+export const STABLECOIN_SYMBOLS = ['USDC', 'USDT', 'DAI', 'USDBC', 'USDB'] as const;
 export const DEFAULT_ASSET_PRICE = 1;
 export const DEFAULT_ASSET_DECIMALS = 18;

@@ -20,7 +20,7 @@ import {
   formatPositionTokenAmount,
   formatPositionUsd,
   formatSmartCurrency,
-  getPositionDisplayFractionDigits,
+  getDisplayFractionDigits,
 } from '@/lib/formatter';
 import { formatUnits } from 'viem';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -62,7 +62,7 @@ function formatCompactTokenAmount(rawValue: string | undefined, decimals: number
   } else if (absValue >= 1_000) {
     formatted = `${formatNumber(value / 1_000, { maximumFractionDigits: 2 })}K`;
   } else {
-    const fractionDigits = getPositionDisplayFractionDigits(symbol);
+    const fractionDigits = getDisplayFractionDigits(symbol);
     formatted = formatNumber(value, {
       minimumFractionDigits: 0,
       maximumFractionDigits: Math.min(fractionDigits, 20),

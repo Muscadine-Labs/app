@@ -5,20 +5,23 @@
 // Helper function to check if an error is a user cancellation
 export function isCancellationError(error: unknown): boolean {
   if (!error) return false;
-  
+
   const errorString = error instanceof Error ? error.message : String(error);
   const errorLower = errorString.toLowerCase();
+  const code =
+    typeof error === 'object' && error !== null && 'code' in error
+      ? String((error as { code?: unknown }).code)
+      : '';
 
   return (
+    code === '4001' ||
     errorLower.includes('user rejected') ||
     errorLower.includes('user cancelled') ||
-    errorLower.includes('rejected') ||
-    errorLower.includes('denied') ||
-    errorLower.includes('action_cancelled') ||
-    errorLower.includes('4001') ||
+    errorLower.includes('user canceled') ||
     errorLower.includes('user denied') ||
-    errorLower.includes('user rejected the request') ||
-    errorLower.includes('user rejected transaction')
+    errorLower.includes('action_cancelled') ||
+    errorLower.includes('action_canceled') ||
+    errorLower.includes('request rejected')
   );
 }
 

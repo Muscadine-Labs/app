@@ -4,6 +4,8 @@
 html {
   background-color: var(--background);
   color: var(--foreground);
+  min-height: 100%;
+  min-height: 100dvh;
 }
 
 /* Hide scrollbars for circular navigation */
@@ -270,28 +272,27 @@ html {
   animation: fadeOutDown 0.2s ease-in;
 }
 
-/* Smooth page transitions */
 body {
-  opacity: 1;
-  transition: opacity 0.2s ease-in-out;
   color: var(--foreground);
   background-color: var(--background);
+  min-height: 100%;
+  min-height: 100dvh;
 }
 
-/* RainbowKit modals above app chrome (NavBar z-50, toasts, vault modals) */
+/* RainbowKit modals above app chrome (NavBar z-50, toasts, vault modals).
+   Do not style `[role=dialog] ~ div` — leftover siblings can cover the
+   Base App WebView and look like a blank screen. */
 [data-rk] {
   --rk-z-index: 100000;
 }
 
-[data-rk] [role="dialog"],
-[data-rk] [role="dialog"] ~ div,
-[data-rk] [data-rk="overlay"] {
+[data-rk] [role="dialog"] {
   z-index: 100000 !important;
 }
 
 /* WalletConnect / Reown AppKit QR modal above RainbowKit when connecting via WC */
-w3m-modal,
-appkit-modal {
+w3m-modal[open],
+appkit-modal[open] {
   z-index: 100001 !important;
 }
 

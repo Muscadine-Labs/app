@@ -1,8 +1,9 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useAccount } from 'wagmi';
 import { useBalance, useReadContract } from 'wagmi';
+import { formatUnits } from 'viem';
 import type { AlchemyTokenBalancesResponse, AlchemyTokenMetadataResponse, AlchemyTokenBalance } from '@/types/api';
 import { formatCurrency } from '@/lib/formatter';
 import { logger } from '@/lib/logger';
@@ -85,6 +86,48 @@ export const TOKEN_ADDRESSES_LOWER = {
   wstETH: TOKEN_ADDRESSES.wstETH.toLowerCase(),
 } as const;
 
+/** Symbols whose USD price must only apply to the canonical Base address. */
+const MAJOR_SYMBOL_PRICES = new Set([
+  'ETH',
+  'WETH',
+  'USDC',
+  'USDT',
+  'DAI',
+  'CBBTC',
+  'BTC',
+  'CBETH',
+  'WSTETH',
+  'STETH',
+  'WBTC',
+]);
+
+function resolveTokenUsdPrice(
+  token: { address: string; symbol: string },
+  tokenPrices: Record<string, number>
+): number {
+  if (token.address === 'ETH') return tokenPrices.eth || 0;
+  const addressLower = token.address.toLowerCase();
+  if (addressLower === TOKEN_ADDRESSES_LOWER.cbBTC) return tokenPrices.cbbtc || 0;
+  if (addressLower === TOKEN_ADDRESSES_LOWER.USDC) return tokenPrices.usdc || 1;
+  if (addressLower === TOKEN_ADDRESSES_LOWER.WETH) {
+    return tokenPrices.weth || tokenPrices.eth || 0;
+  }
+  if (addressLower === TOKEN_ADDRESSES_LOWER.cbETH) return tokenPrices.cbeth || 0;
+  if (addressLower === TOKEN_ADDRESSES_LOWER.wstETH) return tokenPrices.wsteth || 0;
+
+  const symbol = token.symbol.trim().toUpperCase();
+  if (symbol === 'STETH') return tokenPrices.steth || 0;
+  if (MAJOR_SYMBOL_PRICES.has(symbol)) return 0;
+  const mapped = tokenPrices[symbol.toLowerCase()];
+  return typeof mapped === 'number' && Number.isFinite(mapped) ? mapped : 0;
+}
+
+function isVaultShareTokenAddress(address: string, positionAddresses: Set<string>): boolean {
+  if (address === 'ETH') return false;
+  if (findVaultByAddress(address)) return true;
+  return positionAddresses.has(address.toLowerCase());
+}
+
 // Token metadata cache - persists across component remounts
 // Token metadata rarely changes, so we cache it to avoid repeated RPC calls
 const tokenMetadataCache = new Map<string, { decimals: number; symbol: string; name?: string; timestamp: number }>();
@@ -123,6 +166,44 @@ const ERC20_ABI = [
     outputs: [{ name: '', type: 'string' }],
   },
 ] as const;
+
+const WAGMI_FALLBACK_NONE = {
+  usdc: false,
+  cbbtc: false,
+  weth: false,
+  cbeth: false,
+  wsteth: false,
+};
+
+const WAGMI_FALLBACK_ALL = {
+  usdc: true,
+  cbbtc: true,
+  weth: true,
+  cbeth: true,
+  wsteth: true,
+};
+
+function toTokenBalance(
+  contractAddress: string,
+  tokenBalance: string | undefined,
+  decimals: number,
+  symbol: string
+): TokenBalance | null {
+  try {
+    const balance = BigInt(tokenBalance || '0');
+    if (balance <= BigInt(0)) return null;
+    return {
+      address: contractAddress,
+      symbol,
+      decimals,
+      balance,
+      formatted: formatUnits(balance, decimals),
+      usdValue: 0,
+    };
+  } catch {
+    return null;
+  }
+}
 
 export function WalletProvider({ children }: { children: React.ReactNode }) {
   const { address, isConnected } = useAccount();
@@ -166,7 +247,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   }>({ usdc: false, cbbtc: false, weth: false, cbeth: false, wsteth: false });
 
   // Get token balances for major tokens (fallback only)
-  const { data: usdcBalance, refetch: refetchUsdcBalance } = useReadContract({
+  const { data: usdcBalance } = useReadContract({
     address: TOKEN_ADDRESSES.USDC,
     abi: ERC20_ABI,
     functionName: 'balanceOf',
@@ -174,7 +255,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     query: { enabled: !!address && needsWagmiFallback.usdc }
   });
 
-  const { data: cbbtcBalance, refetch: refetchCbbtcBalance } = useReadContract({
+  const { data: cbbtcBalance } = useReadContract({
     address: TOKEN_ADDRESSES.cbBTC,
     abi: ERC20_ABI,
     functionName: 'balanceOf',
@@ -182,7 +263,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     query: { enabled: !!address && needsWagmiFallback.cbbtc }
   });
 
-  const { data: wethBalance, refetch: refetchWethBalance } = useReadContract({
+  const { data: wethBalance } = useReadContract({
     address: TOKEN_ADDRESSES.WETH,
     abi: ERC20_ABI,
     functionName: 'balanceOf',
@@ -190,7 +271,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     query: { enabled: !!address && needsWagmiFallback.weth }
   });
 
-  const { data: cbethBalance, refetch: refetchCbethBalance } = useReadContract({
+  const { data: cbethBalance } = useReadContract({
     address: TOKEN_ADDRESSES.cbETH,
     abi: ERC20_ABI,
     functionName: 'balanceOf',
@@ -198,7 +279,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     query: { enabled: !!address && needsWagmiFallback.cbeth }
   });
 
-  const { data: wstethBalance, refetch: refetchWstethBalance } = useReadContract({
+  const { data: wstethBalance } = useReadContract({
     address: TOKEN_ADDRESSES.wstETH,
     abi: ERC20_ABI,
     functionName: 'balanceOf',
@@ -243,24 +324,39 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   });
 
   // Fetch token prices dynamically
-  const fetchTokenPrices = useCallback(async (symbols: string[]) => {
+  const fetchTokenPrices = useCallback(async (symbols: string[]): Promise<Record<string, number>> => {
     try {
       const symbolsParam = symbols.join(',');
       const response = await fetch(`/api/prices?symbols=${symbolsParam}`);
+      if (!response.ok) {
+        return {};
+      }
       const data = await response.json();
-      return data;
+      if (!data || typeof data !== 'object' || Array.isArray(data)) {
+        return {};
+      }
+
+      const prices: Record<string, number> = {};
+      for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
+        if (typeof value === 'number' && Number.isFinite(value)) {
+          prices[key] = value;
+        }
+      }
+      return prices;
     } catch {
       return {};
     }
   }, []);
 
   // Fetch all token balances using Alchemy API (more reliable than individual contract calls)
-  const fetchAllTokenBalances = useCallback(async (): Promise<TokenBalance[]> => {
-    if (!address) return [];
+  const fetchAllTokenBalances = useCallback(async (
+    walletAddress: string | undefined
+  ): Promise<{ tokens: TokenBalance[]; ok: boolean }> => {
+    if (!walletAddress) return { tokens: [], ok: true };
 
     const alchemyApiKey = process.env.NEXT_PUBLIC_ALCHEMY_API_KEY;
     if (!alchemyApiKey) {
-      return [];
+      return { tokens: [], ok: false };
     }
 
     try {
@@ -275,33 +371,37 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
             jsonrpc: '2.0',
             id: 1,
             method: 'alchemy_getTokenBalances',
-            params: [address, 'erc20'],
+            params: [walletAddress, 'erc20'],
           }),
         }
       );
 
+      if (!response.ok) {
+        return { tokens: [], ok: false };
+      }
+
       const data = await response.json() as AlchemyTokenBalancesResponse;
-      
+
       if (data.error) {
-        return [];
+        return { tokens: [], ok: false };
       }
 
       const tokenAddresses = data.result?.tokenBalances || [];
-      
-      // Filter tokens with non-zero balance and separate into known/unknown
+
       const tokensWithBalance = tokenAddresses.filter((token: AlchemyTokenBalance) => {
-        const balance = BigInt(token.tokenBalance || '0');
-        return balance > BigInt(0); // Only process tokens with non-zero balance
+        try {
+          return BigInt(token.tokenBalance || '0') > BigInt(0);
+        } catch {
+          return false;
+        }
       });
 
-      // Separate tokens into known (use cached metadata) and unknown (fetch metadata)
       const knownTokens: Array<{ token: AlchemyTokenBalance; metadata: { decimals: number; symbol: string } }> = [];
       const unknownTokens: AlchemyTokenBalance[] = [];
 
       tokensWithBalance.forEach((token: AlchemyTokenBalance) => {
         const addressLower = token.contractAddress.toLowerCase();
-        
-        // Check if it's a known token
+
         if (KNOWN_TOKEN_METADATA[addressLower]) {
           knownTokens.push({
             token,
@@ -310,7 +410,6 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
           return;
         }
 
-        // Check cache
         const cached = tokenMetadataCache.get(addressLower);
         if (cached && Date.now() - cached.timestamp < METADATA_CACHE_DURATION) {
           knownTokens.push({
@@ -320,48 +419,22 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
           return;
         }
 
-        // Need to fetch metadata
         unknownTokens.push(token);
       });
 
-      // Process known tokens immediately (no API calls needed)
-      const knownTokenBalances = knownTokens.map(({ token, metadata }) => {
-        const balance = BigInt(token.tokenBalance || '0');
-        const decimals = metadata.decimals;
-        const symbol = metadata.symbol;
-        const formatted = (Number(balance) / Math.pow(10, decimals)).toString();
+      const knownTokenBalances = knownTokens
+        .map(({ token, metadata }) =>
+          toTokenBalance(token.contractAddress, token.tokenBalance, metadata.decimals, metadata.symbol)
+        )
+        .filter((result): result is TokenBalance => result !== null);
 
-        return {
-          address: token.contractAddress,
-          symbol,
-          decimals,
-          balance,
-          formatted,
-          usdValue: 0, // Will be calculated later with prices
-        };
-      });
-
-      // Fetch metadata for unknown tokens only (dramatically reduces RPC calls)
       const tokenMetadataPromises = unknownTokens.map(async (token: AlchemyTokenBalance) => {
         try {
           const addressLower = token.contractAddress.toLowerCase();
-          
-          // Check cache again (in case another request populated it)
+
           const cached = tokenMetadataCache.get(addressLower);
           if (cached && Date.now() - cached.timestamp < METADATA_CACHE_DURATION) {
-            const balance = BigInt(token.tokenBalance || '0');
-            const decimals = cached.decimals;
-            const symbol = cached.symbol;
-            const formatted = (Number(balance) / Math.pow(10, decimals)).toString();
-
-            return {
-              address: token.contractAddress,
-              symbol,
-              decimals,
-              balance,
-              formatted,
-              usdValue: 0,
-            };
+            return toTokenBalance(token.contractAddress, token.tokenBalance, cached.decimals, cached.symbol);
           }
 
           const metadataResponse = await fetch(
@@ -381,22 +454,17 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
           );
 
           const metadataData = await metadataResponse.json() as AlchemyTokenMetadataResponse;
-          
+
           if (metadataData.error || !metadataData.result) {
             return null;
           }
 
-          const balance = BigInt(token.tokenBalance || '0');
           const decimals = metadataData.result.decimals || 18;
           let symbol = metadataData.result.symbol || 'UNKNOWN';
-          const formatted = (Number(balance) / Math.pow(10, decimals)).toString();
-
-          // Normalize cbBTC to ensure consistent symbol
           if (addressLower === TOKEN_ADDRESSES_LOWER.cbBTC) {
-            symbol = 'cbBTC'; // Always use cbBTC (not CBTC or BTC)
+            symbol = 'cbBTC';
           }
 
-          // Cache the metadata to avoid future API calls
           tokenMetadataCache.set(addressLower, {
             decimals,
             symbol,
@@ -404,36 +472,30 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
             timestamp: Date.now(),
           });
 
-          return {
-            address: token.contractAddress,
-            symbol,
-            decimals,
-            balance,
-            formatted,
-            usdValue: 0, // Will be calculated later with prices
-          };
+          return toTokenBalance(token.contractAddress, token.tokenBalance, decimals, symbol);
         } catch {
           return null;
         }
       });
 
-      // Combine known tokens (no API calls) with fetched tokens
       const metadataResults = await Promise.all(tokenMetadataPromises);
       const fetchedTokens = metadataResults.filter((result): result is TokenBalance => result !== null);
-      
-      // Return combined results (known tokens + fetched tokens)
-      return [...knownTokenBalances, ...fetchedTokens];
+
+      return { tokens: [...knownTokenBalances, ...fetchedTokens], ok: true };
     } catch {
-      return [];
+      return { tokens: [], ok: false };
     }
-  }, [address]);
+  }, []);
 
   // Fetch all Morpho v2 vault positions from the API (curated + external).
   const morphoFetchIdRef = useRef(0);
   const lastMorphoAddressRef = useRef<string | null>(null);
+  const walletDataFetchIdRef = useRef(0);
 
-  const fetchVaultPositions = useCallback(async (): Promise<void> => {
-    if (!address) {
+  type MorphoFetchStatus = 'ok' | 'aborted' | 'retryable' | 'failed';
+
+  const fetchVaultPositions = useCallback(async (requestedAddress?: string): Promise<MorphoFetchStatus> => {
+    if (!requestedAddress) {
       morphoFetchIdRef.current += 1;
       lastMorphoAddressRef.current = null;
       setMorphoHoldings({
@@ -442,11 +504,10 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
         isLoading: false,
         error: null,
       });
-      return;
+      return 'ok';
     }
 
     const fetchId = ++morphoFetchIdRef.current;
-    const requestedAddress = address;
     const addressChanged =
       lastMorphoAddressRef.current?.toLowerCase() !== requestedAddress.toLowerCase();
     lastMorphoAddressRef.current = requestedAddress;
@@ -473,7 +534,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       let lastFetchError: unknown;
 
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        if (!isCurrent()) return;
+        if (!isCurrent()) return 'aborted';
         try {
           morphoResponse = await fetch(url, { cache: 'no-store' });
           if (morphoResponse.ok || attempt === maxAttempts - 1) break;
@@ -499,7 +560,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
-      if (!isCurrent()) return;
+      if (!isCurrent()) return 'aborted';
 
       if (!morphoResponse) {
         throw lastFetchError instanceof Error
@@ -524,11 +585,18 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
           isLoading: false,
           error: message,
         }));
-        return;
+        const retryable =
+          body?.retryable === true ||
+          (body?.retryable !== false &&
+            (morphoResponse.status === 429 ||
+              morphoResponse.status === 502 ||
+              morphoResponse.status === 503 ||
+              morphoResponse.status === 504));
+        return retryable ? 'retryable' : 'failed';
       }
 
       const morphoData = await morphoResponse.json();
-      if (!isCurrent()) return;
+      if (!isCurrent()) return 'aborted';
 
       const positions: VaultPosition[] = (morphoData.positions ?? []).map(
         (p: {
@@ -589,8 +657,9 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
         totalValueUsd: totalValueUsd.toFixed(2),
         timestamp: new Date().toISOString(),
       });
+      return 'ok';
     } catch (err) {
-      if (!isCurrent()) return;
+      if (!isCurrent()) return 'aborted';
       logger.error('Failed to fetch vault positions', err instanceof Error ? err : new Error(String(err)), {
         address: requestedAddress,
       });
@@ -599,234 +668,108 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
         isLoading: false,
         error: err instanceof Error ? err.message : 'Failed to fetch vault positions',
       }));
+      return 'retryable';
     }
-  }, [address]);
+  }, []);
 
-  // Stable wallet state management - only clear data on actual disconnect
+  const performRefresh = useCallback(async (walletAddress?: string): Promise<void> => {
+    if (!walletAddress) return;
+    const fetchId = ++walletDataFetchIdRef.current;
+
+    if (refetchEthBalance) {
+      await refetchEthBalance();
+    }
+    if (fetchId !== walletDataFetchIdRef.current) return;
+
+    const { tokens, ok } = await fetchAllTokenBalances(walletAddress);
+    if (fetchId !== walletDataFetchIdRef.current) return;
+
+    setAlchemyTokenBalances(tokens);
+    setNeedsWagmiFallback(ok ? { ...WAGMI_FALLBACK_NONE } : { ...WAGMI_FALLBACK_ALL });
+    // When Alchemy fails, enabling the wagmi reads is enough — they fetch on the next render.
+    // Refetching here is a no-op because `enabled` is still false on this tick.
+
+    const symbols = new Set<string>(['ETH', 'USDC', 'CBBTC', 'CBETH', 'WSTETH', 'STETH', 'WETH']);
+
+    const prices = await fetchTokenPrices(Array.from(symbols));
+    if (fetchId !== walletDataFetchIdRef.current) return;
+
+    setTokenPrices({
+      eth: prices.eth || 0,
+      usdc: prices.usdc || 1,
+      cbbtc: prices.cbbtc || 0,
+      weth: prices.weth || prices.eth || 0,
+      ...Object.fromEntries(
+        Object.entries(prices).map(([key, value]) => [key.toLowerCase(), value])
+      ),
+    });
+
+    logger.debug('Token balances and prices updated', {
+      alchemyOk: ok,
+      alchemyBalanceCount: tokens.length,
+      tokenCount: symbols.size,
+    });
+
+    const morphoStatus = await fetchVaultPositions(walletAddress);
+    if (fetchId !== walletDataFetchIdRef.current || morphoStatus === 'aborted') return;
+
+    if (!ok) {
+      throw new Error('Failed to fetch token balances');
+    }
+    if (morphoStatus === 'retryable') {
+      throw new Error('Morpho positions temporarily unavailable');
+    }
+  }, [
+    fetchTokenPrices,
+    fetchVaultPositions,
+    fetchAllTokenBalances,
+    refetchEthBalance,
+  ]);
+
   useEffect(() => {
     if (stableIsConnected && stableAddress) {
-      // Only fetch when actually connected with an address
-      const fetchAllData = async () => {
-        // Fetch all token balances from Alchemy first (primary source)
-        const alchemyBalances = await fetchAllTokenBalances();
-        setAlchemyTokenBalances(alchemyBalances);
-
-        // Check if Alchemy returned key tokens - enable wagmi fallback only if missing
-        const hasUsdc = alchemyBalances.some(t => t.address.toLowerCase() === TOKEN_ADDRESSES_LOWER.USDC);
-        const hasCbbtc = alchemyBalances.some(t => t.address.toLowerCase() === TOKEN_ADDRESSES_LOWER.cbBTC);
-        const hasWeth = alchemyBalances.some(t => t.address.toLowerCase() === TOKEN_ADDRESSES_LOWER.WETH);
-        const hasCbeth = alchemyBalances.some(t => t.address.toLowerCase() === TOKEN_ADDRESSES_LOWER.cbETH);
-        const hasWsteth = alchemyBalances.some(t => t.address.toLowerCase() === TOKEN_ADDRESSES_LOWER.wstETH);
-        
-        setNeedsWagmiFallback({
-          usdc: !hasUsdc,
-          cbbtc: !hasCbbtc,
-          weth: !hasWeth,
-          cbeth: !hasCbeth,
-          wsteth: !hasWsteth,
-        });
-
-        // Get unique symbols for price fetching
-        const symbols = new Set<string>(['ETH', 'USDC', 'CBBTC', 'CBETH', 'WSTETH']);
-        alchemyBalances.forEach(token => {
-          const symbol = token.symbol.toUpperCase();
-          if (symbol === 'WETH') {
-            symbols.add('WETH');
-          } else if (symbol !== 'USDC' && symbol !== 'CBBTC') {
-            symbols.add(symbol);
-          }
-        });
-
-        // Fetch prices for all tokens
-        const prices = await fetchTokenPrices(Array.from(symbols));
-        setTokenPrices({
-          eth: prices.eth || 0,
-          usdc: prices.usdc || 1, // USDC is pegged to $1
-          cbbtc: prices.cbbtc || 0, // cbBTC price only
-          weth: prices.weth || prices.eth || 0, // WETH uses ETH price
-          ...Object.fromEntries(
-            Object.entries(prices).map(([key, value]) => [key.toLowerCase(), value])
-          ),
-        });
-        // Fetch vault positions using RPC (balanceOf + convertToAssets)
-        await fetchVaultPositions();
-      };
-      
-      fetchAllData();
+      void performRefresh(stableAddress).catch((err) => {
+        logger.error(
+          'Wallet data refresh failed',
+          err instanceof Error ? err : new Error(String(err)),
+          { address: stableAddress }
+        );
+      });
     } else if (!stableIsConnected) {
-      // Only clear data when explicitly disconnected (not during auth flows).
-      // Defer so we don't sync-set state in the effect body (react-hooks/set-state-in-effect).
+      walletDataFetchIdRef.current += 1;
+      morphoFetchIdRef.current += 1;
+      lastMorphoAddressRef.current = null;
       queueMicrotask(() => {
         setMorphoHoldings((prev) => ({
           ...prev,
           totalValueUsd: 0,
           positions: [],
           isLoading: false,
+          error: null,
         }));
         setTokenPrices({});
         setAlchemyTokenBalances([]);
+        setNeedsWagmiFallback({ ...WAGMI_FALLBACK_NONE });
       });
     }
-    // Don't include fetchVaultPositions and fetchTokenPrices in deps to prevent infinite loops
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stableIsConnected, stableAddress, fetchAllTokenBalances]);
+  }, [stableIsConnected, stableAddress, performRefresh]);
 
   const refreshBalances = useCallback(async () => {
-    // Refetch ETH balance (always needed)
-    if (address && refetchEthBalance) {
-      await refetchEthBalance();
+    try {
+      await performRefresh(address);
+      logger.info('Balance refresh completed', {
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err) {
+      logger.error(
+        'Balance refresh failed',
+        err instanceof Error ? err : new Error(String(err)),
+        { address }
+      );
     }
+  }, [performRefresh, address]);
 
-    // Fetch all token balances from Alchemy (primary source)
-    const alchemyBalances = await fetchAllTokenBalances();
-    setAlchemyTokenBalances(alchemyBalances);
-
-    // Check if Alchemy returned key tokens - enable wagmi fallback only if missing
-    const hasUsdc = alchemyBalances.some(t => t.address.toLowerCase() === TOKEN_ADDRESSES_LOWER.USDC);
-    const hasCbbtc = alchemyBalances.some(t => t.address.toLowerCase() === TOKEN_ADDRESSES_LOWER.cbBTC);
-    const hasWeth = alchemyBalances.some(t => t.address.toLowerCase() === TOKEN_ADDRESSES_LOWER.WETH);
-    const hasCbeth = alchemyBalances.some(t => t.address.toLowerCase() === TOKEN_ADDRESSES_LOWER.cbETH);
-    const hasWsteth = alchemyBalances.some(t => t.address.toLowerCase() === TOKEN_ADDRESSES_LOWER.wstETH);
-    
-    setNeedsWagmiFallback({
-      usdc: !hasUsdc,
-      cbbtc: !hasCbbtc,
-      weth: !hasWeth,
-      cbeth: !hasCbeth,
-      wsteth: !hasWsteth,
-    });
-
-    // Only refetch wagmi hooks if fallback is needed
-    const refetchPromises = [];
-    if (address) {
-      if (!hasUsdc && refetchUsdcBalance) refetchPromises.push(refetchUsdcBalance());
-      if (!hasCbbtc && refetchCbbtcBalance) refetchPromises.push(refetchCbbtcBalance());
-      if (!hasWeth && refetchWethBalance) refetchPromises.push(refetchWethBalance());
-      if (!hasCbeth && refetchCbethBalance) refetchPromises.push(refetchCbethBalance());
-      if (!hasWsteth && refetchWstethBalance) refetchPromises.push(refetchWstethBalance());
-    }
-    await Promise.all(refetchPromises);
-
-    const symbols = new Set<string>(['ETH', 'USDC', 'CBBTC', 'CBETH', 'WSTETH']);
-    alchemyBalances.forEach(token => {
-      const symbol = token.symbol.toUpperCase();
-      if (symbol === 'WETH') {
-        symbols.add('WETH');
-      } else if (symbol === 'CBETH') {
-        symbols.add('CBETH');
-      } else if (symbol === 'WSTETH') {
-        symbols.add('WSTETH');
-      } else if (symbol !== 'USDC' && symbol !== 'CBBTC') {
-        symbols.add(symbol);
-      }
-    });
-
-    const prices = await fetchTokenPrices(Array.from(symbols));
-    setTokenPrices({
-      eth: prices.eth || 0,
-      usdc: prices.usdc || 1,
-      cbbtc: prices.cbbtc || 0, // cbBTC price only
-      weth: prices.weth || prices.eth || 0,
-      ...Object.fromEntries(
-        Object.entries(prices).map(([key, value]) => [key.toLowerCase(), value])
-      ),
-    });
-    
-    // Log USDC balance specifically for debugging
-    const usdcBalance = alchemyBalances.find(t => t.symbol.toUpperCase() === 'USDC');
-    logger.debug('Token balances and prices updated', {
-      alchemyBalanceCount: alchemyBalances.length,
-      tokenCount: symbols.size,
-      usdcBalance: usdcBalance ? {
-        symbol: usdcBalance.symbol,
-        balance: usdcBalance.balance.toString(),
-        formatted: usdcBalance.formatted,
-        decimals: usdcBalance.decimals,
-      } : 'not found',
-      allTokens: alchemyBalances.map(t => ({
-        symbol: t.symbol,
-        formatted: t.formatted,
-        balance: t.balance.toString(),
-      })),
-      timestamp: new Date().toISOString(),
-    });
-    
-    // Fetch vault positions using RPC (balanceOf + convertToAssets)
-    await fetchVaultPositions();
-    
-    logger.info('Balance refresh completed', {
-      timestamp: new Date().toISOString(),
-      note: 'Check detailed logs above for fetched values - state updates asynchronously via React',
-    });
-  }, [fetchTokenPrices, fetchVaultPositions, fetchAllTokenBalances, refetchEthBalance, refetchUsdcBalance, refetchCbbtcBalance, refetchWethBalance, refetchCbethBalance, refetchWstethBalance, address]);
-
-  // Helper function to sleep/delay
-  const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-  // Core refresh logic (extracted for reuse)
-  const performRefresh = useCallback(async (): Promise<void> => {
-    // Refetch ETH balance (always needed)
-    if (address && refetchEthBalance) {
-      await refetchEthBalance();
-    }
-
-    // Fetch all token balances from Alchemy (primary source)
-    const alchemyBalances = await fetchAllTokenBalances();
-    setAlchemyTokenBalances(alchemyBalances);
-
-    // Check if Alchemy returned key tokens - enable wagmi fallback only if missing
-    const hasUsdc = alchemyBalances.some(t => t.address.toLowerCase() === TOKEN_ADDRESSES_LOWER.USDC);
-    const hasCbbtc = alchemyBalances.some(t => t.address.toLowerCase() === TOKEN_ADDRESSES_LOWER.cbBTC);
-    const hasWeth = alchemyBalances.some(t => t.address.toLowerCase() === TOKEN_ADDRESSES_LOWER.WETH);
-    const hasCbeth = alchemyBalances.some(t => t.address.toLowerCase() === TOKEN_ADDRESSES_LOWER.cbETH);
-    const hasWsteth = alchemyBalances.some(t => t.address.toLowerCase() === TOKEN_ADDRESSES_LOWER.wstETH);
-    
-    setNeedsWagmiFallback({
-      usdc: !hasUsdc,
-      cbbtc: !hasCbbtc,
-      weth: !hasWeth,
-      cbeth: !hasCbeth,
-      wsteth: !hasWsteth,
-    });
-
-    // Only refetch wagmi hooks if fallback is needed
-    const refetchPromises = [];
-    if (address) {
-      if (!hasUsdc && refetchUsdcBalance) refetchPromises.push(refetchUsdcBalance());
-      if (!hasCbbtc && refetchCbbtcBalance) refetchPromises.push(refetchCbbtcBalance());
-      if (!hasWeth && refetchWethBalance) refetchPromises.push(refetchWethBalance());
-      if (!hasCbeth && refetchCbethBalance) refetchPromises.push(refetchCbethBalance());
-      if (!hasWsteth && refetchWstethBalance) refetchPromises.push(refetchWstethBalance());
-    }
-    await Promise.all(refetchPromises);
-
-    const symbols = new Set<string>(['ETH', 'USDC', 'CBBTC', 'CBETH', 'WSTETH']);
-    alchemyBalances.forEach(token => {
-      const symbol = token.symbol.toUpperCase();
-      if (symbol === 'WETH') {
-        symbols.add('WETH');
-      } else if (symbol === 'CBETH') {
-        symbols.add('CBETH');
-      } else if (symbol === 'WSTETH') {
-        symbols.add('WSTETH');
-      } else if (symbol !== 'USDC' && symbol !== 'CBBTC') {
-        symbols.add(symbol);
-      }
-    });
-
-    const prices = await fetchTokenPrices(Array.from(symbols));
-    setTokenPrices({
-      eth: prices.eth || 0,
-      usdc: prices.usdc || 1,
-      cbbtc: prices.cbbtc || 0, // cbBTC price only
-      weth: prices.weth || prices.eth || 0,
-      ...Object.fromEntries(
-        Object.entries(prices).map(([key, value]) => [key.toLowerCase(), value])
-      ),
-    });
-
-    await fetchVaultPositions();
-  }, [fetchTokenPrices, fetchVaultPositions, fetchAllTokenBalances, refetchEthBalance, refetchUsdcBalance, refetchCbbtcBalance, refetchWethBalance, refetchCbethBalance, refetchWstethBalance, address]);
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
   // Refresh with retry logic (exponential backoff)
   const refreshBalancesWithRetry = useCallback(async (options?: { maxRetries?: number; retryDelay?: number }) => {
@@ -836,7 +779,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     let lastError: Error | null = null;
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        await performRefresh();
+        await performRefresh(address);
         if (attempt > 0) {
           logger.info('Balance refresh succeeded after retry', {
             attempt: attempt + 1,
@@ -866,7 +809,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       }
     }
     throw lastError || new Error('Balance refresh failed');
-  }, [performRefresh]);
+  }, [performRefresh, address]);
 
   // One delayed refresh after tx — Morpho indexer often lags a few seconds; no polling loop.
   const refreshBalancesWithPolling = useCallback(async (options?: { followUpDelayMs?: number; onComplete?: () => void | Promise<void> }) => {
@@ -875,7 +818,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     await sleep(followUpDelayMs);
 
     try {
-      await performRefresh();
+      await performRefresh(address);
       logger.info('Post-transaction follow-up balance refresh completed', {
         followUpDelayMs,
         timestamp: new Date().toISOString(),
@@ -890,7 +833,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     }
 
     await options?.onComplete?.();
-  }, [performRefresh]);
+  }, [performRefresh, address]);
 
   // Calculate balances and USD values
   const ethFormatted = ethBalance ? parseFloat(ethBalance.formatted) : 0;
@@ -898,48 +841,29 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   
   // Calculate token balances with proper decimals
   const usdcDecimalsValue = usdcDecimals || 6;
-  const usdcFormatted = usdcBalance ? Number(usdcBalance) / Math.pow(10, usdcDecimalsValue) : 0;
-  const usdcUsdValue = usdcFormatted * (tokenPrices.usdc || 1);
+  const usdcFormatted = usdcBalance ? formatUnits(usdcBalance, usdcDecimalsValue) : '0';
+  const usdcUsdValue = parseFloat(usdcFormatted) * (tokenPrices.usdc || 1);
   
   const cbbtcDecimalsValue = cbbtcDecimals || 8;
-  const cbbtcFormatted = cbbtcBalance ? Number(cbbtcBalance) / Math.pow(10, cbbtcDecimalsValue) : 0;
-  const cbbtcUsdValue = cbbtcFormatted * (tokenPrices.cbbtc || 0);
+  const cbbtcFormatted = cbbtcBalance ? formatUnits(cbbtcBalance, cbbtcDecimalsValue) : '0';
+  const cbbtcUsdValue = parseFloat(cbbtcFormatted) * (tokenPrices.cbbtc || 0);
   
   const wethDecimalsValue = wethDecimals || 18;
-  const wethFormatted = wethBalance ? Number(wethBalance) / Math.pow(10, wethDecimalsValue) : 0;
-  const wethUsdValue = wethFormatted * (tokenPrices.weth || tokenPrices.eth || 0);
+  const wethFormatted = wethBalance ? formatUnits(wethBalance, wethDecimalsValue) : '0';
+  const wethUsdValue = parseFloat(wethFormatted) * (tokenPrices.weth || tokenPrices.eth || 0);
   
   const cbethDecimalsValue = cbethDecimals || 18;
-  const cbethFormatted = cbethBalance ? Number(cbethBalance) / Math.pow(10, cbethDecimalsValue) : 0;
-  const cbethUsdValue = cbethFormatted * (tokenPrices.cbeth || tokenPrices.eth || 0);
+  const cbethFormatted = cbethBalance ? formatUnits(cbethBalance, cbethDecimalsValue) : '0';
+  const cbethUsdValue = parseFloat(cbethFormatted) * (tokenPrices.cbeth || 0);
   
   const wstethDecimalsValue = wstethDecimals || 18;
-  const wstethFormatted = wstethBalance ? Number(wstethBalance) / Math.pow(10, wstethDecimalsValue) : 0;
-  const wstethUsdValue = wstethFormatted * (tokenPrices.wsteth || tokenPrices.eth || 0);
+  const wstethFormatted = wstethBalance ? formatUnits(wstethBalance, wstethDecimalsValue) : '0';
+  const wstethUsdValue = parseFloat(wstethFormatted) * (tokenPrices.wsteth || 0);
 
   // Build token balances array - combine ETH, manually fetched tokens, and Alchemy tokens
   // Calculate USD values for Alchemy tokens
   const alchemyBalancesWithPrices = alchemyTokenBalances.map(token => {
-    const addressLower = token.address.toLowerCase();
-    let price = 0;
-    
-    // Use address-based matching for major tokens (same as detection)
-    if (addressLower === TOKEN_ADDRESSES_LOWER.cbBTC) {
-      price = tokenPrices.cbbtc || 0;
-    } else if (addressLower === TOKEN_ADDRESSES_LOWER.USDC) {
-      price = tokenPrices.usdc || 1;
-    } else if (addressLower === TOKEN_ADDRESSES_LOWER.WETH) {
-      price = tokenPrices.weth || tokenPrices.eth || 0;
-    } else if (addressLower === TOKEN_ADDRESSES_LOWER.cbETH) {
-      price = tokenPrices.cbeth || tokenPrices.eth || 0;
-    } else if (addressLower === TOKEN_ADDRESSES_LOWER.wstETH) {
-      price = tokenPrices.wsteth || tokenPrices.eth || 0;
-    } else {
-      // Try to find price by symbol (case insensitive)
-      const symbolUpper = token.symbol.toUpperCase();
-      price = tokenPrices[symbolUpper.toLowerCase()] || tokenPrices[token.symbol.toLowerCase()] || 0;
-    }
-    
+    const price = resolveTokenUsdPrice(token, tokenPrices);
     const usdValue = parseFloat(token.formatted) * price;
     
     return {
@@ -1004,10 +928,15 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     }] : []),
   ];
 
-  // Remove duplicates and filter to only non-zero balances (for total calculation)
+  // Remove duplicates, skip Morpho vault share tokens (already in Vaults USD),
+  // and drop impostor-priced dust from the liquid total.
+  const vaultShareAddresses = new Set(
+    morphoHoldings.positions.map((position) => position.vault.address.toLowerCase())
+  );
   const allValidTokenBalances = allTokenBalances
-    .filter((token, index, self) => 
-      token.balance > BigInt(0) && 
+    .filter((token, index, self) =>
+      token.balance > BigInt(0) &&
+      !isVaultShareTokenAddress(token.address, vaultShareAddresses) &&
       index === self.findIndex(t => t.address.toLowerCase() === token.address.toLowerCase())
     );
 
@@ -1021,20 +950,33 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   // Calculate total value (liquid + Morpho vaults)
   const totalUsdValue = liquidUsdValue + morphoHoldings.totalValueUsd;
 
-  const value: WalletContextType = {
-    ethBalance: ethBalance?.formatted || '0',
-    ethUsdValue: formatCurrency(ethUsdValue),
-    totalUsdValue: formatCurrency(totalUsdValue),
-    liquidUsdValue: formatCurrency(liquidUsdValue),
-    morphoUsdValue: formatCurrency(morphoHoldings.totalValueUsd),
-    tokenBalances, // Now includes all major tokens with non-zero balances
-    morphoHoldings,
-    loading: morphoHoldings.isLoading,
-    error: morphoHoldings.error,
-    refreshBalances,
-    refreshBalancesWithRetry,
-    refreshBalancesWithPolling,
-  };
+  const value = useMemo<WalletContextType>(
+    () => ({
+      ethBalance: ethBalance?.formatted || '0',
+      ethUsdValue: formatCurrency(ethUsdValue),
+      totalUsdValue: formatCurrency(totalUsdValue),
+      liquidUsdValue: formatCurrency(liquidUsdValue),
+      morphoUsdValue: formatCurrency(morphoHoldings.totalValueUsd),
+      tokenBalances,
+      morphoHoldings,
+      loading: morphoHoldings.isLoading,
+      error: morphoHoldings.error,
+      refreshBalances,
+      refreshBalancesWithRetry,
+      refreshBalancesWithPolling,
+    }),
+    [
+      ethBalance?.formatted,
+      ethUsdValue,
+      totalUsdValue,
+      liquidUsdValue,
+      morphoHoldings,
+      tokenBalances,
+      refreshBalances,
+      refreshBalancesWithRetry,
+      refreshBalancesWithPolling,
+    ]
+  );
 
   return (
     <WalletContext.Provider value={value}>

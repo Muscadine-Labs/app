@@ -123,22 +123,6 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                         </a>
                                     </div>
 
-                                    {/* FAQ Section */}
-                                    <div className="px-4 mb-4">
-                                        <h3 className="text-xs font-semibold text-[var(--foreground-secondary)] uppercase tracking-wider mb-2">
-                                            FAQ
-                                        </h3>
-                                        <a
-                                            href="https://docs.muscadine.xyz"
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="block py-2 text-sm text-[var(--foreground)] hover:text-[var(--primary)] transition-colors cursor-pointer"
-                                            onClick={() => setIsMenuOpen(false)}
-                                        >
-                                            Documentation
-                                        </a>
-                                    </div>
-
                                     {/* Protocol Section */}
                                     <div className="px-4 mb-4">
                                         <h3 className="text-xs font-semibold text-[var(--foreground-secondary)] uppercase tracking-wider mb-2">
@@ -255,16 +239,6 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                             size="sm"
                                             className={`min-w-fit hover:bg-transparent hover:text-[var(--primary)] transition-colors ${isActive(item) ? 'text-[var(--primary)]' : ''}`}
                                             onClick={() => router.push('/vaults')}
-                                        >
-                                            {item.label}
-                                        </Button>
-                                    )}
-                                    {item.id === 'transactions' && (
-                                        <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            className={`min-w-fit hover:bg-transparent hover:text-[var(--primary)] transition-colors ${pathname === '/transact' ? 'text-[var(--primary)]' : ''}`}
-                                            onClick={() => router.push('/transact')}
                                         >
                                             {item.label}
                                         </Button>
@@ -460,17 +434,6 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                                 setIsMobileNavOpen(false);
                                             }}
                                             className={`w-full px-4 py-3 text-left hover:bg-[var(--surface-hover)] transition-colors cursor-pointer ${isActive(item) ? 'text-[var(--primary)] bg-[var(--primary-subtle)]' : 'text-[var(--foreground)]'}`}
-                                        >
-                                            {item.label}
-                                        </button>
-                                    )}
-                                    {item.id === 'transactions' && (
-                                        <button
-                                            onClick={() => {
-                                                router.push('/transact');
-                                                setIsMobileNavOpen(false);
-                                            }}
-                                            className={`w-full px-4 py-3 text-left hover:bg-[var(--surface-hover)] transition-colors cursor-pointer ${pathname === '/transact' ? 'text-[var(--primary)] bg-[var(--primary-subtle)]' : 'text-[var(--foreground)]'}`}
                                         >
                                             {item.label}
                                         </button>
