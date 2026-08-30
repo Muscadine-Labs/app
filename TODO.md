@@ -1,5 +1,5 @@
 **To Work on Today:**
-- Improve the confirmation page so it list all the details, like full name of vault and the chain name. Also include on force deallocation page a link to what is force deallocation.  
+
 
 **To work on another day:**
 

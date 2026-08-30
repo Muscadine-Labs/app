@@ -1,10 +1,15 @@
 'use client';
 
-import Image from 'next/image';
+import type { Address } from 'viem';
 import { Account, VaultAccount, getVaultLogo } from '@/types/vault';
 import { TransactionType, useTransactionState } from '@/contexts/TransactionContext';
-import { formatAssetBalance } from '@/lib/formatter';
-import { ETH_GAS_RESERVE } from '@/lib/constants';
+import { formatAssetBalance, formatCurrency, truncateAddress } from '@/lib/formatter';
+import {
+  BASE_CHAIN_ID,
+  ETH_GAS_RESERVE,
+  getChainDisplayName,
+} from '@/lib/constants';
+import { findVaultByAddress } from '@/lib/vault-utils';
 import { isWethVault } from '@/lib/transaction-form-utils';
 import { Button } from '@/components/ui';
 import { useAccount } from 'wagmi';
@@ -13,7 +18,137 @@ import { TransactionProgressBar } from './TransactionProgressBar';
 import { useToast } from '@/contexts/ToastContext';
 import { useVaultData } from '@/contexts/VaultDataContext';
 import { useWallet } from '@/contexts/WalletContext';
+import { usePrices } from '@/contexts/PriceContext';
 import { logger } from '@/lib/logger';
+
+function resolveVaultDisplay(account: VaultAccount) {
+  const registry = findVaultByAddress(account.address);
+  return {
+    name: registry?.name ?? account.name,
+    address: account.address,
+    shareSymbol: registry?.vaultSymbol ?? null,
+    chainName: getChainDisplayName(registry?.chainId ?? BASE_CHAIN_ID),
+  };
+}
+
+function partyTitle(account: Account): string {
+  if (account.type === 'wallet') return 'Wallet';
+  return resolveVaultDisplay(account as VaultAccount).name;
+}
+
+function partySubtitle(account: Account, walletAddress?: string): string {
+  const chainName = getChainDisplayName(BASE_CHAIN_ID);
+  if (account.type === 'wallet') {
+    const short = walletAddress ? truncateAddress(walletAddress as Address) : null;
+    return short ? `${short} · ${chainName}` : chainName;
+  }
+  const vault = resolveVaultDisplay(account as VaultAccount);
+  const share = vault.shareSymbol ? `${vault.shareSymbol} · ` : '';
+  return `${share}${vault.chainName}`;
+}
+
+function partyCopyValue(account: Account, walletAddress?: string): string | null {
+  if (account.type === 'wallet') return walletAddress ?? null;
+  return (account as VaultAccount).address;
+}
+
+function amountUsdValue(
+  amount: string,
+  symbol: string,
+  btcPrice: number | null,
+  ethPrice: number | null
+): number {
+  const parsed = parseFloat(amount);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 0;
+  const upper = symbol.toUpperCase();
+  if (upper === 'USDC') return parsed;
+  if (upper === 'WETH' || upper === 'ETH') return ethPrice && ethPrice > 0 ? parsed * ethPrice : 0;
+  if (upper === 'CBBTC' || upper === 'CBTC' || upper === 'BTC') {
+    return btcPrice && btcPrice > 0 ? parsed * btcPrice : 0;
+  }
+  return 0;
+}
+
+function PartyAvatar({ symbol, alt }: { symbol: string; alt: string }) {
+  return (
+    <div className="w-11 h-11 rounded-full bg-white flex items-center justify-center shrink-0 border border-[var(--border-subtle)] p-2">
+      {/* SVGs stay vector-sharp as <img>; next/image rasterizes them. */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={getVaultLogo(symbol)} alt={alt} className="w-7 h-7 object-contain" />
+    </div>
+  );
+}
+
+function PartyRow({
+  label,
+  account,
+  walletAddress,
+  assetSymbol,
+  amount,
+  amountUsd,
+  amountTone,
+  onCopy,
+}: {
+  label: string;
+  account: Account;
+  walletAddress?: string;
+  assetSymbol: string;
+  amount: string;
+  amountUsd: number;
+  amountTone: 'debit' | 'credit';
+  onCopy: (value: string, name: string) => void;
+}) {
+  const title = partyTitle(account);
+  const copyValue = partyCopyValue(account, walletAddress);
+  const showUsd = amountUsd > 0;
+
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <div className="flex items-center gap-3 flex-1 min-w-0">
+        <PartyAvatar symbol={assetSymbol} alt={title} />
+        <div className="flex-1 min-w-0">
+          <p className="text-[10px] md:text-xs text-[var(--foreground-secondary)] uppercase tracking-wide">
+            {label}
+          </p>
+          {copyValue ? (
+            <button
+              type="button"
+              onClick={() => onCopy(copyValue, title)}
+              className="text-left cursor-pointer hover:text-[var(--primary)] transition-colors duration-200 w-full min-w-0"
+              title={`Click to copy: ${copyValue}`}
+            >
+              <p className="text-sm md:text-base font-semibold text-[var(--foreground)] truncate">
+                {title}
+              </p>
+            </button>
+          ) : (
+            <p className="text-sm md:text-base font-semibold text-[var(--foreground)] truncate">
+              {title}
+            </p>
+          )}
+          <p className="text-xs text-[var(--foreground-secondary)] truncate">
+            {partySubtitle(account, walletAddress)}
+          </p>
+        </div>
+      </div>
+      <div className="text-right shrink-0">
+        <p
+          className={`text-base md:text-lg font-semibold tabular-nums ${
+            amountTone === 'debit' ? 'text-[var(--danger)]' : 'text-[var(--success)]'
+          }`}
+        >
+          {amountTone === 'debit' ? '-' : '+'}
+          {amount}
+        </p>
+        {showUsd ? (
+          <p className="text-xs text-[var(--foreground-secondary)] tabular-nums">
+            {formatCurrency(amountUsd)}
+          </p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
 
 interface TransactionConfirmationProps {
   fromAccount: Account;
@@ -59,6 +194,7 @@ export function TransactionConfirmation({
   const { address } = useAccount();
   const router = useRouter();
   const { reset, preferredAsset } = useTransactionState();
+  const { btc: btcPrice, eth: ethPrice } = usePrices();
   const { error: showErrorToast, showToast } = useToast();
   const { fetchVaultData } = useVaultData();
   const { refreshBalances } = useWallet();
@@ -73,11 +209,11 @@ export function TransactionConfirmation({
         // Refresh vault data for any vaults involved in the transaction (force refresh to bypass cache)
         if (fromAccount.type === 'vault') {
           const vaultAddress = (fromAccount as VaultAccount).address;
-          await fetchVaultData(vaultAddress, 8453, true);
+          await fetchVaultData(vaultAddress, BASE_CHAIN_ID, true);
         }
         if (toAccount.type === 'vault') {
           const vaultAddress = (toAccount as VaultAccount).address;
-          await fetchVaultData(vaultAddress, 8453, true);
+          await fetchVaultData(vaultAddress, BASE_CHAIN_ID, true);
         }
         
         // Force Next.js to refresh server-side data
@@ -119,6 +255,7 @@ export function TransactionConfirmation({
   };
 
   const formattedAmount = formatAmount();
+  const amountUsd = amountUsdValue(amount, assetSymbol, btcPrice, ethPrice);
 
   const showEthGasReserveNote =
     transactionType === 'deposit' &&
@@ -138,22 +275,64 @@ export function TransactionConfirmation({
     });
   };
 
-  // Format vault name - remove "Muscadine " prefix on mobile
-  const formatVaultName = (name: string) => {
-    return name.replace(/^Muscadine /, '');
-  };
-
-  // Copy address to clipboard
-  const handleCopyAddress = async (addressToCopy: string, name: string) => {
-    if (!addressToCopy) return;
+  const handleCopyValue = async (value: string, name: string) => {
+    if (!value) return;
     try {
-      await navigator.clipboard.writeText(addressToCopy);
-      showToast(`${name} address copied to clipboard`, 'neutral', 2000);
+      await navigator.clipboard.writeText(value);
+      if (name === 'Transaction hash') {
+        showToast('Copied! View on', 'neutral', 3000, `https://basescan.org/tx/${value}`, 'Basescan');
+      } else {
+        showToast(`${name} copied to clipboard`, 'neutral', 2000);
+      }
     } catch (err) {
-      logger.error('Failed to copy address', err instanceof Error ? err : new Error(String(err)), { address: addressToCopy, name });
+      logger.error('Failed to copy', err instanceof Error ? err : new Error(String(err)), { value, name });
       showErrorToast('Failed to copy to clipboard', 5000);
     }
   };
+
+  const transferCard = (
+    <div className={embedded
+      ? 'bg-white dark:bg-[var(--surface-elevated)] rounded-xl border border-[var(--border-subtle)] p-4 space-y-3'
+      : 'bg-white dark:bg-[var(--surface-elevated)] rounded-xl border border-[var(--border-subtle)] p-4 md:p-5 space-y-3 md:space-y-4'}>
+      <PartyRow
+        label="From"
+        account={fromAccount}
+        walletAddress={address}
+        assetSymbol={assetSymbol}
+        amount={formattedAmount}
+        amountUsd={amountUsd}
+        amountTone="debit"
+        onCopy={handleCopyValue}
+      />
+      <div className="flex justify-center py-0.5">
+        <div className="w-8 h-8 rounded-full bg-[var(--background)] flex items-center justify-center border border-[var(--border-subtle)]">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="w-4 h-4 text-[var(--foreground-secondary)]"
+          >
+            <line x1="12" y1="5" x2="12" y2="19" />
+            <polyline points="19 12 12 19 5 12" />
+          </svg>
+        </div>
+      </div>
+      <PartyRow
+        label="To"
+        account={toAccount}
+        walletAddress={address}
+        assetSymbol={assetSymbol}
+        amount={formattedAmount}
+        amountUsd={amountUsd}
+        amountTone="credit"
+        onCopy={handleCopyValue}
+      />
+    </div>
+  );
 
   if (isSuccess) {
     // Success state - Payment confirmation style
@@ -167,96 +346,26 @@ export function TransactionConfirmation({
           </h2>
         )}
 
-        {/* Transaction Details */}
-        <div className="mb-6">
-          <div className="space-y-4">
-            {txHash && (
-              <div className="min-w-0">
-                <p className="text-sm text-[var(--foreground-secondary)] mb-1">Transaction hash</p>
-                <div className="break-all text-left">
-                  <button
-                    onClick={async () => {
-                      if (!txHash) return;
-                      try {
-                        await navigator.clipboard.writeText(txHash);
-                        showToast('Copied! View on', 'neutral', 3000, `https://basescan.org/tx/${txHash}`, 'Basescan');
-                      } catch (err) {
-                        logger.error('Failed to copy transaction hash', err instanceof Error ? err : new Error(String(err)), { txHash });
-                        showErrorToast('Failed to copy to clipboard', 5000);
-                      }
-                    }}
-                    className="text-sm font-medium text-[var(--foreground)] hover:text-[var(--primary)] transition-colors break-all text-left cursor-pointer"
-                    title="Click to copy"
-                  >
-                    {txHash}
-                  </button>
-                </div>
-              </div>
-            )}
-            <div>
-              <p className="text-sm text-[var(--foreground-secondary)] mb-1">Date</p>
+        <div className="mb-6 space-y-4">
+          {transferCard}
+          <div className="space-y-2 px-0.5">
+            <div className="flex items-center justify-between gap-4">
+              <p className="text-sm text-[var(--foreground-secondary)]">Date</p>
               <p className="text-sm font-medium text-[var(--foreground)]">{getCurrentDate()}</p>
             </div>
-            <div>
-              <p className="text-sm text-[var(--foreground-secondary)] mb-1">Type</p>
-              <p className="text-sm font-medium text-[var(--foreground)]">{getTransactionTypeLabel()}</p>
-            </div>
-            <div className="min-w-0">
-              <p className="text-sm text-[var(--foreground-secondary)] mb-1">From</p>
-              {fromAccount.type === 'wallet' ? (
+            {txHash ? (
+              <div className="flex items-start justify-between gap-4">
+                <p className="text-sm text-[var(--foreground-secondary)] shrink-0">Tx hash</p>
                 <button
-                  onClick={() => address && handleCopyAddress(address, 'Wallet')}
-                  className="text-left cursor-pointer hover:text-[var(--primary)] transition-colors duration-200"
-                  title={`Click to copy: ${address}`}
+                  type="button"
+                  onClick={() => handleCopyValue(txHash, 'Transaction hash')}
+                  className="text-sm font-medium text-[var(--foreground)] hover:text-[var(--primary)] transition-colors break-all text-right cursor-pointer"
+                  title="Click to copy"
                 >
-                  <p className="text-sm font-medium text-[var(--foreground)]">
-                    <span className="md:hidden">Wallet ...{address?.slice(-4)}</span>
-                    <span className="hidden md:inline">Wallet</span>
-                  </p>
+                  {truncateAddress(txHash as Address, 10, 8)}
                 </button>
-              ) : (
-                <button
-                  onClick={() => handleCopyAddress((fromAccount as VaultAccount).address, (fromAccount as VaultAccount).name)}
-                  className="text-left cursor-pointer hover:text-[var(--primary)] transition-colors duration-200"
-                  title={`Click to copy: ${(fromAccount as VaultAccount).address}`}
-                >
-                  <p className="text-sm font-medium text-[var(--foreground)]">
-                    <span className="md:hidden">{formatVaultName((fromAccount as VaultAccount).name)}</span>
-                    <span className="hidden md:inline">{(fromAccount as VaultAccount).name}</span>
-                  </p>
-                </button>
-              )}
-            </div>
-            <div className="min-w-0">
-              <p className="text-sm text-[var(--foreground-secondary)] mb-1">To</p>
-              {toAccount.type === 'wallet' ? (
-                <button
-                  onClick={() => address && handleCopyAddress(address, 'Wallet')}
-                  className="text-left cursor-pointer hover:text-[var(--primary)] transition-colors duration-200"
-                  title={`Click to copy: ${address}`}
-                >
-                  <p className="text-sm font-medium text-[var(--foreground)]">
-                    <span className="md:hidden">Wallet ...{address?.slice(-4)}</span>
-                    <span className="hidden md:inline">Wallet</span>
-                  </p>
-                </button>
-              ) : (
-                <button
-                  onClick={() => handleCopyAddress((toAccount as VaultAccount).address, (toAccount as VaultAccount).name)}
-                  className="text-left cursor-pointer hover:text-[var(--primary)] transition-colors duration-200"
-                  title={`Click to copy: ${(toAccount as VaultAccount).address}`}
-                >
-                  <p className="text-sm font-medium text-[var(--foreground)]">
-                    <span className="md:hidden">{formatVaultName((toAccount as VaultAccount).name)}</span>
-                    <span className="hidden md:inline">{(toAccount as VaultAccount).name}</span>
-                  </p>
-                </button>
-              )}
-            </div>
-            <div className="pt-2 border-t border-[var(--border-subtle)]">
-              <p className="text-sm font-semibold text-[var(--foreground-secondary)] mb-1">Amount</p>
-              <p className="text-sm font-semibold text-[var(--foreground)]">{formattedAmount}</p>
-            </div>
+              </div>
+            ) : null}
           </div>
         </div>
 
@@ -311,119 +420,7 @@ export function TransactionConfirmation({
         </div>
       )}
 
-      {/* Transaction Details Card */}
-      <div className={embedded
-        ? 'bg-[var(--surface)]/80 rounded-lg border border-[var(--border-subtle)] p-3 space-y-3'
-        : 'bg-[var(--surface-elevated)] rounded-lg p-3 md:p-5 space-y-3 md:space-y-4'}>
-        {/* From Account */}
-        <div className="flex items-center justify-between gap-2 md:gap-4">
-          <div className="flex items-center gap-2 md:gap-3 flex-1 min-w-0">
-            <div className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-white flex items-center justify-center overflow-hidden border-2 border-[var(--border-subtle)] shrink-0">
-              <Image 
-                src={getVaultLogo(assetSymbol)} 
-                alt={fromAccount.type === 'wallet' ? 'Wallet' : (fromAccount as VaultAccount).name}
-                width={48}
-                height={48}
-                className="w-full h-full object-contain"
-              />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-[10px] md:text-xs text-[var(--foreground-secondary)] uppercase tracking-wide">From</p>
-              {fromAccount.type === 'wallet' ? (
-                <button
-                  onClick={() => address && handleCopyAddress(address, 'Wallet')}
-                  className="text-left cursor-pointer hover:text-[var(--primary)] transition-colors duration-200"
-                  title={`Click to copy: ${address}`}
-                >
-                  <p className="text-sm md:text-base font-semibold text-[var(--foreground)]">
-                    Wallet ...{address?.slice(-4)}
-                  </p>
-                </button>
-              ) : (
-                <button
-                  onClick={() => handleCopyAddress((fromAccount as VaultAccount).address, (fromAccount as VaultAccount).name)}
-                  className="text-left cursor-pointer hover:text-[var(--primary)] transition-colors duration-200 truncate w-full"
-                  title={`Click to copy: ${(fromAccount as VaultAccount).address}`}
-                >
-                  <p className="text-sm md:text-base font-semibold text-[var(--foreground)] truncate">
-                    <span className="md:hidden">{formatVaultName((fromAccount as VaultAccount).name)}</span>
-                    <span className="hidden md:inline">{(fromAccount as VaultAccount).name}</span>
-                  </p>
-                </button>
-              )}
-            </div>
-          </div>
-          <div className="text-right shrink-0">
-            <p className="text-base md:text-lg font-semibold text-[var(--danger)]">
-              -{formattedAmount}
-            </p>
-          </div>
-        </div>
-
-        {/* Arrow */}
-        <div className="flex justify-center py-1 md:py-2">
-          <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-[var(--background)] flex items-center justify-center border-2 border-[var(--border-subtle)]">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="w-4 h-4 md:w-5 md:h-5 text-[var(--foreground-secondary)]"
-            >
-              <line x1="12" y1="5" x2="12" y2="19" />
-              <polyline points="19 12 12 19 5 12" />
-            </svg>
-          </div>
-        </div>
-
-        {/* To Account */}
-        <div className="flex items-center justify-between gap-2 md:gap-4">
-          <div className="flex items-center gap-2 md:gap-3 flex-1 min-w-0">
-            <div className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-white flex items-center justify-center overflow-hidden border-2 border-[var(--border-subtle)] shrink-0">
-              <Image 
-                src={getVaultLogo(assetSymbol)} 
-                alt={toAccount.type === 'wallet' ? 'Wallet' : (toAccount as VaultAccount).name}
-                width={48}
-                height={48}
-                className="w-full h-full object-contain"
-              />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-[10px] md:text-xs text-[var(--foreground-secondary)] uppercase tracking-wide">To</p>
-              {toAccount.type === 'wallet' ? (
-                <button
-                  onClick={() => address && handleCopyAddress(address, 'Wallet')}
-                  className="text-left cursor-pointer hover:text-[var(--primary)] transition-colors duration-200"
-                  title={`Click to copy: ${address}`}
-                >
-                  <p className="text-sm md:text-base font-semibold text-[var(--foreground)]">
-                    Wallet ...{address?.slice(-4)}
-                  </p>
-                </button>
-              ) : (
-                <button
-                  onClick={() => handleCopyAddress((toAccount as VaultAccount).address, (toAccount as VaultAccount).name)}
-                  className="text-left cursor-pointer hover:text-[var(--primary)] transition-colors duration-200 truncate w-full"
-                  title={`Click to copy: ${(toAccount as VaultAccount).address}`}
-                >
-                  <p className="text-sm md:text-base font-semibold text-[var(--foreground)] truncate">
-                    <span className="md:hidden">{formatVaultName((toAccount as VaultAccount).name)}</span>
-                    <span className="hidden md:inline">{(toAccount as VaultAccount).name}</span>
-                  </p>
-                </button>
-              )}
-            </div>
-          </div>
-          <div className="text-right shrink-0">
-            <p className="text-base md:text-lg font-semibold text-[var(--success)]">
-              +{formattedAmount}
-            </p>
-          </div>
-        </div>
-      </div>
+      {transferCard}
 
       {/* Note for WETH deposits with ETH wrapping */}
       {transactionType === 'deposit' &&

@@ -109,12 +109,12 @@ export default function Home() {
     );
   }, [morphoHoldings.positions]);
 
-  const hasVaults = isConnected && depositedVaults.length > 0;
+  const showVaultsPanel = isConnected;
+  const showSideColumn = showVaultsPanel;
 
   useVaultListPreloader(depositedVaults);
 
   const isSplitLayout = useIsDashboardSplitLayout();
-  const showSideColumn = hasVaults;
 
   const layoutKey = [
     totalUsdValue,
@@ -125,12 +125,13 @@ export default function Home() {
     showSideColumn ? 'right' : 'solo',
     address ?? 'none',
     nameLoading ? 'name-loading' : displayName,
+    depositedVaults.length,
   ].join('|');
 
   const wideWallet = useWalletStripNeedsFullWidth({
     viewportRef,
     stripRef: walletStripRef,
-    enabled: isConnected && showSideColumn,
+    enabled: showSideColumn,
     layoutKey,
   });
 
@@ -141,7 +142,7 @@ export default function Home() {
    */
   const useWideDesktopLayout = showSideColumn && wideWallet && isSplitLayout;
 
-  const vaultsPanel = hasVaults ? (
+  const vaultsPanel = showVaultsPanel ? (
     <DashboardPanel
       title="Your Vaults"
       scrollable={depositedVaults.length > DASHBOARD_PANEL_VISIBLE_ROWS}

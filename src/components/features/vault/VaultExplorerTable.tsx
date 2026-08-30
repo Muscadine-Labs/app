@@ -668,6 +668,79 @@ interface DashboardVaultTableProps {
   emptyMessage?: string;
 }
 
+function DashboardVaultTableHead() {
+  return (
+    <thead>
+      <tr className="border-b border-[var(--border)] text-left">
+        <th className="px-2 py-2.5 text-xs font-medium text-[var(--foreground-secondary)]">Vault</th>
+        <th className="px-2 py-2.5 text-xs font-medium text-[var(--foreground-secondary)] text-right">
+          Your Position
+        </th>
+        <th className="px-2 py-2.5 text-xs font-medium text-[var(--foreground-secondary)] text-right">
+          Earned Interest
+        </th>
+        <th className="px-2 py-2.5 text-xs font-medium text-[var(--foreground-secondary)] text-right">
+          APY / TVL
+        </th>
+      </tr>
+    </thead>
+  );
+}
+
+function DashboardVaultEmptyState({
+  emptyMessage,
+  onExploreVaults,
+}: {
+  emptyMessage: string;
+  onExploreVaults: () => void;
+}) {
+  return (
+    <>
+      <div className="hidden @min-[640px]:block min-w-0">
+        <table className="w-full table-fixed">
+          <colgroup>
+            <col className="w-[28%]" />
+            <col className="w-[24%]" />
+            <col className="w-[24%]" />
+            <col className="w-[24%]" />
+          </colgroup>
+          <DashboardVaultTableHead />
+          <tbody>
+            <tr>
+              <td colSpan={4} className="px-4 py-10 sm:py-12 text-center">
+                <p className="text-sm text-[var(--foreground-muted)] leading-relaxed">
+                  {emptyMessage}{' '}
+                  <button
+                    type="button"
+                    onClick={onExploreVaults}
+                    className="text-[var(--primary)] hover:underline font-medium"
+                  >
+                    Explore vaults
+                  </button>{' '}
+                  to make your first deposit.
+                </p>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div className="@min-[640px]:hidden px-4 py-10 sm:py-12 text-center">
+        <p className="text-sm text-[var(--foreground-muted)] leading-relaxed">
+          {emptyMessage}{' '}
+          <button
+            type="button"
+            onClick={onExploreVaults}
+            className="text-[var(--primary)] hover:underline font-medium"
+          >
+            Explore vaults
+          </button>{' '}
+          to make your first deposit.
+        </p>
+      </div>
+    </>
+  );
+}
+
 export function DashboardVaultTable({
   vaults,
   emptyMessage = 'No vault deposits yet.',
@@ -687,9 +760,40 @@ export function DashboardVaultTable({
   }
 
   if (vaults.length === 0) {
+    if (morphoHoldings.isLoading) {
+      return (
+        <div className="@container min-w-0">
+          <div className="hidden @min-[640px]:block min-w-0">
+            <table className="w-full table-fixed">
+              <colgroup>
+                <col className="w-[28%]" />
+                <col className="w-[24%]" />
+                <col className="w-[24%]" />
+                <col className="w-[24%]" />
+              </colgroup>
+              <DashboardVaultTableHead />
+              <tbody>
+                <tr>
+                  <td colSpan={4} className="px-4 py-8">
+                    <Skeleton width="100%" height="4rem" />
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div className="@min-[640px]:hidden px-4 py-8">
+            <Skeleton width="100%" height="6rem" />
+          </div>
+        </div>
+      );
+    }
+
     return (
-      <div className="px-4 py-12 text-center">
-        <p className="text-sm text-[var(--foreground-muted)]">{emptyMessage}</p>
+      <div className="@container min-w-0">
+        <DashboardVaultEmptyState
+          emptyMessage={emptyMessage}
+          onExploreVaults={() => router.push('/vaults')}
+        />
       </div>
     );
   }
@@ -730,14 +834,7 @@ export function DashboardVaultTable({
           <col className="w-[24%]" />
           <col className="w-[24%]" />
         </colgroup>
-        <thead>
-          <tr className="border-b border-[var(--border)] text-left">
-            <th className="px-2 py-2.5 text-xs font-medium text-[var(--foreground-secondary)]">Vault</th>
-            <th className="px-2 py-2.5 text-xs font-medium text-[var(--foreground-secondary)] text-right">Your Position</th>
-            <th className="px-2 py-2.5 text-xs font-medium text-[var(--foreground-secondary)] text-right">Earned Interest</th>
-            <th className="px-2 py-2.5 text-xs font-medium text-[var(--foreground-secondary)] text-right">APY / TVL</th>
-          </tr>
-        </thead>
+        <DashboardVaultTableHead />
         <tbody>
           {vaults.map((vault) => {
             const vaultData = getVaultData(vault.address) as MorphoVaultData | null;

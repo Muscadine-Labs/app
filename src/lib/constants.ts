@@ -4,7 +4,15 @@
 
 // Chain configuration
 export const BASE_CHAIN_ID = 8453 as const;
+export const BASE_CHAIN_NAME = 'Base';
+export function getChainDisplayName(chainId: number): string {
+  if (chainId === BASE_CHAIN_ID) return BASE_CHAIN_NAME;
+  return `Chain ${chainId}`;
+}
 export const BASE_WETH_ADDRESS = '0x4200000000000000000000000000000000000006' as const;
+/** Morpho Vault V2 `forceDeallocate` / in-kind redemption (user-facing docs). */
+export const MORPHO_FORCE_DEALLOCATE_DOCS_URL =
+  'https://docs.morpho.org/learn/concepts/vault-v2/#1-in-kind-redemptions-with-forcedeallocate' as const;
 /** Morpho Bundler3 on Base — atomic multi-step vault/WETH flows. */
 export const BUNDLER3_ADDRESS = '0x6BFd8137e702540E7A42B74178A4a49Ba43920C4' as const;
 /** Morpho GeneralAdapter1 on Base (wrap/unwrap + ERC-4626 via Bundler3). */

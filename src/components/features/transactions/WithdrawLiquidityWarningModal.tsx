@@ -2,6 +2,7 @@
 
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui';
+import { MORPHO_FORCE_DEALLOCATE_DOCS_URL } from '@/lib/constants';
 
 interface WithdrawLiquidityWarningModalProps {
   isOpen: boolean;
@@ -51,7 +52,15 @@ export function WithdrawLiquidityWarningModal({
         <p className="text-sm text-[var(--foreground)] leading-relaxed">
           You&apos;re withdrawing <span className="font-medium">{requestedAmountLabel}</span>, but
           only <span className="font-medium">{instantLiquidityLabel}</span> is available instantly.
-          The rest must be force-deallocated first.
+          The rest must be force-deallocated first.{' '}
+          <a
+            href={MORPHO_FORCE_DEALLOCATE_DOCS_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[var(--primary)] hover:underline"
+          >
+            What is force deallocation?
+          </a>
         </p>
 
         {forceWithdrawAvailable ? (

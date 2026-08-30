@@ -3,7 +3,7 @@
  * vault.multicall([forceDeallocate × N, withdraw]).
  *
  * Used when requested assets exceed instant liquidity (idle + liquidity adapter).
- * Ref: https://morpho-org-vault-v2.mintlify.app/operations/force-deallocate
+ * Ref: https://docs.morpho.org/learn/concepts/vault-v2/#1-in-kind-redemptions-with-forcedeallocate
  */
 
 import {
