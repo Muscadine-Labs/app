@@ -1,6 +1,6 @@
 # Muscadine App
 
-A Next.js app for Muscadine vaults on Base. Dashboard, vault explorer, and deposit/withdraw (v2 Prime/Frontier).
+A Next.js app for Muscadine vaults. Dashboard, vault explorer, and deposit/withdraw (v2 Prime/Frontier).
 
 **Registry:** `src/lib/vaults.ts`.  
 **Dev:** `npm run dev` → http://localhost:3000  
