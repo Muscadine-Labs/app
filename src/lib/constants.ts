@@ -10,9 +10,11 @@ export function getChainDisplayName(chainId: number): string {
   return `Chain ${chainId}`;
 }
 export const BASE_WETH_ADDRESS = '0x4200000000000000000000000000000000000006' as const;
-/** Morpho Vault V2 `forceDeallocate` / in-kind redemption (user-facing docs). */
+/** Morpho Vault V2 `forceDeallocate` (cash force-withdraw; not in-kind). */
 export const MORPHO_FORCE_DEALLOCATE_DOCS_URL =
   'https://docs.morpho.org/learn/concepts/vault-v2/#1-in-kind-redemptions-with-forcedeallocate' as const;
+/** Morpho protocol disclaimer (integrator UX requirement). */
+export const MORPHO_DISCLAIMER_URL = 'https://morpho.org/disclaimers' as const;
 /** Morpho Bundler3 on Base — atomic multi-step vault/WETH flows. */
 export const BUNDLER3_ADDRESS = '0x6BFd8137e702540E7A42B74178A4a49Ba43920C4' as const;
 /** Morpho GeneralAdapter1 on Base (wrap/unwrap + ERC-4626 via Bundler3). */

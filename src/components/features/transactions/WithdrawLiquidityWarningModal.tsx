@@ -52,7 +52,8 @@ export function WithdrawLiquidityWarningModal({
         <p className="text-sm text-[var(--foreground)] leading-relaxed">
           You&apos;re withdrawing <span className="font-medium">{requestedAmountLabel}</span>, but
           only <span className="font-medium">{instantLiquidityLabel}</span> is available instantly.
-          The rest must be force-deallocated first.{' '}
+          The rest must be force-deallocated from underlying markets so you can receive the vault
+          asset.{' '}
           <a
             href={MORPHO_FORCE_DEALLOCATE_DOCS_URL}
             target="_blank"

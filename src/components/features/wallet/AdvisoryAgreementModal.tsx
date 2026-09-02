@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { useAdvisoryAgreement } from '@/contexts/AdvisoryAgreementContext';
+import { MORPHO_DISCLAIMER_URL } from '@/lib/constants';
 
 export function AdvisoryAgreementModal() {
   const { shouldShowModal, acceptAgreement, closeModal } = useAdvisoryAgreement();
@@ -80,6 +81,29 @@ export function AdvisoryAgreementModal() {
           </p>
 
           <p className="text-xs sm:text-sm text-[var(--foreground)] leading-relaxed">
+            Accessing the Morpho Protocol through this app is governed by Muscadine’s{' '}
+            <a
+              href="https://muscadine.xyz/terms"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[var(--primary)] hover:underline"
+            >
+              Terms of Use
+            </a>{' '}
+            and{' '}
+            <a
+              href={MORPHO_DISCLAIMER_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[var(--primary)] hover:underline"
+            >
+              Morpho’s Disclaimer
+            </a>
+            . By using it, you acknowledge that you have read and understood these terms and the
+            risks involved.
+          </p>
+
+          <p className="text-xs sm:text-sm text-[var(--foreground)] leading-relaxed">
             You sign your own deposits and withdrawals into non-custodial smart contracts. Third-party DeFi protocols (including Morpho) provide infrastructure only; they do not custody assets or provide investment advice. Muscadine provides risk curation and this interface—not financial, tax, or legal advice.
           </p>
 
@@ -110,6 +134,14 @@ export function AdvisoryAgreementModal() {
                   className="block py-1 sm:py-1.5 text-xs sm:text-sm text-[var(--foreground)] hover:text-[var(--primary)] transition-colors cursor-pointer"
                 >
                   Legal Disclaimer
+                </a>
+                <a
+                  href={MORPHO_DISCLAIMER_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block py-1 sm:py-1.5 text-xs sm:text-sm text-[var(--foreground)] hover:text-[var(--primary)] transition-colors cursor-pointer"
+                >
+                  Morpho’s Disclaimer
                 </a>
                 <a
                   href="https://muscadine.xyz/privacy"
@@ -168,6 +200,16 @@ export function AdvisoryAgreementModal() {
                 onClick={(e) => e.stopPropagation()}
               >
                 Terms of Use
+              </a>
+              {' '}and{' '}
+              <a
+                href={MORPHO_DISCLAIMER_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[var(--primary)] hover:underline"
+                onClick={(e) => e.stopPropagation()}
+              >
+                Morpho’s Disclaimer
               </a>
               .
             </span>

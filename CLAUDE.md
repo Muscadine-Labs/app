@@ -4,7 +4,7 @@ Comprehensive context for AI assistants and developers. This is the canonical �
 
 **Product:** Web app for Muscadine vaults on **Base (chain id 8453)** — deposit, withdraw, portfolio view, vault analytics. **v2 Prime and Frontier** vaults for USDC, cbBTC, and WETH. **v1 MetaMorpho removed** from registry and codebase (v2-only writes).
 
-**Version:** `package.json` → `1.3.2`
+**Version:** `package.json` → `1.3.3`
 
 ---
 
@@ -82,7 +82,7 @@ Never commit real keys. `.env.example` documents placeholders.
 | Chain | Base only (`8453`) |
 | Server data | Next.js Route Handlers → Morpho GraphQL |
 | Client GraphQL | None — Morpho GraphQL is server-only via `fetchMorphoGraphQL()` |
-| V2 txs | Direct ERC-4626 via viem (`transactionUtilsV2.ts`); multi-step WETH/ETH via Morpho **Bundler3** (`bundler3.ts`) |
+| V2 txs | Direct ERC-4626 via viem (`transactionUtilsV2.ts`); WETH/ETH wrap-unwrap via Morpho **Bundler3** (`bundler3.ts`) |
 | Charts | Recharts |
 | Analytics | `@vercel/analytics` |
 | Base Account SDK | `@base-org/account` |
@@ -109,7 +109,7 @@ Never commit real keys. `.env.example` documents placeholders.
 
 **Reads:** Morpho GraphQL (server routes via `fetchMorphoGraphQL()`).
 
-**Writes:** User wallet signs transactions built in-app — **not** via GraphQL.
+**Writes:** User wallet signs transactions built in-app — **not** via GraphQL. Deposits/withdraws are direct ERC-4626 except WETH wrap/unwrap via Bundler3.
 
 ---
 
@@ -162,7 +162,7 @@ Share tokens use **18 decimals**; underlying assets use registry decimals (USDC 
 
 ### `src/lib/transactionUtilsV2.ts`
 
-Direct ERC-4626 for single-step ops; Morpho Bundler3 for multi-step WETH/ETH.
+Direct ERC-4626 for deposit/withdraw/redeem; Morpho Bundler3 only when wrapping or unwrapping ETH.
 
 **Exports:**
 
@@ -181,7 +181,7 @@ Direct ERC-4626 for single-step ops; Morpho Bundler3 for multi-step WETH/ETH.
 
 ### Morpho Bundler3 (`src/lib/bundler3.ts`)
 
-Base Bundler3 + GeneralAdapter1. Deposit/withdraw/redeem adapter calls use share-price bounds from on-chain quotes (`convertToShares` / assets↔shares) with **0.5%** slippage (`BUNDLER_SLIPPAGE_BPS`).
+Base Bundler3 + GeneralAdapter1. Used for ETH wrap deposits and WETH→ETH unwrap. Adapter ERC-4626 calls use share-price bounds from on-chain quotes with **0.03%** slippage (`BUNDLER_SLIPPAGE_BPS`). Plain USDC/cbBTC/WETH deposits call the vault directly — no extra adapter approval.
 
 | Constant | Address (Base) |
 |----------|----------------|
@@ -200,12 +200,14 @@ Base Bundler3 + GeneralAdapter1. Deposit/withdraw/redeem adapter calls use share
 - Deposit `preferredAsset`: `'ETH' | 'WETH' | 'ALL'` (wrap ETH, use WETH only, or combine). **Default is WETH.** Gas reserve `ETH_GAS_RESERVE` (`0.0001 ETH`) left in wallet when wrapping.
 - Withdraw `preferredAsset`: `'ETH' | 'WETH'` (not `'ALL'`) — Bundler3 unwrap when ETH selected.
 
-**Force withdraw** (`src/lib/force-withdraw-v2.ts`): when requested assets exceed instant liquidity, plan `forceDeallocate` × N + `withdraw` or **`redeem` (MAX)** in vault `multicall`. Warning modal shows estimated penalty, risks, **Force withdraw**, and **Open vault on Morpho**. ETH unwrap (if selected) is a **second** Bundler3 tx after the vault exit. If underlying markets lack free cash, force plan is unavailable — user must reduce amount to instant liquidity, wait, or use Morpho.
+**Force withdraw** (`src/lib/force-withdraw-v2.ts`): when requested assets exceed instant liquidity, plan `forceDeallocate` × N + `withdraw` or **`redeem` (MAX)** in vault `multicall` — same route as Morpho SDK `forceWithdraw` / `forceRedeem`. Warning modal shows estimated penalty, risks, **Force withdraw**, and **Open vault on Morpho**. ETH unwrap (if selected) is a **second** Bundler3 tx after the vault exit. If underlying markets lack free cash, force plan is unavailable — user must reduce amount to instant liquidity, wait, or use Morpho.
+
+This is **not** in-kind redemption. In-kind (`vault.inKindRedeem` → VaultExitBundlesV1 `vaultExitBundlesV1InKindRedemptionVaultV2`) burns shares and transfers Morpho Blue supply positions to the user. Not implemented. Do not swap force withdraw for `vaultExitBundlesV1ForceWithdrawVaultV2` (bundle helper with referral fee / minSharePrice); Morpho’s documented cash path remains vault `multicall`.
 
 **Approvals:**
 
-- Direct deposit/withdraw: spender is the **vault**.
-- Bundler3 wrap/deposit with wallet WETH, or withdraw→ETH: spender is **GeneralAdapter1** (WETH or vault shares).
+- Direct deposit: spender is the **vault**.
+- Bundler3 wrap deposit with wallet WETH, or withdraw→ETH: spender is **GeneralAdapter1** (WETH or vault shares). ETH-only wrap needs no ERC-20 approval.
 - USDC-style reset-to-zero may run before a new approval when needed.
 
 **Progress:** `TransactionProgressCallback` — `approving` for approvals, `confirming` for main/Bundler3 tx (do not treat approval hash as final success).
@@ -291,7 +293,7 @@ Morpho GraphQL is **server-only** (`fetchMorphoGraphQL()` in route handlers). Th
 
 **Removed from `package.json`:** `@morpho-org/*` bundler/simulation SDKs (v1 path deleted), unused Apollo Client / `graphql`. Morpho reads use **server `fetch`** to `api.morpho.org`.
 
-**Not a dependency:** `@morpho-org/morpho-sdk` — optional future path for v2 writes via official SDK.
+**Not a dependency:** `@morpho-org/morpho-sdk` (`viem` peer only). Optional for Permit/Permit2 and in-kind redemption. Cash force-withdraw already matches SDK `forceWithdraw` / `forceRedeem`.
 
 ---
 
@@ -393,13 +395,18 @@ Shown before wallet connect (`ConnectButton` → `AdvisoryAgreementProvider`). C
 |-------|-----|
 | Terms of Use | https://muscadine.xyz/terms |
 | Legal Disclaimer | https://muscadine.xyz/legal |
+| Morpho’s Disclaimer | https://morpho.org/disclaimers |
 | Privacy Policy | https://muscadine.xyz/privacy |
 | Risk Framework | https://muscadine.xyz/risk |
 | U.S. economic sanctions (checkbox) | https://ofac.treasury.gov/sanctions-programs-and-country-information |
 
-Same Risk Framework link appears in **NavBar** Muscadine dropdown (Protocol section, with Terms / Legal / Privacy).
+Same Risk Framework / Morpho’s Disclaimer links appear in **NavBar** Muscadine dropdown (Protocol section, with Terms / Legal / Privacy).
 
-**Re-acceptance:** `TERMS_VERSION` in `AdvisoryAgreementContext.tsx` (currently **`2.0.0`**) — bump when legal copy changes; stored in localStorage as `advisory-agreement-version` alongside `advisory-agreement-accepted`.
+**Morpho Earn UX:** first-interaction copy includes Morpho’s required disclosure (Muscadine Terms + Morpho’s Disclaimer). Same Morpho Disclaimer link is in the NavBar Protocol menu and on review/confirm. Do **not** add a “Powered by Morpho” badge on vault hero, the transact panel, or review — it reads as tacky next to the product UI; the disclaimer links cover attribution.
+
+**Dead shares:** curated vaults already mint inflation-protection shares to `0x…dEaD`. Confirm that **when adding a vault** to `vaults.ts`. Do not RPC-check dead-share balances at runtime (no Alchemy call on `/complete` or elsewhere).
+
+**Re-acceptance:** `TERMS_VERSION` in `AdvisoryAgreementContext.tsx` (currently **`2.1.0`**) — bump when legal copy changes; stored in localStorage as `advisory-agreement-version` alongside `advisory-agreement-accepted`.
 
 ---
 
@@ -440,7 +447,7 @@ src/
     portfolio-utils.ts    # ★ aggregatePortfolioHistory (dashboard)
     api-utils.ts          # Period/interval helpers; strip incomplete Morpho timeseries tails
     transactionUtilsV2.ts # ★ V2 on-chain (ERC-4626 + Bundler3 for WETH/ETH)
-    bundler3.ts # Morpho Bundler3 helpers (wrap/unwrap + ERC-4626)
+    bundler3.ts # Morpho Bundler3 helpers (ETH wrap/unwrap + ERC-4626)
     transactionUtils.ts   # Errors, shared tx helpers
     vaults.ts             # ★ Vault registry (v2 Prime + Frontier)
     vault-utils.ts        # Routes, sortVaultsForDisplay, resolvePositionAssetsUsd, isCuratedVaultAddress
@@ -537,6 +544,8 @@ npm run lint
 npm start        # Production server
 ```
 
+**CI** (`.github/workflows/ci.yml`, Node 24): `npm run lint` then `npm run build`. Build uses dummy `NEXT_PUBLIC_ALCHEMY_API_KEY` / `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` because `wagmi.ts` requires them at module load. Confirm Vercel production is also Node 24 (`package.json` `engines`).
+
 ### Turbopack chunk error
 
 If you see `Cannot find module '../chunks/ssr/[turbopack]_runtime.js'` after mixing `build` and `dev`:
@@ -549,11 +558,12 @@ rm -rf .next .turbo && npm run dev
 
 1. Add to `src/lib/vaults.ts` with correct `version`.
 2. Confirm Morpho GraphQL returns it (`vaultByAddress` or `vaultV2ByAddress`).
-3. v2 writes require no change in `transactionUtilsV2` if address is passed dynamically — registry drives UI labels and routing.
+3. Confirm the vault has Morpho dead-share inflation protection (minted to `0x…dEaD`) before listing — we do not RPC-check this at runtime.
+4. v2 writes require no change in `transactionUtilsV2` if address is passed dynamically — registry drives UI labels and routing.
 
 ### Changing v2 transaction behavior
 
-Edit **`src/lib/transactionUtilsV2.ts`** and/or **`src/lib/bundler3.ts`** for WETH/ETH multi-step flows (and `TransactionFlow.tsx` for routing/UX). Test approve → deposit and withdraw/redeem on Base with small amounts; for ETH paths confirm Bundler3 multicall.
+Edit **`src/lib/transactionUtilsV2.ts`** and/or **`src/lib/bundler3.ts`**. Plain deposits are direct ERC-4626; Bundler3 is wrap/unwrap only. Test approve → deposit and withdraw/redeem on Base with small amounts; for ETH paths confirm Bundler3 multicall.
 
 ---
 
@@ -598,10 +608,10 @@ Do not bump without checking compatibility:
 1. **Multi-chain vaults** — Extend beyond Base to **Ethereum** and **Hyperliquid**: multi-chain `VAULTS` entries, RPC/wagmi chains, Morpho GraphQL `chainId` on API routes, explorer Network filter (today only Base is real; “All” is forward-compatible).
 ### Technical (optional)
 
-3. **`@morpho-org/morpho-sdk` for v2** — richer Bundler3 slippage (`maxSharePrice`); official force-exit bundles when Base addresses exist.
+3. **`@morpho-org/morpho-sdk` for v2** — optional for Permit/Permit2 and **in-kind redemption** (`inKindRedeem`). Peer dep is viem only; does not require wagmi 3.
 4. **`supportSignature: true`** — Permit/Permit2 to skip extra approval txs.
 5. **V2 vault-to-vault transfers** — Not implemented; would need withdraw + deposit coordination.
-6. **Force redeem** — Force path currently uses `withdraw(assets)` only; MAX + penalty can leave dust shares.
+6. **In-kind redemption UI** — When force withdraw cannot cover (no free market cash), preview and transfer Blue supply positions via SDK `inKindRedeem`. Do not replace force withdraw with `vaultExitBundlesV1ForceWithdrawVaultV2`.
 
 **Morpho doc indexes for LLMs:**
 

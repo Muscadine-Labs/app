@@ -1,13 +1,14 @@
 /**
- * Transaction utilities for V2 vaults using direct ERC-4626 + viem.
- * Multi-step WETH/ETH flows use Morpho Bundler3 + GeneralAdapter1 (single user tx).
+ * Transaction utilities for V2 vaults.
+ * Deposits: direct ERC-4626, except WETH vault + ETH wrap (Bundler3).
+ * Withdraw/redeem: direct ERC-4626, except WETH→ETH which uses Bundler3 unwrap.
  */
 
 import { type Address, type PublicClient, type WalletClient, type TransactionReceipt, parseUnits, formatUnits, getAddress, parseEventLogs } from 'viem';
 import { builderWriteOpts } from './builder-code';
 import {
   buildUnwrapWalletWethBundle,
-  buildWethVaultNativeDepositBundle,
+  buildVaultDepositBundle,
   buildWethVaultWithdrawToEthBundle,
   executeBundler3Multicall,
   maxSharePriceE27FromQuote,
@@ -178,6 +179,37 @@ function emitTransactionPlan(
   });
 }
 
+async function waitForSuccessfulReceipt(
+  publicClient: PublicClient,
+  hash: `0x${string}`,
+  label: string
+): Promise<TransactionReceipt> {
+  const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  if (receipt.status !== 'success') {
+    throw new Error(`${label} transaction failed.`);
+  }
+  return receipt;
+}
+
+async function quoteDepositShares(
+  publicClient: PublicClient,
+  vaultAddress: Address,
+  assets: bigint
+): Promise<bigint> {
+  const shares = (await publicClient.readContract({
+    address: vaultAddress,
+    abi: ERC4626_ABI,
+    functionName: 'convertToShares',
+    args: [assets],
+  })) as bigint;
+  if (shares === BigInt(0)) {
+    throw new Error(
+      'Vault quote returned zero shares. Refusing deposit — the amount may be too small.'
+    );
+  }
+  return shares;
+}
+
 /**
  * Parse and validate amount string, converting to bigint
  * Truncates decimals if user enters more than assetDecimals
@@ -290,9 +322,7 @@ async function ensureApproval(
       txHash: resetHash,
     });
 
-    // Wait for reset transaction to be confirmed
-    await publicClient.waitForTransactionReceipt({ hash: resetHash });
-    // Don't mutate stepIndex here - caller handles step increments
+    await waitForSuccessfulReceipt(publicClient, resetHash, resetLabel);
   }
 
   // Approve only the exact amount needed (more secure than unlimited approval)
@@ -325,8 +355,7 @@ async function ensureApproval(
     txHash: approveHash,
   });
 
-  // Wait for approval transaction to be confirmed
-  await publicClient.waitForTransactionReceipt({ hash: approveHash });
+  await waitForSuccessfulReceipt(publicClient, approveHash, approveLabel);
   return needsReset;
 }
 
@@ -402,7 +431,15 @@ async function executeVaultWithdrawThenUnwrap(
     assetsOrShares,
     minSharePriceE27:
       mode === 'withdraw'
-        ? minSharePriceE27FromQuote(assetsOrShares, sharesForApproval)
+        ? minSharePriceE27FromQuote(
+            assetsOrShares,
+            (await publicClient.readContract({
+              address: normalizedVault,
+              abi: ERC4626_ABI,
+              functionName: 'previewWithdraw',
+              args: [assetsOrShares],
+            })) as bigint
+          )
         : minSharePriceE27FromQuote(
             (await publicClient.readContract({
               address: normalizedVault,
@@ -423,7 +460,8 @@ async function executeVaultWithdrawThenUnwrap(
 }
 
 /**
- * Deposit assets into a v2 vault
+ * Deposit assets into a v2 vault.
+ * Direct ERC-4626 unless wrapping ETH (Bundler3: wrap + deposit in one tx).
  */
 export async function depositToVaultV2(
   publicClient: PublicClient,
@@ -517,36 +555,37 @@ export async function depositToVaultV2(
     }
   }
 
-  // Check if approval is needed (read-only operation)
-  // Bundler deposits pull WETH via GeneralAdapter; direct deposits approve the vault.
-  const approvalSpender = isWethVault && ethToWrap > BigInt(0)
-    ? GENERAL_ADAPTER_ADDRESS
-    : normalizedVault;
   const wethFromWalletForBundler =
     isWethVault && ethToWrap > BigInt(0)
       ? amountBigInt > ethToWrap
         ? amountBigInt - ethToWrap
         : BigInt(0)
       : BigInt(0);
-
-  const allowance = (await publicClient.readContract({
-    address: assetAddress,
-    abi: ERC20_ABI,
-    functionName: 'allowance',
-    args: [userAddress, approvalSpender],
-  })) as bigint;
-
   const useBundlerDeposit = isWethVault && ethToWrap > BigInt(0);
-  const needsApproval =
-    useBundlerDeposit
-      ? wethFromWalletForBundler > BigInt(0) && allowance < wethFromWalletForBundler
-      : allowance < amountBigInt;
-  const needsReset = needsApproval && allowance > BigInt(0) && allowance < (useBundlerDeposit ? wethFromWalletForBundler : amountBigInt);
+  const approvalSpender = useBundlerDeposit ? GENERAL_ADAPTER_ADDRESS : normalizedVault;
+  const approvalAmount = useBundlerDeposit ? wethFromWalletForBundler : amountBigInt;
 
-  const totalSteps =
-    1 + // deposit or bundler deposit
-    (needsApproval ? 1 : 0) +
-    (needsReset ? 1 : 0);
+  let allowance = BigInt(0);
+  if (approvalAmount > BigInt(0)) {
+    allowance = (await publicClient.readContract({
+      address: assetAddress,
+      abi: ERC20_ABI,
+      functionName: 'allowance',
+      args: [userAddress, approvalSpender],
+    })) as bigint;
+  }
+
+  const needsApproval = approvalAmount > BigInt(0) && allowance < approvalAmount;
+  const needsReset = needsApproval && allowance > BigInt(0) && allowance < approvalAmount;
+
+  let bundlerExpectedShares: bigint | undefined;
+  if (useBundlerDeposit) {
+    bundlerExpectedShares = await quoteDepositShares(
+      publicClient,
+      normalizedVault,
+      amountBigInt
+    );
+  }
 
   const planLabels: string[] = [];
   if (needsReset) {
@@ -557,6 +596,7 @@ export async function depositToVaultV2(
   planLabels.push(useBundlerDeposit ? 'Deposit (wrap ETH)' : 'Deposit');
   emitTransactionPlan(onProgress, planLabels);
 
+  const totalSteps = planLabels.length;
   let currentStep = 0;
 
   if (needsApproval) {
@@ -565,7 +605,7 @@ export async function depositToVaultV2(
       walletClient,
       assetAddress,
       approvalSpender,
-      useBundlerDeposit ? wethFromWalletForBundler : amountBigInt,
+      approvalAmount,
       userAddress,
       onProgress,
       currentStep,
@@ -575,20 +615,22 @@ export async function depositToVaultV2(
   }
 
   if (useBundlerDeposit) {
-    const expectedShares = (await publicClient.readContract({
-      address: normalizedVault,
-      abi: ERC4626_ABI,
-      functionName: 'convertToShares',
-      args: [amountBigInt],
-    })) as bigint;
-    const calls = buildWethVaultNativeDepositBundle({
+    // Re-quote after approvals so 0.03% maxSharePrice is not stale from a reset/approve wait.
+    const sharesForPrice =
+      needsApproval || bundlerExpectedShares === undefined
+        ? await quoteDepositShares(publicClient, normalizedVault, amountBigInt)
+        : bundlerExpectedShares;
+
+    const calls = buildVaultDepositBundle({
       vault: normalizedVault,
+      asset: getAddress(assetAddress),
       user: userAddress,
       ethToWrap,
-      wethFromWallet: wethFromWalletForBundler,
+      assetsFromWallet: wethFromWalletForBundler,
       totalAssets: amountBigInt,
-      maxSharePriceE27: maxSharePriceE27FromQuote(amountBigInt, expectedShares),
+      maxSharePriceE27: maxSharePriceE27FromQuote(amountBigInt, sharesForPrice),
     });
+
     return executeBundler3Multicall(publicClient, walletClient, calls, {
       value: ethToWrap,
       onProgress,
@@ -598,7 +640,6 @@ export async function depositToVaultV2(
     });
   }
 
-  // Direct ERC-4626 deposit (no native wrap)
   onProgress?.({
     type: 'confirming',
     stepIndex: currentStep,
@@ -625,7 +666,7 @@ export async function depositToVaultV2(
     txHash: depositHash,
   });
 
-  await publicClient.waitForTransactionReceipt({ hash: depositHash });
+  await waitForSuccessfulReceipt(publicClient, depositHash, 'Deposit');
   return depositHash;
 }
 
@@ -740,7 +781,7 @@ export async function withdrawFromVaultV2(
     txHash: withdrawHash,
   });
 
-  await publicClient.waitForTransactionReceipt({ hash: withdrawHash });
+  await waitForSuccessfulReceipt(publicClient, withdrawHash, 'Withdraw');
   return withdrawHash;
 }
 
@@ -837,7 +878,7 @@ export async function redeemFromVaultV2(
     txHash: redeemHash,
   });
 
-  await publicClient.waitForTransactionReceipt({ hash: redeemHash });
+  await waitForSuccessfulReceipt(publicClient, redeemHash, 'Redeem');
   return redeemHash;
 }
 
@@ -1006,11 +1047,7 @@ export async function forceWithdrawFromVaultV2(
     txHash: forceHash,
   });
 
-  const receipt = await publicClient.waitForTransactionReceipt({ hash: forceHash });
-
-  if (receipt.status !== 'success') {
-    throw new Error('Force withdraw transaction failed.');
-  }
+  const receipt = await waitForSuccessfulReceipt(publicClient, forceHash, 'Force withdraw');
 
   if (!unwrapToEth) {
     return forceHash;

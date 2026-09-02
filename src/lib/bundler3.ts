@@ -1,5 +1,5 @@
 /**
- * Morpho Bundler3 helpers for atomic multi-step WETH/ETH vault flows on Base.
+ * Morpho Bundler3 helpers for WETH/ETH wrap/unwrap on Base (not used for plain ERC-20 deposits).
  * Addresses: https://docs.morpho.org/get-started/resources/addresses/
  */
 
@@ -12,6 +12,7 @@ import {
   getAddress,
   maxUint256,
 } from 'viem';
+import { base } from 'viem/chains';
 import { builderWriteOpts } from '@/lib/builder-code';
 import {
   BASE_CHAIN_ID,
@@ -22,8 +23,12 @@ import {
 import { logger } from '@/lib/logger';
 import type { TransactionProgressCallback } from '@/types/transactions';
 
-/** Default Bundler3 share-price slippage (0.5%). */
-export const BUNDLER_SLIPPAGE_BPS = BigInt(50);
+/**
+ * Bundler3 share-price slippage, matching Morpho SDK `DEFAULT_SLIPPAGE_TOLERANCE` (0.03%).
+ * 3 bps of quoted assets/shares. Tight enough to catch inflation / share-price jumps;
+ * loose enough that normal interest accrual during wallet confirmation does not revert.
+ */
+export const BUNDLER_SLIPPAGE_BPS = BigInt(3);
 
 const SHARE_PRICE_SCALE_E27 = BigInt(10) ** BigInt(27);
 
@@ -267,35 +272,42 @@ function buildErc4626RedeemCall(
   );
 }
 
-/** Atomic ETH(+WETH) → wrap → deposit into a WETH vault. */
-export function buildWethVaultNativeDepositBundle(params: {
+/**
+ * ETH wrap + deposit via Bundler3 / GeneralAdapter1 (`maxSharePriceE27`).
+ * Tokens already in wallet must be approved to the adapter. Plain ERC-20 deposits
+ * should call the vault directly instead of this bundle.
+ */
+export function buildVaultDepositBundle(params: {
   vault: Address;
+  asset: Address;
   user: Address;
-  ethToWrap: bigint;
-  wethFromWallet: bigint;
+  ethToWrap?: bigint;
+  assetsFromWallet: bigint;
   totalAssets: bigint;
   /** From convertToShares(totalAssets) + slippage; defaults to maxUint256 if omitted. */
   maxSharePriceE27?: bigint;
 }): Bundler3Call[] {
   const {
     vault,
+    asset,
     user,
-    ethToWrap,
-    wethFromWallet,
+    assetsFromWallet,
     totalAssets,
     maxSharePriceE27 = maxUint256,
   } = params;
+  const ethToWrap = params.ethToWrap ?? BigInt(0);
   const calls: Bundler3Call[] = [];
 
   if (ethToWrap > BigInt(0)) {
-    // Fund adapter (empty call + value), then wrap — matches Morpho BundlerAction encoding.
+    if (asset.toLowerCase() !== BASE_WETH_ADDRESS.toLowerCase()) {
+      throw new Error('Native wrap is only valid when the vault asset is WETH.');
+    }
+    // Fund adapter (empty call + value), then wrap — wrapNative is non-payable.
     calls.push(buildNativeFundAdapterCall(ethToWrap));
     calls.push(buildWrapNativeCall(ethToWrap, GENERAL_ADAPTER_ADDRESS));
   }
-  if (wethFromWallet > BigInt(0)) {
-    calls.push(
-      buildErc20TransferFromCall(BASE_WETH_ADDRESS, GENERAL_ADAPTER_ADDRESS, wethFromWallet)
-    );
+  if (assetsFromWallet > BigInt(0)) {
+    calls.push(buildErc20TransferFromCall(asset, GENERAL_ADAPTER_ADDRESS, assetsFromWallet));
   }
   calls.push(buildErc4626DepositCall(vault, totalAssets, user, maxSharePriceE27));
   return calls;
@@ -357,9 +369,9 @@ export async function executeBundler3Multicall(
   if (calls.length === 0) {
     throw new Error('Empty Bundler3 bundle');
   }
-  if (!walletClient.chain || walletClient.chain.id !== BASE_CHAIN_ID) {
+  if (walletClient.chain && walletClient.chain.id !== BASE_CHAIN_ID) {
     throw new Error(
-      `Wrong network: Bundler3 is Base-only (chain ${BASE_CHAIN_ID}), got ${walletClient.chain?.id ?? 'unknown'}`
+      `Wrong network: Bundler3 is Base-only (chain ${BASE_CHAIN_ID}), got ${walletClient.chain.id}`
     );
   }
 
@@ -392,7 +404,7 @@ export async function executeBundler3Multicall(
     args: [calls],
     value,
     account: walletClient.account,
-    chain: walletClient.chain,
+    chain: walletClient.chain ?? base,
     ...builderWriteOpts(),
   });
 
@@ -404,6 +416,9 @@ export async function executeBundler3Multicall(
     txHash: hash,
   });
 
-  await publicClient.waitForTransactionReceipt({ hash });
+  const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  if (receipt.status !== 'success') {
+    throw new Error('Bundler3 transaction failed.');
+  }
   return hash;
 }

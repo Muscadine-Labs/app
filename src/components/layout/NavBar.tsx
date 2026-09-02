@@ -8,6 +8,7 @@ import { ConnectButton } from "../features/wallet";
 import { Icon } from "../ui/Icon";
 import { Button } from "../ui/Button";
 import { useTheme } from "@/contexts/ThemeContext";
+import { MORPHO_DISCLAIMER_URL } from '@/lib/constants';
 
 interface NavBarProps {
     isRightSidebarCollapsed?: boolean;
@@ -155,6 +156,15 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                             onClick={() => setIsMenuOpen(false)}
                                         >
                                             Legal Disclaimer
+                                        </a>
+                                        <a
+                                            href={MORPHO_DISCLAIMER_URL}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="block py-2 text-sm text-[var(--foreground)] hover:text-[var(--primary)] transition-colors cursor-pointer"
+                                            onClick={() => setIsMenuOpen(false)}
+                                        >
+                                            Morpho’s Disclaimer
                                         </a>
                                         <a
                                             href="https://muscadine.xyz/privacy"

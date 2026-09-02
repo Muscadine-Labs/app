@@ -1,9 +1,15 @@
 /**
- * Vault V2 force-withdraw planning — Morpho SDK / exit-bundle style:
- * vault.multicall([forceDeallocate × N, withdraw]).
+ * Vault V2 force-withdraw planning — Morpho SDK `forceWithdraw` / `forceRedeem`:
+ * vault.multicall([forceDeallocate × N, withdraw|redeem]).
+ *
+ * This is the cash exit: deallocate illiquid supply into idle, then withdraw the
+ * underlying asset (penalty burns shares). It is not in-kind redemption.
+ *
+ * In-kind (`vault.inKindRedeem` → VaultExitBundlesV1) transfers Morpho Blue
+ * supply positions to the user and is a separate path.
  *
  * Used when requested assets exceed instant liquidity (idle + liquidity adapter).
- * Ref: https://docs.morpho.org/learn/concepts/vault-v2/#1-in-kind-redemptions-with-forcedeallocate
+ * Ref: https://docs.morpho.org/developers/sdks/morpho-sdk/vault/#force-withdraw--force-redeem
  */
 
 import {

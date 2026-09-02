@@ -7,6 +7,7 @@ import { formatAssetBalance, formatCurrency, truncateAddress } from '@/lib/forma
 import {
   BASE_CHAIN_ID,
   ETH_GAS_RESERVE,
+  MORPHO_DISCLAIMER_URL,
   getChainDisplayName,
 } from '@/lib/constants';
 import { findVaultByAddress } from '@/lib/vault-utils';
@@ -393,7 +394,6 @@ export function TransactionConfirmation({
             Back to Dashboard
           </Button>
         )}
-
       </div>
     );
   }
@@ -483,7 +483,16 @@ export function TransactionConfirmation({
           >
             Privacy Policy
           </a>
-          {' '}and the services provisions relating to the Morpho Vault.
+          {', and '}
+          <a
+            href={MORPHO_DISCLAIMER_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[var(--primary)] hover:underline"
+          >
+            Morpho’s Disclaimer
+          </a>
+          .
         </p>
       </div>
 

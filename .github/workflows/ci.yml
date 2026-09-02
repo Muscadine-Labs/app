@@ -29,3 +29,9 @@ jobs:
 
       - name: Lint
         run: npm run lint
+
+      - name: Build
+        env:
+          NEXT_PUBLIC_ALCHEMY_API_KEY: ci
+          NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: ci
+        run: npm run build

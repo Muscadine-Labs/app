@@ -3,6 +3,7 @@ import { logger } from '@/lib/logger';
 import { isValidEthereumAddress } from '@/lib/vault-utils';
 import { isValidChainId, fetchMorphoGraphQL, readMorphoGraphQLResponse, MORPHO_RATE_LIMIT_BODY } from '@/lib/api-utils';
 import { MORPHO_GRAPHQL_REVALIDATE_SECONDS } from '@/lib/constants';
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ address: string }> }
@@ -175,7 +176,7 @@ export async function GET(
       const totalAssets = vault.totalAssets || '0';
       const totalSupply = vault.totalSupply || '0';
       const totalAssetsUsd = vault.totalAssetsUsd || 0;
-      
+
       // Calculate sharePrice in tokens: totalAssets / totalSupply
       // Both are in raw units, so we need to account for decimals
       let sharePrice = 0;

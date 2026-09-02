@@ -10,16 +10,17 @@ Instructions for AI agents working in this repo. Full architecture docs live in 
    - “To work on another day” → backlog; do not start without being asked.
    - Update/remove entries as work completes.
 2. **Before every push to GitHub:** run `npm run lint` and `npm run build`; both must pass. Never push to github without users specific permission or order.
-4. **Git commits only when the user explicitly asks.**
-5. Keep `CLAUDE.md` and this file updated when conventions or architecture knowledge change.
+3. **Git commits only when the user explicitly asks.**
+4. Keep `CLAUDE.md` and this file updated when conventions or architecture knowledge change.
 
 ## Key constraints
 
 - **wagmi must stay on 2.x** (RainbowKit 2 requirement). **eslint stays on 9.x**. Pin **`qr@0.5.5`** in `package.json` overrides (WalletConnect QR `border=0` crash with `qr@0.6.0`). Keep a **root `valtio`** (RainbowKit/Turbopack `valtio/vanilla` resolve). Keep **`ox` on 0.14.x**. Keep **`allowScripts`** in `package.json` in sync with lockfile versions for `bufferutil`, `keccak`, `unrs-resolver`, and `utf-8-validate` (npm 11+ install-script allowlist; silences Vercel `allow-scripts-pending`). Keep Dependabot-patched transitive pins in **`overrides`**: `axios`, `hono`, `js-yaml` 4.3.1, `socket.io-parser`, `brace-expansion@1` / `@5`.
 - **Base only** (chain id 8453). **v1 MetaMorpho removed** — registry and writes are v2 Prime/Frontier only.
 - **Builder code** `bc_mwkqu9rd` on all vault txs via `src/lib/builder-code.ts`.
-- **v2 writes:** direct ERC-4626 ABIs in `src/lib/transactionUtilsV2.ts`; multi-step WETH/ETH via Morpho Bundler3 helpers in `src/lib/bundler3.ts` (no Morpho npm bundler SDK).
-- Registry: `src/lib/vaults.ts` — fields include `strategy` (`prime` | `frontier`), `vaultSymbol` (e.g. `mpUSDC`, `mfUSDC`).
+- **v2 writes:** direct ERC-4626 in `transactionUtilsV2.ts`; Morpho Bundler3 in `bundler3.ts` only for ETH wrap/unwrap. No Morpho npm bundler SDK.
+- Registry: `src/lib/vaults.ts` — fields include `strategy` (`prime` | `frontier`), `vaultSymbol` (e.g. `mpUSDC`, `mfUSDC`). Confirm Morpho dead shares (`0x…dEaD`) **before listing**; do not add a runtime RPC check — curated vaults already have them.
+- **No “Powered by Morpho” badge** on vault pages (looks tacky). Morpho attribution is the disclaimer: first-connect advisory, NavBar Protocol link, and review/confirm.
 - Use `findVaultByAddress` / `isCuratedVaultAddress` from `src/lib/vault-utils.ts` — never infer vault by asset symbol alone.
 - Use `logger` from `src/lib/logger.ts`, not `console.log`.
 - **Token display decimals:** UI via `getDisplayFractionDigits` — USDC **6**, cbBTC/ETH/WETH **8**. Prefer raw `bigint` amounts. **Transactions** always use full token decimals (`formatBigIntForInput` — ETH 18, cbBTC 8, USDC 6). Chart axes stay compact.
@@ -39,9 +40,10 @@ Instructions for AI agents working in this repo. Full architecture docs live in 
 
 - Wrap ETH via Bundler3: fund adapter with empty calldata + `value`, then `wrapNative` with `value: 0` (`wrapNative` is non-payable).
 - Withdraw → ETH: approve **shares** to GeneralAdapter, then one Bundler3 multicall (exit to adapter → `unwrapNative`).
-- Bundler deposit/withdraw share-price bounds: **0.5%** from on-chain quotes (`BUNDLER_SLIPPAGE_BPS`).
+- Bundler wrap/unwrap share-price bounds: **0.03%** from on-chain quotes (`BUNDLER_SLIPPAGE_BPS`, Morpho SDK default). Wrap deposits refuse a zero `convertToShares` quote before approve, then re-quote after approvals for `maxSharePrice`. Direct ERC-4626 deposits skip that read.
+- Approval and main txs: `waitForSuccessfulReceipt` — a reverted receipt must not continue to the next step.
 - Resume unwrap only for unwrap-only steps, or after force exit progressed past step 0; never re-force on unwrap failure.
-- Force withdraw is vault `multicall` (not Bundler3); ETH unwrap is a follow-up Bundler3 tx. Prefer low-penalty markets; penalty burns shares (withdraw amount = requested).
+- Force withdraw is vault `multicall` (not Bundler3); ETH unwrap is a follow-up Bundler3 tx. Prefer low-penalty markets; penalty burns shares (withdraw amount = requested). This matches Morpho SDK `forceWithdraw` / `forceRedeem`. In-kind redemption (user receives Blue positions via VaultExitBundlesV1) is not implemented.
 
 ## Known gotchas
 
