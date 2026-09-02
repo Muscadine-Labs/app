@@ -9,7 +9,7 @@ import { formatCurrency } from '@/lib/formatter';
 import { logger } from '@/lib/logger';
 import { POST_TX_BALANCE_REFRESH_DELAY_MS } from '@/lib/constants';
 import { findVaultByAddress } from '@/lib/vault-utils';
-import type { VaultStrategy } from '@/lib/vaults';
+import type { VaultKind, VaultStrategy } from '@/lib/vaults';
 
 export interface TokenBalance {
   address: string;
@@ -28,6 +28,7 @@ interface VaultPosition {
     symbol: string;
     vaultSymbol?: string;
     strategy?: VaultStrategy;
+    kind?: VaultKind;
     isCurated?: boolean;
     state: {
       sharePriceUsd: number;
@@ -183,6 +184,18 @@ const WAGMI_FALLBACK_ALL = {
   wsteth: true,
 };
 
+const MAJOR_TOKEN_ADDRESSES = [
+  TOKEN_ADDRESSES.USDC,
+  TOKEN_ADDRESSES.cbBTC,
+  TOKEN_ADDRESSES.WETH,
+  TOKEN_ADDRESSES.cbETH,
+  TOKEN_ADDRESSES.wstETH,
+] as const;
+
+const MAJOR_TOKEN_ADDRESS_SET = new Set(
+  MAJOR_TOKEN_ADDRESSES.map((address) => address.toLowerCase())
+);
+
 function toTokenBalance(
   contractAddress: string,
   tokenBalance: string | undefined,
@@ -202,6 +215,43 @@ function toTokenBalance(
     };
   } catch {
     return null;
+  }
+}
+
+async function requestAlchemyTokenBalances(
+  alchemyApiKey: string,
+  walletAddress: string,
+  tokenSpec: 'erc20' | readonly string[]
+): Promise<{ ok: boolean; tokenBalances: AlchemyTokenBalance[] }> {
+  try {
+    const response = await fetch(
+      `https://base-mainnet.g.alchemy.com/v2/${alchemyApiKey}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'alchemy_getTokenBalances',
+          params: [walletAddress, tokenSpec],
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      return { ok: false, tokenBalances: [] };
+    }
+
+    const data = (await response.json()) as AlchemyTokenBalancesResponse;
+    if (data.error) {
+      return { ok: false, tokenBalances: [] };
+    }
+
+    return { ok: true, tokenBalances: data.result?.tokenBalances ?? [] };
+  } catch {
+    return { ok: false, tokenBalances: [] };
   }
 }
 
@@ -360,33 +410,23 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     }
 
     try {
-      const response = await fetch(
-        `https://base-mainnet.g.alchemy.com/v2/${alchemyApiKey}`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            jsonrpc: '2.0',
-            id: 1,
-            method: 'alchemy_getTokenBalances',
-            params: [walletAddress, 'erc20'],
-          }),
-        }
-      );
+      // Query majors by address. `erc20` is paginated (~100) and spam-token wallets
+      // can omit USDC/WETH from the first page even when the balance is nonzero.
+      const [majorResult, erc20Result] = await Promise.all([
+        requestAlchemyTokenBalances(alchemyApiKey, walletAddress, MAJOR_TOKEN_ADDRESSES),
+        requestAlchemyTokenBalances(alchemyApiKey, walletAddress, 'erc20'),
+      ]);
 
-      if (!response.ok) {
+      if (!majorResult.ok && !erc20Result.ok) {
         return { tokens: [], ok: false };
       }
 
-      const data = await response.json() as AlchemyTokenBalancesResponse;
-
-      if (data.error) {
-        return { tokens: [], ok: false };
-      }
-
-      const tokenAddresses = data.result?.tokenBalances || [];
+      const tokenAddresses = [
+        ...majorResult.tokenBalances,
+        ...erc20Result.tokenBalances.filter(
+          (token) => !MAJOR_TOKEN_ADDRESS_SET.has(token.contractAddress.toLowerCase())
+        ),
+      ];
 
       const tokensWithBalance = tokenAddresses.filter((token: AlchemyTokenBalance) => {
         try {
@@ -607,6 +647,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
             symbol: string;
             vaultSymbol?: string;
             strategy?: string;
+            kind?: string;
             isCurated?: boolean;
           };
           shares: string;
@@ -622,10 +663,11 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
             version: p.version ?? 'v2',
             vault: {
               address: p.vault.address,
-              name: curated?.name ?? p.vault.name,
+              name: p.vault.name || curated?.name,
               symbol: p.vault.symbol,
               vaultSymbol: curated?.vaultSymbol ?? p.vault.vaultSymbol,
               strategy: (curated?.strategy ?? p.vault.strategy) as VaultStrategy | undefined,
+              kind: curated?.kind,
               isCurated: !!curated,
               state: { sharePriceUsd: 0, totalAssetsUsd: 0, totalSupply: '0' },
             },

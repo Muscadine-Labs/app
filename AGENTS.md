@@ -9,7 +9,7 @@ Instructions for AI agents working in this repo. Full architecture docs live in 
    - “Needs confirmation first” → research or report only; do not implement without user OK.
    - “To work on another day” → backlog; do not start without being asked.
    - Update/remove entries as work completes.
-2. **Before every push to GitHub:** run `npm run lint` and `npm run build`; both must pass. Never push to github without users specific permission or order.
+2. **Before every push to GitHub:** run `npm run lint` and `npm run build` locally; both must pass. GitHub Actions only runs lint (no build, no env keys). Never push to github without users specific permission or order.
 3. **Git commits only when the user explicitly asks.**
 4. Keep `CLAUDE.md` and this file updated when conventions or architecture knowledge change.
 
@@ -19,12 +19,12 @@ Instructions for AI agents working in this repo. Full architecture docs live in 
 - **Base only** (chain id 8453). **v1 MetaMorpho removed** — registry and writes are v2 Prime/Frontier only.
 - **Builder code** `bc_mwkqu9rd` on all vault txs via `src/lib/builder-code.ts`.
 - **v2 writes:** direct ERC-4626 in `transactionUtilsV2.ts`; Morpho Bundler3 in `bundler3.ts` only for ETH wrap/unwrap. No Morpho npm bundler SDK.
-- Registry: `src/lib/vaults.ts` — fields include `strategy` (`prime` | `frontier`), `vaultSymbol` (e.g. `mpUSDC`, `mfUSDC`). Confirm Morpho dead shares (`0x…dEaD`) **before listing**; do not add a runtime RPC check — curated vaults already have them.
+- Registry: `src/lib/vaults.ts` — fields include `strategy` (`prime` | `frontier`), `kind` (`wrapper` | `underlying`), `vaultSymbol` (e.g. `wmpUSDC`, `mpUSDC`). Default explorer surface is fee wrappers (NavBar **Vault wrappers** toggle, persisted `muscadine-vault-wrappers`). No cbBTC wrapper. Confirm Morpho dead shares (`0x…dEaD`) **before listing**; do not add a runtime RPC check — curated vaults already have them.
 - **No “Powered by Morpho” badge** on vault pages (looks tacky). Morpho attribution is the disclaimer: first-connect advisory, NavBar Protocol link, and review/confirm.
-- Use `findVaultByAddress` / `isCuratedVaultAddress` from `src/lib/vault-utils.ts` — never infer vault by asset symbol alone.
+- Use `findVaultByAddress` / `isCuratedVaultAddress` from `src/lib/vault-utils.ts` — never infer vault by asset symbol alone. Wrapper allocation rows and the allocations footer link to Muscadine Analytics (`getVaultAnalyticsUrl`), not the in-app vault page.
 - Use `logger` from `src/lib/logger.ts`, not `console.log`.
 - **Token display decimals:** UI via `getDisplayFractionDigits` — USDC **6**, cbBTC/ETH/WETH **8**. Prefer raw `bigint` amounts. **Transactions** always use full token decimals (`formatBigIntForInput` — ETH 18, cbBTC 8, USDC 6). Chart axes stay compact.
-- **No developer / over-balance bypass mode** — `VaultVersionContext` removed. Explorer filters default to All for everyone; transact blocks amounts over balance.
+- **No developer / over-balance bypass mode** — `VaultVersionContext` removed. Explorer filters default to All for everyone; transact blocks amounts over balance. When Vault wrappers is off, `/vaults` shows All / Underlying Vaults / Wrappers Vaults.
 
 ## Dashboard & positions
 
@@ -43,11 +43,12 @@ Instructions for AI agents working in this repo. Full architecture docs live in 
 - Bundler wrap/unwrap share-price bounds: **0.03%** from on-chain quotes (`BUNDLER_SLIPPAGE_BPS`, Morpho SDK default). Wrap deposits refuse a zero `convertToShares` quote before approve, then re-quote after approvals for `maxSharePrice`. Direct ERC-4626 deposits skip that read.
 - Approval and main txs: `waitForSuccessfulReceipt` — a reverted receipt must not continue to the next step.
 - Resume unwrap only for unwrap-only steps, or after force exit progressed past step 0; never re-force on unwrap failure.
-- Force withdraw is vault `multicall` (not Bundler3); ETH unwrap is a follow-up Bundler3 tx. Prefer low-penalty markets; penalty burns shares (withdraw amount = requested). This matches Morpho SDK `forceWithdraw` / `forceRedeem`. In-kind redemption (user receives Blue positions via VaultExitBundlesV1) is not implemented.
+- Force withdraw is vault `multicall` (not Bundler3) on every v2 vault, including fee wrappers. Market adapters encode Morpho Blue params; wrapper / VaultV1 adapters use empty `data` and inner ERC-4626 liquidity. ETH unwrap after force is Bundler3 and only when the vault asset is WETH.
 
 ## Known gotchas
 
 - Morpho GraphQL invalid fields fail the whole request (HTTP 400).
+- New vaults / fee wrappers often have TVL before `avgNetApy` or position history is indexed. `stripIncompleteVaultHistoryBuckets` keeps TVL points; `finalizePositionHistory` seeds a short live-position line when history is empty. Overview hides the APY chart until a positive rate exists.
 - Morpho public API rate limit (429) / blips (502): `fetchMorphoGraphQL()` retries transient statuses. Positions route returns **503** + `retryable` for rate-limit/transient; other failures **502** without retryable spam.
 - Morpho asset USD price: query `price { usd }`; parse via `resolveMorphoAssetPriceUsd()` in `api-utils.ts`.
 - Overlay scroll lock: use `useLockPageScroll()` — locks `body` and `[data-app-scroll]` in `AppLayout`. Reference counted, so nested overlays are safe; never set `overflow` directly.
@@ -58,6 +59,6 @@ Instructions for AI agents working in this repo. Full architecture docs live in 
 
 ```bash
 npm run dev      # Turbopack dev server
-npm run build    # Production build (run before pushes)
-npm run lint     # ESLint (run before pushes)
+npm run build    # Production build (local / Vercel; not GitHub Actions)
+npm run lint     # ESLint (local before push; GitHub CI)
 ```

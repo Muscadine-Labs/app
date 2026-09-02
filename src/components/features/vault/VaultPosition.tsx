@@ -411,11 +411,15 @@ export default function VaultPosition({
   // Calculate available time frames based on FULL data range (not filtered by selectedTimeFrame)
   // Find the minimum timestamp to ensure correctness even if data isn't sorted
   const availableTimeFrames = useMemo(() => {
-    if (fullUserDepositHistory.length === 0) return ['all' as TimeFrame];
+    const series =
+      fullUserDepositHistory.length > 0
+        ? fullUserDepositHistory
+        : mapPositionHistoryToChartData(hourly30dPositionHistory);
+    if (series.length === 0) return ['all' as TimeFrame];
 
     // Find minimum timestamp to ensure correctness regardless of sort order
     // Use reduce instead of Math.min spread to avoid potential stack overflow with large arrays
-    const oldestTimestamp = fullUserDepositHistory.reduce((min, d) => Math.min(min, d.timestamp), fullUserDepositHistory[0].timestamp);
+    const oldestTimestamp = series.reduce((min, d) => Math.min(min, d.timestamp), series[0].timestamp);
     const dataRangeSeconds = chartEndTimestamp - oldestTimestamp;
     
     const frames: TimeFrame[] = ['all'];
@@ -436,7 +440,7 @@ export default function VaultPosition({
     }
     
     return frames;
-  }, [fullUserDepositHistory, chartEndTimestamp]);
+  }, [fullUserDepositHistory, hourly30dPositionHistory, chartEndTimestamp, mapPositionHistoryToChartData]);
 
   // Use GraphQL position history data directly - no calculation needed
   // This is used for displaying the chart, and switches between hourly/daily based on selectedTimeFrame
@@ -446,6 +450,9 @@ export default function VaultPosition({
     if (selectedTimeFrame === '7D' && hourly7dPositionHistory.length > 0) {
       return mapPositionHistoryToChartData(hourly7dPositionHistory);
     } else if (selectedTimeFrame === '30D' && hourly30dPositionHistory.length > 0) {
+      return mapPositionHistoryToChartData(hourly30dPositionHistory);
+    }
+    if (fullUserDepositHistory.length < 2 && hourly30dPositionHistory.length > fullUserDepositHistory.length) {
       return mapPositionHistoryToChartData(hourly30dPositionHistory);
     }
     
@@ -727,7 +734,7 @@ export default function VaultPosition({
                 </div>
               </div>
             </div>
-          ) : fullUserDepositHistory.length > 0 ? (
+          ) : (fullUserDepositHistory.length > 0 || hourly30dPositionHistory.length > 0) ? (
             <div className={`bg-[var(--surface-elevated)] rounded-lg p-2 sm:p-4 ${VAULT_DETAIL_CHART_HEIGHT_CLASS} flex flex-col`}>
               {/* Controls Row */}
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4 shrink-0">

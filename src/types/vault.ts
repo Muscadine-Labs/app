@@ -1,4 +1,4 @@
-import type { VaultStrategy } from '@/lib/vaults';
+import type { VaultKind, VaultStrategy } from '@/lib/vaults';
 
 /** Morpho v2 liquidity breakdown (instant, idle, adapter, deallocatable, total). */
 export interface VaultLiquidityBreakdown {
@@ -25,6 +25,9 @@ export interface Vault {
     chainId: number;
     version?: 'v1' | 'v2';
     strategy?: VaultStrategy;
+    kind?: VaultKind;
+    /** Inner Morpho vault when `kind` is `wrapper`. */
+    underlyingAddress?: string;
     /** True when vault is in the Muscadine registry (has a detail page). */
     isCurated?: boolean;
     

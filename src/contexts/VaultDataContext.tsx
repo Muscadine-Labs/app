@@ -3,9 +3,8 @@
 import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
 import { formatUnits } from 'viem';
 import { Vault, MorphoVaultData, VaultLiquidityBreakdown } from '@/types/vault';
-import { getVaultVersion, isCuratedVaultAddress } from '@/lib/vault-utils';
+import { getVaultVersion, findVaultByAddress, getAllRegistryVaults, isCuratedVaultAddress } from '@/lib/vault-utils';
 import { MORPHO_PRELOAD_BATCH_SIZE, MORPHO_FETCH_ERROR_COOLDOWN_MS, CLIENT_VAULT_DATA_CACHE_MS } from '../lib/constants';
-import { VAULTS } from '../lib/vaults';
 
 interface AllocationData {
   market?: {
@@ -231,14 +230,19 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
         }
         
         const sharePriceUsd = vaultInfo.state?.sharePriceUsd || 0;
+        const registryVault = findVaultByAddress(address);
 
         // Build the vault object
         const vault: Vault = {
           address: vaultInfo.address,
-          name: vaultInfo.name || `Vault ${address.slice(0, 6)}...${address.slice(-4)}`,
-          symbol: vaultInfo.asset?.symbol || 'UNKNOWN',
+          name: vaultInfo.name || registryVault?.name || `Vault ${address.slice(0, 6)}...${address.slice(-4)}`,
+          symbol: registryVault?.symbol || vaultInfo.asset?.symbol || 'UNKNOWN',
+          vaultSymbol: registryVault?.vaultSymbol,
           chainId: effectiveChainId,
           version: vaultVersion,
+          strategy: registryVault?.strategy,
+          kind: registryVault?.kind,
+          underlyingAddress: registryVault?.underlyingAddress,
           totalValueLocked: vaultInfo.state?.totalAssetsUsd || 0,
           totalAssets: vaultInfo.state?.totalAssets || '0',
           assetDecimals: assetDecimals,
@@ -384,6 +388,9 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
       performanceFee: basic.performanceFee || 0.0,
       managementFee: basic.managementFee || 0.0,
       description: basic.description || 'High-yield lending vault optimized for stablecoin deposits with automated market allocation.',
+      strategy: basic.strategy,
+      kind: basic.kind,
+      underlyingAddress: basic.underlyingAddress,
       isCurated: basic.isCurated ?? isCuratedVaultAddress(address),
     };
   }, [vaultData]);
@@ -419,14 +426,7 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
     if (registryPreloadedRef.current) return;
     registryPreloadedRef.current = true;
 
-    const vaults: Vault[] = Object.values(VAULTS).map((v) => ({
-      address: v.address,
-      name: v.name,
-      symbol: v.symbol,
-      chainId: v.chainId,
-      version: v.version,
-    }));
-    await preloadVaults(vaults);
+    await preloadVaults(getAllRegistryVaults());
   }, [preloadVaults]);
 
   // Extract market uniqueKeys from vault allocation data for simulation state

@@ -8,6 +8,7 @@ import { ConnectButton } from "../features/wallet";
 import { Icon } from "../ui/Icon";
 import { Button } from "../ui/Button";
 import { useTheme } from "@/contexts/ThemeContext";
+import { useVaultSettings } from "@/contexts/VaultSettingsContext";
 import { MORPHO_DISCLAIMER_URL } from '@/lib/constants';
 
 interface NavBarProps {
@@ -28,6 +29,7 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
     
     // Settings state with defaults
     const { theme, setTheme } = useTheme();
+    const { wrappersOnly, setWrappersOnly } = useVaultSettings();
 
     const isActive = useCallback((item: NavItem): boolean => {
         if (item.id === 'vaults') {
@@ -302,7 +304,7 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                         onMouseEnter={() => setIsSettingsOpen(true)}
                                     />
                                     <div 
-                                        className="absolute right-0 top-full mt-2 w-48 bg-[var(--surface)] border border-[var(--border)] rounded-2xl shadow-xl py-4 z-[60] animate-[fadeInUp_0.2s_ease-out]"
+                                        className="absolute right-0 top-full mt-2 w-56 bg-[var(--surface)] border border-[var(--border)] rounded-2xl shadow-xl py-4 z-[60] animate-[fadeInUp_0.2s_ease-out]"
                                         onMouseEnter={() => setIsSettingsOpen(true)}
                                         onMouseLeave={() => setIsSettingsOpen(false)}
                                     >
@@ -353,6 +355,38 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                                 }`}
                                             >
                                                 Auto
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div className="mx-4 my-3 border-t border-[var(--border-subtle)]" />
+                                    <div className="px-4">
+                                        <div className="flex items-center justify-between gap-3">
+                                            <div className="min-w-0">
+                                                <p className="text-sm text-[var(--foreground)]">Vault wrappers</p>
+                                                <p className="text-[10px] text-[var(--foreground-muted)] mt-0.5">
+                                                    {wrappersOnly ? 'Only vault wrappers' : 'Underlying + wrappers'}
+                                                </p>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                role="switch"
+                                                aria-checked={wrappersOnly}
+                                                aria-label="Vault wrappers"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setWrappersOnly(!wrappersOnly);
+                                                }}
+                                                className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full transition-colors ${
+                                                    wrappersOnly
+                                                        ? 'bg-[var(--primary)]'
+                                                        : 'bg-[var(--border)]'
+                                                }`}
+                                            >
+                                                <span
+                                                    className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform mt-0.5 ${
+                                                        wrappersOnly ? 'translate-x-4' : 'translate-x-0.5'
+                                                    }`}
+                                                />
                                             </button>
                                         </div>
                                     </div>

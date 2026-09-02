@@ -14,6 +14,7 @@ import {
   useRole,
 } from '@floating-ui/react';
 import type { VaultStrategy } from '@/lib/vaults';
+import type { VaultKindFilter } from '@/lib/vault-utils';
 
 interface FilterDropdownProps {
   label: string;
@@ -109,6 +110,7 @@ export type VaultAssetFilter = 'all' | 'USDC' | 'cbBTC' | 'WETH';
 export type VaultNetworkFilter = 'all' | 'base';
 export type VaultStrategyFilter = 'all' | VaultStrategy;
 export type VaultWalletFilter = 'all' | 'inWallet' | 'inWalletAndWhitelisted';
+export type { VaultKindFilter };
 
 const WALLET_FILTER_OPTIONS: Array<{
   value: VaultWalletFilter;
@@ -242,11 +244,14 @@ export interface VaultExplorerFilterState {
   asset: VaultAssetFilter;
   strategy: VaultStrategyFilter;
   walletFilter: VaultWalletFilter;
+  kindFilter: VaultKindFilter;
 }
 
 interface VaultExplorerFiltersProps {
   filters: VaultExplorerFilterState;
   onFiltersChange: (filters: VaultExplorerFilterState) => void;
+  wrappersOnly: boolean;
+  showCbBtc: boolean;
 }
 
 export function getDefaultExplorerFilters(): VaultExplorerFilterState {
@@ -255,16 +260,26 @@ export function getDefaultExplorerFilters(): VaultExplorerFilterState {
     asset: 'all',
     strategy: 'all',
     walletFilter: 'inWalletAndWhitelisted',
+    kindFilter: 'all',
   };
 }
 
 export default function VaultExplorerFilters({
   filters,
   onFiltersChange,
+  wrappersOnly,
+  showCbBtc,
 }: VaultExplorerFiltersProps) {
   const update = (partial: Partial<VaultExplorerFilterState>) => {
     onFiltersChange({ ...filters, ...partial });
   };
+
+  const assetOptions = [
+    { label: 'All', value: 'all' },
+    { label: 'USDC', value: 'USDC' },
+    ...(showCbBtc ? [{ label: 'cbBTC', value: 'cbBTC' }] : []),
+    { label: 'WETH', value: 'WETH' },
+  ];
 
   return (
     <div className="relative z-20 shrink-0 border-b border-[var(--border)] bg-[var(--surface)]">
@@ -292,14 +307,21 @@ export default function VaultExplorerFilters({
           <FilterDropdown
             label="Asset"
             value={filters.asset}
-            options={[
-              { label: 'All', value: 'all' },
-              { label: 'USDC', value: 'USDC' },
-              { label: 'cbBTC', value: 'cbBTC' },
-              { label: 'WETH', value: 'WETH' },
-            ]}
+            options={assetOptions}
             onChange={(value) => update({ asset: value as VaultAssetFilter })}
           />
+          {!wrappersOnly && (
+            <FilterDropdown
+              label="Vaults"
+              value={filters.kindFilter}
+              options={[
+                { label: 'All', value: 'all' },
+                { label: 'Underlying Vaults', value: 'underlying' },
+                { label: 'Wrappers Vaults', value: 'wrappers' },
+              ]}
+              onChange={(value) => update({ kindFilter: value as VaultKindFilter })}
+            />
+          )}
         </div>
 
         <WalletFilterControl

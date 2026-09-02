@@ -1,3 +1,4 @@
+import { findVaultByAddress, getVaultAnalyticsUrl } from '@/lib/vault-utils';
 import { fetchMorphoGraphQL, readMorphoGraphQLResponse } from '@/lib/api-utils';
 import {
   formatMorphoMarketName,
@@ -8,7 +9,7 @@ import { resolveAssetDecimals } from '@/lib/asset-decimals';
 import { MORPHO_GRAPHQL_REVALIDATE_SECONDS } from '@/lib/constants';
 import { logger } from '@/lib/logger';
 
-export type VaultAllocationKind = 'market' | 'idle';
+export type VaultAllocationKind = 'market' | 'idle' | 'vault';
 
 export interface VaultMarketAllocation {
   id: string;
@@ -16,6 +17,10 @@ export interface VaultMarketAllocation {
   marketId?: string;
   name: string;
   morphoUrl?: string;
+  /** Inner vault address when kind is `vault`. */
+  vaultAddress?: string;
+  /** Analytics page for an inner vault allocation (`kind: 'vault'`). */
+  href?: string;
   allocatedUsd: number;
   /** Null for idle — not applicable. */
   marketSizeUsd: number | null;
@@ -81,6 +86,23 @@ const VAULT_ALLOCATIONS_QUERY = `
               }
             }
           }
+          ... on MorphoVaultV2Adapter {
+            assets
+            assetsUsd
+            innerVault {
+              address
+              name
+              symbol
+              totalAssets
+              totalAssetsUsd
+              liquidityUsd
+              netApy
+              asset {
+                symbol
+                decimals
+              }
+            }
+          }
         }
       }
     }
@@ -89,6 +111,18 @@ const VAULT_ALLOCATIONS_QUERY = `
 
 type AdapterItem = {
   __typename?: string;
+  assets?: number | string;
+  assetsUsd?: number;
+  innerVault?: {
+    address?: string;
+    name?: string;
+    symbol?: string;
+    totalAssets?: number | string;
+    totalAssetsUsd?: number;
+    liquidityUsd?: number;
+    netApy?: number;
+    asset?: { symbol?: string; decimals?: number };
+  };
   positions?: {
     items?: Array<{
       market?: {
@@ -192,8 +226,45 @@ export function parseVaultV2AllocationsFromGraphQL(
 
   const items = vault.adapters?.items ?? [];
   const byMarketId = new Map<string, VaultMarketAllocation>();
+  const vaultRows: VaultMarketAllocation[] = [];
 
   for (const adapter of items) {
+    if (adapter.__typename === 'MorphoVaultV2Adapter' && adapter.innerVault?.address) {
+      const inner = adapter.innerVault;
+      const innerAddress = inner.address;
+      if (!innerAddress) continue;
+      const tokenSymbol = inner.asset?.symbol ?? vault.asset?.symbol ?? assetSymbol;
+      const tokenDecimals = resolveAssetDecimals(
+        tokenSymbol,
+        inner.asset?.decimals ?? vault.asset?.decimals
+      );
+      const allocatedUsd = Number(adapter.assetsUsd ?? 0);
+      const allocatedAssetsRaw = morphoRawAmount(adapter.assets);
+      const innerApy =
+        inner.netApy != null && Number.isFinite(Number(inner.netApy))
+          ? Number(inner.netApy)
+          : null;
+      const innerTvl = Number(inner.totalAssetsUsd ?? 0);
+      const innerLiquidity = Number(inner.liquidityUsd ?? 0);
+      const registry = findVaultByAddress(innerAddress);
+
+      vaultRows.push({
+        id: innerAddress,
+        kind: 'vault',
+        vaultAddress: innerAddress,
+        name: registry?.name || inner.name || inner.symbol || 'Vault',
+        href: getVaultAnalyticsUrl(innerAddress),
+        allocatedUsd: Number.isFinite(allocatedUsd) ? allocatedUsd : 0,
+        allocatedAssetsRaw,
+        tokenSymbol,
+        tokenDecimals,
+        marketSizeUsd: Number.isFinite(innerTvl) ? innerTvl : null,
+        liquidityUsd: Number.isFinite(innerLiquidity) ? innerLiquidity : null,
+        apy: innerApy,
+      });
+      continue;
+    }
+
     if (adapter.__typename !== 'MorphoMarketV1Adapter') continue;
 
     for (const position of adapter.positions?.items ?? []) {
@@ -280,9 +351,13 @@ export function parseVaultV2AllocationsFromGraphQL(
     apy: idleApy,
   };
 
-  const allocations = hasIdle ? [idleRow, ...marketRows] : marketRows;
+  const allocations = [
+    ...(hasIdle ? [idleRow] : []),
+    ...vaultRows,
+    ...marketRows,
+  ];
 
-  const weightInputs = marketRows
+  const weightInputs = [...vaultRows, ...marketRows]
     .filter((row) => row.allocatedUsd > 0)
     .map((row) => ({
       supplyAssetsUsd: row.allocatedUsd,

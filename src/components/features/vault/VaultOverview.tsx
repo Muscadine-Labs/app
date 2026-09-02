@@ -95,6 +95,7 @@ const PERIOD_SECONDS: Record<Period, number> = {
   '90d': 90 * 24 * 60 * 60,
   '1y': 365 * 24 * 60 * 60,
 };
+const HOUR_SECONDS = 60 * 60;
 
 // Minimum timestamp: October 7, 2025 00:00:00 UTC
 const MIN_TIMESTAMP = 1759795200;
@@ -147,11 +148,16 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
 
   // Filter history data based on selected period and find first non-zero value
   const historyData = useMemo(() => {
-    // Use hourly data for 7d and 30d periods, otherwise use daily data
+    // Use hourly data for 7d and 30d periods, otherwise use daily data.
+    // Brand-new vaults often have hourly buckets before Morpho fills daily.
     let sourceData = allHistoryData;
     if (period === '7d' && hourly7dData.length > 0) {
       sourceData = hourly7dData;
     } else if (period === '30d' && hourly30dData.length > 0) {
+      sourceData = hourly30dData;
+    } else if (
+      (allHistoryData.length < 2 && hourly30dData.length > allHistoryData.length)
+    ) {
       sourceData = hourly30dData;
     }
     let filtered = sourceData;
@@ -169,6 +175,8 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
       
       if (chartType === 'apy') {
         firstNonZeroIndex = filtered.findIndex(d => d.apy > 0);
+        // Missing avgNetApy (new wrappers) would otherwise plot a fake 0% line.
+        if (firstNonZeroIndex === -1) return [];
       } else if (chartType === 'tvl') {
         firstNonZeroIndex = filtered.findIndex(d => {
           if (valueType === 'usd') {
@@ -191,6 +199,15 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
       if (firstNonZeroIndex > 0) {
         filtered = filtered.slice(firstNonZeroIndex);
       }
+    }
+
+    // Recharts needs two points to draw a line; brand-new vaults may have one bucket.
+    if (chartType !== 'apy' && filtered.length === 1) {
+      const only = filtered[0];
+      filtered = [
+        { ...only, timestamp: only.timestamp - HOUR_SECONDS },
+        only,
+      ];
     }
     
     return filtered;
@@ -271,99 +288,82 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
     });
   }, [sharePriceChartData, chartType]);
 
-  // Fetch all history data once, then filter based on period
+  // Fetch daily (all) and hourly (30d) history together so new vaults don't flash empty.
   useEffect(() => {
-    const fetchAllHistory = async () => {
+    const abortController = new AbortController();
+
+    const uniqueByTimestamp = (history: HistoryDataPoint[]) =>
+      history.filter(
+        (point, index, self) =>
+          index === self.findIndex((p) => p.timestamp === point.timestamp)
+      );
+
+    const fetchHistory = async () => {
       setLoading(true);
       try {
-        // Fetch all available history data (daily intervals)
-        const response = await fetch(
-          `/api/vault/${vaultData.version}/${vaultData.address}/history?chainId=${vaultData.chainId}&period=all`
-        );
-        
-        // Validate HTTP response
-        if (!response.ok) {
-          throw new Error(`Failed to fetch history: ${response.status} ${response.statusText}`);
+        const [allResponse, hourlyResponse] = await Promise.all([
+          fetch(
+            `/api/vault/${vaultData.version}/${vaultData.address}/history?chainId=${vaultData.chainId}&period=all`,
+            { signal: abortController.signal }
+          ),
+          fetch(
+            `/api/vault/${vaultData.version}/${vaultData.address}/history?chainId=${vaultData.chainId}&period=30d`,
+            { signal: abortController.signal }
+          ),
+        ]);
+
+        if (!allResponse.ok) {
+          throw new Error(`Failed to fetch history: ${allResponse.status} ${allResponse.statusText}`);
         }
-        
-        const data = await response.json();
-        
-        // Type validation for JSON response
-        if (!data || typeof data !== 'object') {
+
+        const allData = await allResponse.json();
+        if (!allData || typeof allData !== 'object') {
           throw new Error('Invalid history response format');
         }
-        
-        if (data.history && Array.isArray(data.history) && data.history.length > 0) {
-          // Ensure timestamps are unique and sorted
-          const uniqueData = data.history.filter((point: HistoryDataPoint, index: number, self: HistoryDataPoint[]) => 
-            index === self.findIndex((p) => p.timestamp === point.timestamp)
-          );
-          setAllHistoryData(uniqueData);
+
+        if (allData.history && Array.isArray(allData.history) && allData.history.length > 0) {
+          setAllHistoryData(uniqueByTimestamp(allData.history));
         } else {
           setAllHistoryData([]);
         }
+
+        if (hourlyResponse.ok) {
+          const hourlyData = await hourlyResponse.json().catch(() => ({}));
+          if (hourlyData.history && Array.isArray(hourlyData.history) && hourlyData.history.length > 0) {
+            setHourly30dData(uniqueByTimestamp(hourlyData.history));
+          } else {
+            setHourly30dData([]);
+          }
+        } else {
+          setHourly30dData([]);
+        }
       } catch (error) {
+        if (error instanceof Error && error.name === 'AbortError') return;
         logger.error(
           'Failed to fetch vault history data',
           error instanceof Error ? error : new Error(String(error)),
           { vaultAddress: vaultData.address, chainId: vaultData.chainId }
         );
         setAllHistoryData([]);
+        setHourly30dData([]);
         showErrorToast('Failed to load vault history. Please refresh the page.', 5000);
       } finally {
-        setLoading(false);
+        if (!abortController.signal.aborted) {
+          setLoading(false);
+        }
       }
     };
 
-    fetchAllHistory();
+    fetchHistory();
+    return () => abortController.abort();
   }, [vaultData.address, vaultData.chainId, vaultData.version, showErrorToast]);
-
-  // Fetch hourly data for 30d period (7d is derived client-side from the same series)
-  useEffect(() => {
-    const fetch30dHourly = async () => {
-      try {
-        // Fetch 30d data with hourly intervals
-        const response = await fetch(
-          `/api/vault/${vaultData.version}/${vaultData.address}/history?chainId=${vaultData.chainId}&period=30d`
-        );
-        
-        if (!response.ok) {
-          return; // Silently fail, will fall back to daily data
-        }
-        
-        const data = await response.json();
-        
-        if (data.history && Array.isArray(data.history) && data.history.length > 0) {
-          // Ensure timestamps are unique and sorted
-          const uniqueData = data.history.filter((point: HistoryDataPoint, index: number, self: HistoryDataPoint[]) => 
-            index === self.findIndex((p) => p.timestamp === point.timestamp)
-          );
-          setHourly30dData(uniqueData);
-        } else {
-          setHourly30dData([]);
-        }
-      } catch (error) {
-        // Silently fail, will fall back to daily data
-        logger.warn(
-          'Failed to fetch 30d hourly data, falling back to daily',
-          { 
-            vaultAddress: vaultData.address, 
-            chainId: vaultData.chainId,
-            error: error instanceof Error ? error.message : String(error)
-          }
-        );
-        setHourly30dData([]);
-      }
-    };
-
-    fetch30dHourly();
-  }, [vaultData.address, vaultData.chainId, vaultData.version]);
 
   // Calculate available periods based on data range
   const availablePeriods = useMemo(() => {
-    if (allHistoryData.length === 0) return ['all' as Period];
+    const series = allHistoryData.length > 0 ? allHistoryData : hourly30dData;
+    if (series.length === 0) return ['all' as Period];
 
-    const oldestTimestamp = allHistoryData[0]?.timestamp || chartEndTimestamp;
+    const oldestTimestamp = series[0]?.timestamp || chartEndTimestamp;
     const dataRangeSeconds = chartEndTimestamp - oldestTimestamp;
     
     const periods: Period[] = ['all'];
@@ -386,7 +386,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
     }
     
     return periods;
-  }, [allHistoryData, chartEndTimestamp]);
+  }, [allHistoryData, hourly30dData, chartEndTimestamp]);
 
   // Get ticks for 7d period - show every day, prefer midnight but fallback to first data point of day
   const get7dTicks = useMemo(() => {

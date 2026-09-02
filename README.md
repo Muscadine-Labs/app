@@ -70,6 +70,8 @@ Copy `.env.example` → `.env.local`.
 
 **Base App (in source, no env):** `base:app_id`, builder code `bc_mwkqu9rd`, Base Account via RainbowKit. Register app metadata on [base.dev](https://base.dev) at **`https://app.muscadine.xyz`**.
 
+GitHub Actions (`.github/workflows/ci.yml`) runs **lint only**. Production `npm run build` is local (before push) and on Vercel with env vars there — not on GitHub.
+
 ## Deployment checklist
 
 1. **Vercel** — set `NEXT_PUBLIC_ALCHEMY_API_KEY`, `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID`, and `NEXT_PUBLIC_URL=https://app.muscadine.xyz`.

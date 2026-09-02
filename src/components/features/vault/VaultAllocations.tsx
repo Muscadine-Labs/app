@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from 'react';
 import { MorphoVaultData } from '@/types/vault';
 import type { VaultMarketAllocation } from '@/lib/vault-v2-allocations';
 import { formatMorphoMarketRateLabel } from '@/lib/morpho-market-url';
+import { getVaultAnalyticsUrl } from '@/lib/vault-utils';
 import {
   formatSmartCurrency,
   formatPercentage,
@@ -33,9 +34,26 @@ function formatOptionalUsd(value: number | null): string {
   return formatSmartCurrency(value, { alwaysTwoDecimals: true });
 }
 
-function formatMarketType(row: VaultMarketAllocation): string {
+function isVaultTargetList(rows: VaultMarketAllocation[]): boolean {
+  return rows.some((row) => row.kind === 'vault') && !rows.some((row) => row.kind === 'market');
+}
+
+function formatAllocationType(row: VaultMarketAllocation): string {
   if (row.kind === 'idle') return '—';
+  if (row.kind === 'vault') return 'Vault';
   return formatMorphoMarketRateLabel(row.rateType, row.lltv) ?? '—';
+}
+
+function sizeColumnLabel(vaultTargets: boolean): string {
+  return vaultTargets ? 'TVL' : 'Market size';
+}
+
+function nameColumnLabel(vaultTargets: boolean): string {
+  return vaultTargets ? 'Vault' : 'Market';
+}
+
+function formatSizeShortLabel(row: VaultMarketAllocation): string {
+  return row.kind === 'vault' ? 'TVL' : 'Size';
 }
 
 function formatAllocated(
@@ -60,8 +78,10 @@ function formatCompactRowSummary(
   const parts: string[] = [];
 
   if (row.kind === 'market') {
-    const typeLabel = formatMarketType(row);
+    const typeLabel = formatAllocationType(row);
     if (typeLabel !== '—') parts.push(typeLabel);
+  } else if (row.kind === 'vault') {
+    parts.push(formatAllocationType(row));
   }
 
   parts.push(formatAllocated(row, valueType));
@@ -73,7 +93,7 @@ function formatCompactRowSummary(
   if (liq !== '—') parts.push(`Liq ${liq}`);
 
   const size = formatOptionalUsd(row.marketSizeUsd);
-  if (size !== '—') parts.push(`Size ${size}`);
+  if (size !== '—') parts.push(`${formatSizeShortLabel(row)} ${size}`);
 
   return parts.join(' · ');
 }
@@ -90,6 +110,22 @@ function AllocationMarketName({ row }: { row: VaultMarketAllocation }) {
         {row.name}
       </a>
     );
+  }
+
+  if (row.kind === 'vault') {
+    const href = row.href ?? (row.vaultAddress ? getVaultAnalyticsUrl(row.vaultAddress) : undefined);
+    if (href) {
+      return (
+        <a
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-medium text-[var(--primary)] hover:text-[var(--primary-hover)] hover:underline"
+        >
+          {row.name}
+        </a>
+      );
+    }
   }
 
   return <span className="font-medium text-[var(--foreground)]">{row.name}</span>;
@@ -115,7 +151,13 @@ function AllocationMobileCard({
         {row.kind === 'market' && (
           <div>
             <dt className="text-[var(--foreground-muted)]">Type</dt>
-            <dd className="text-[var(--foreground-secondary)] tabular-nums">{formatMarketType(row)}</dd>
+            <dd className="text-[var(--foreground-secondary)] tabular-nums">{formatAllocationType(row)}</dd>
+          </div>
+        )}
+        {row.kind === 'vault' && (
+          <div>
+            <dt className="text-[var(--foreground-muted)]">Type</dt>
+            <dd className="text-[var(--foreground-secondary)] tabular-nums">{formatAllocationType(row)}</dd>
           </div>
         )}
         <div>
@@ -131,7 +173,7 @@ function AllocationMobileCard({
           <dd className="text-[var(--foreground-secondary)] tabular-nums">{formatOptionalUsd(row.liquidityUsd)}</dd>
         </div>
         <div className="col-span-2">
-          <dt className="text-[var(--foreground-muted)]">Market size</dt>
+          <dt className="text-[var(--foreground-muted)]">{row.kind === 'vault' ? 'TVL' : 'Market size'}</dt>
           <dd className="text-[var(--foreground-secondary)] tabular-nums">{formatOptionalUsd(row.marketSizeUsd)}</dd>
         </div>
       </dl>
@@ -221,6 +263,13 @@ export function VaultAllocations({
   const vaultTokenLabel = vaultData.symbol || 'Token';
   const allocatedHeader =
     allocatedValueType === 'usd' ? 'Allocated (USD)' : `Allocated (${vaultTokenLabel})`;
+  const vaultTargets =
+    vaultData.kind === 'wrapper' || isVaultTargetList(allocations);
+  const analyticsAddress =
+    vaultData.underlyingAddress ||
+    allocations.find((row) => row.kind === 'vault')?.vaultAddress ||
+    vaultData.address;
+  const analyticsHref = getVaultAnalyticsUrl(analyticsAddress);
 
   return (
     <div className="space-y-3 min-h-[10rem]">
@@ -228,7 +277,9 @@ export function VaultAllocations({
         <div>
           <h3 className="text-base font-semibold text-[var(--foreground)]">Allocations</h3>
           <p className="text-xs text-[var(--foreground-muted)] mt-0.5">
-            Vault capital deployed to Morpho markets and idle liquidity
+            {vaultTargets
+              ? 'Vault capital allocated to the underlying Morpho vault'
+              : 'Vault capital deployed to Morpho markets and idle liquidity'}
           </p>
         </div>
       )}
@@ -284,22 +335,27 @@ export function VaultAllocations({
 
           {/*
             30rem+: responsive table (columns hug content — no stretched gaps).
-            30–40rem: Market + summary · 40rem+: Type/Allocated/APY · md+: Liquidity · xl+: Market size
+            30–40rem: name + summary · 40rem+: Type/Allocated/APY · md+: Liquidity · xl+: TVL / Market size
           */}
           <div className="hidden min-[30rem]:block overflow-x-auto -mx-1 px-1">
             <table className="table-auto text-xs sm:text-sm">
               <thead>
                 <tr className="border-b border-[var(--border-subtle)] text-left text-[10px] sm:text-xs">
-                  <th className={`${MARKET_CELL} ${TH} text-left`}>Market</th>
+                  <th className={`${MARKET_CELL} ${TH} text-left`}>{nameColumnLabel(vaultTargets)}</th>
                   <th className={`${TYPE_CELL} ${TH} text-left hidden min-[40rem]:table-cell`}>Type</th>
                   <th className={`${AMOUNT_CELL} ${TH} hidden min-[40rem]:table-cell`}>{allocatedHeader}</th>
                   <th className={`${METRIC_CELL} ${TH} text-right hidden min-[40rem]:table-cell`}>APY</th>
                   <th className={`${METRIC_CELL} ${TH} text-right hidden md:table-cell`}>Liquidity</th>
-                  <th className={`${METRIC_CELL} ${TH} text-right hidden xl:table-cell`}>Market size</th>
+                  <th className={`${METRIC_CELL} ${TH} text-right hidden xl:table-cell`}>
+                    {sizeColumnLabel(vaultTargets)}
+                  </th>
                 </tr>
               </thead>
               <tbody>
-                {allocations.map((row) => (
+                {allocations.map((row) => {
+                  const sizeShort = formatSizeShortLabel(row);
+                  const sizeValue = formatOptionalUsd(row.marketSizeUsd);
+                  return (
                   <tr
                     key={row.id}
                     className="border-b border-[var(--border-subtle)] last:border-b-0 hover:bg-[var(--surface)]/50"
@@ -314,19 +370,18 @@ export function VaultAllocations({
                       </p>
                       <p
                         className="mt-0.5 text-[10px] leading-snug text-[var(--foreground-muted)] hidden min-[40rem]:block md:hidden"
-                        title={`Liq ${formatOptionalUsd(row.liquidityUsd)} · Size ${formatOptionalUsd(row.marketSizeUsd)}`}
+                        title={`Liq ${formatOptionalUsd(row.liquidityUsd)} · ${sizeShort} ${sizeValue}`}
                       >
-                        Liq {formatOptionalUsd(row.liquidityUsd)} · Size{' '}
-                        {formatOptionalUsd(row.marketSizeUsd)}
+                        Liq {formatOptionalUsd(row.liquidityUsd)} · {sizeShort} {sizeValue}
                       </p>
                       <p
                         className="mt-0.5 text-[10px] leading-snug text-[var(--foreground-muted)] hidden md:block xl:hidden"
-                        title={`Size ${formatOptionalUsd(row.marketSizeUsd)}`}
+                        title={`${sizeShort} ${sizeValue}`}
                       >
-                        Size {formatOptionalUsd(row.marketSizeUsd)}
+                        {sizeShort} {sizeValue}
                       </p>
                     </td>
-                    <td className={`${TYPE_CELL} hidden min-[40rem]:table-cell`}>{formatMarketType(row)}</td>
+                    <td className={`${TYPE_CELL} hidden min-[40rem]:table-cell`}>{formatAllocationType(row)}</td>
                     <td className={`${AMOUNT_CELL} hidden min-[40rem]:table-cell`}>
                       {formatAllocated(row, allocatedValueType)}
                     </td>
@@ -337,10 +392,11 @@ export function VaultAllocations({
                       {formatOptionalUsd(row.liquidityUsd)}
                     </td>
                     <td className={`${METRIC_CELL} text-right text-[var(--foreground-secondary)] hidden xl:table-cell`}>
-                      {formatOptionalUsd(row.marketSizeUsd)}
+                      {sizeValue}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -351,7 +407,7 @@ export function VaultAllocations({
         <p className="text-[10px] leading-snug text-[var(--foreground-muted)] pt-1 text-center sm:text-right">
           For full allocations and analytics, visit{' '}
           <a
-            href="https://analytics.muscadine.xyz/"
+            href={analyticsHref}
             target="_blank"
             rel="noopener noreferrer"
             className="text-[var(--primary)] hover:text-[var(--primary-hover)] hover:underline"

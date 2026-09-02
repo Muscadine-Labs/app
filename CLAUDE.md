@@ -4,14 +4,14 @@ Comprehensive context for AI assistants and developers. This is the canonical �
 
 **Product:** Web app for Muscadine vaults on **Base (chain id 8453)** — deposit, withdraw, portfolio view, vault analytics. **v2 Prime and Frontier** vaults for USDC, cbBTC, and WETH. **v1 MetaMorpho removed** from registry and codebase (v2-only writes).
 
-**Version:** `package.json` → `1.3.3`
+**Version:** `package.json` → `1.3.4`
 
 ---
 
 ## Working agreement (read first)
 
 - **Review `TODO.md` at the start of every session.** It is the canonical task list: items under “TO work on today” are actionable now; “To work on another day” is backlog. Remove or update entries as work completes.
-- **Before every push to GitHub:** run `npm run lint` and `npm run build` and make sure both pass. NEVER PUSH TO Github without users explicit permission or order.
+- **Before every push to GitHub:** run `npm run lint` and `npm run build` locally and make sure both pass. GitHub Actions only lints — never put API keys or a dummy-key build in the workflow. NEVER PUSH TO Github without users explicit permission or order.
 - Keep `CLAUDE.md` and `AGENTS.md` in sync when conventions or architecture knowledge change.
 
 ---
@@ -119,16 +119,20 @@ Single source of truth: `src/lib/vaults.ts` → `VAULTS` record.
 
 Always resolve version with `getVaultVersion(address)` / `findVaultByAddress()` from `src/lib/vault-utils.ts`. Do not infer v1/v2 from asset symbol alone.
 
-| Asset | V2 Prime | V2 Frontier |
-|-------|----------|-------------|
-| USDC | `0x89712980Cb434eF5aE4AB29349419eb976B0b496` (mpUSDC) | `0x314fD07319ef645bA7D548915CCd91F4788A1839` (mfUSDC) |
-| cbBTC | `0x99dcd0D75822BA398F13B2A8852B07c7e137EC70` (mpcbBTC) | — |
-| WETH | `0xD6DCAd2f7Da91FBb27BdA471540d9770c97a5a43` (mpWETH) | — |
+**Default product surface is Morpho fee wrappers** (`kind: 'wrapper'`). They are Vault V2 (`type: FeeWrapper` in GraphQL) immutably allocated to one inner Morpho Vault V2 via `MorphoVaultV2Adapter`. Query them with `vaultV2ByAddress` like any v2 vault — deposits/withdraws are the same ERC-4626 path. There is **no cbBTC wrapper**.
 
-**Routes:** `/vault/v2/{address}` only  
+| Asset | Wrapper (default) | Underlying V2 Prime | Wrapper Frontier | Underlying Frontier |
+|-------|-------------------|---------------------|------------------|---------------------|
+| USDC | `0x036A01eFdDC87F6634FFDE0533EE528b90fc7A45` (wmpUSDC) | `0x89712980Cb434eF5aE4AB29349419eb976B0b496` (mpUSDC) | `0x54D8417bD21C86A7806b58f5aa2e2E0bB88B856A` (wmfUSDC) | `0x314fD07319ef645bA7D548915CCd91F4788A1839` (mfUSDC) |
+| WETH | `0x548653b09b03A69f93B3890c382fE9DcD245cbc4` (wmpWETH) | `0xD6DCAd2f7Da91FBb27BdA471540d9770c97a5a43` (mpWETH) | — | — |
+| cbBTC | — | `0x99dcd0D75822BA398F13B2A8852B07c7e137EC70` (mpcbBTC) | — | — |
+
+**Routes:** `/vault/v2/{address}` only (wrappers and underlying are both curated).  
 **API:** `/api/vault/v2/{address}/{complete|history|activity|position-history|earned-interest}`
 
-**Vault registry fields:** `symbol` (underlying asset), `vaultSymbol` (share token label), `strategy` (`prime` | `frontier`).
+**Vault registry fields:** `symbol` (underlying asset), `vaultSymbol` (share token label), `strategy` (`prime` | `frontier`), `kind` (`wrapper` | `underlying`), `underlyingAddress` (inner vault on wrappers).
+
+**Settings (NavBar, persisted `muscadine-vault-wrappers`):** **Vault wrappers** toggle, default **on** = explorer shows only wrappers, plus any of the four underlying vaults the wallet is deposited in. cbBTC is omitted from the asset filter unless the user holds the underlying cbBTC vault. Toggle **off** = `/vaults` gains a **Vaults** filter (All / Underlying Vaults / Wrappers Vaults, default All).
 
 Explorer filters default to **All** (network, strategy, asset). **No v1/v2 version filter** (v1 removed). There is no developer/over-balance bypass mode.
 
@@ -195,12 +199,13 @@ Base Bundler3 + GeneralAdapter1. Used for ETH wrap deposits and WETH→ETH unwra
 - Withdraw/redeem → ETH: approve vault **shares** to GeneralAdapter → `erc4626Withdraw|Redeem` (receiver=adapter) → `unwrapNative(max, user)`.
 - Resume unwrap: only when the failed step label includes `unwrap`; never fall back to full wallet WETH `balanceOf`.
 
-**WETH Prime vault** (`BASE_WETH_ADDRESS` in `constants.ts`):
+**WETH vaults and WETH wrappers** (vault `asset()` is `BASE_WETH_ADDRESS`):
 
 - Deposit `preferredAsset`: `'ETH' | 'WETH' | 'ALL'` (wrap ETH, use WETH only, or combine). **Default is WETH.** Gas reserve `ETH_GAS_RESERVE` (`0.0001 ETH`) left in wallet when wrapping.
 - Withdraw `preferredAsset`: `'ETH' | 'WETH'` (not `'ALL'`) — Bundler3 unwrap when ETH selected.
+- USDC / cbBTC vaults never use Bundler3.
 
-**Force withdraw** (`src/lib/force-withdraw-v2.ts`): when requested assets exceed instant liquidity, plan `forceDeallocate` × N + `withdraw` or **`redeem` (MAX)** in vault `multicall` — same route as Morpho SDK `forceWithdraw` / `forceRedeem`. Warning modal shows estimated penalty, risks, **Force withdraw**, and **Open vault on Morpho**. ETH unwrap (if selected) is a **second** Bundler3 tx after the vault exit. If underlying markets lack free cash, force plan is unavailable — user must reduce amount to instant liquidity, wait, or use Morpho.
+**Force withdraw** (`src/lib/force-withdraw-v2.ts`): when requested assets exceed instant liquidity, plan `forceDeallocate` × N + `withdraw` or **`redeem` (MAX)** in vault `multicall` — same route as Morpho SDK `forceWithdraw` / `forceRedeem`. Works on **all** v2 vaults: Blue market adapters (`abi.encode(marketParams)`) and fee-wrapper / VaultV1-style adapters (`data = 0x`, inner ERC-4626 `maxWithdraw`). Warning modal shows estimated penalty, risks, **Force withdraw**, and **Open vault on Morpho**. ETH unwrap (if selected) is a **second** Bundler3 tx after the vault exit. If adapters lack free cash, force plan is unavailable — user must reduce amount to instant liquidity, wait, or use Morpho.
 
 This is **not** in-kind redemption. In-kind (`vault.inKindRedeem` → VaultExitBundlesV1 `vaultExitBundlesV1InKindRedemptionVaultV2`) burns shares and transfers Morpho Blue supply positions to the user. Not implemented. Do not swap force withdraw for `vaultExitBundlesV1ForceWithdrawVaultV2` (bundle helper with referral fee / minSharePrice); Morpho’s documented cash path remains vault `multicall`.
 
@@ -257,9 +262,11 @@ Morpho often returns a **trailing interval** (current hour/day) with **zeros** f
 
 **Fix:** `stripIncompleteVaultHistoryBuckets` (vault `history` routes) and `finalizePositionHistory` (`position-history` routes) in `src/lib/api-utils.ts` — applied on v2 route responses before JSON is returned.
 
+Brand-new vaults (fee wrappers) often have TVL/share-price points before Morpho indexes `avgNetApy`. `stripIncompleteVaultHistoryBuckets` keeps those TVL points instead of emptying the series. Overview still hides the APY chart until a positive `apy` exists, and falls back to the hourly 30d series when daily `period=all` is empty.
+
 **`finalizePositionHistory` (position-history only):** uses the live `currentPosition` to disambiguate trailing zeros:
 
-- **Position open** (shares/assets > 0): trailing zero buckets are the in-progress interval → stripped (`stripIncompletePositionHistoryBuckets`).
+- **Position open** (shares/assets > 0): trailing zero buckets are the in-progress interval → stripped (`stripIncompletePositionHistoryBuckets`). If Morpho has not indexed any history yet, seed a short flat line from the live position so Your Position is not blank.
 - **Position closed** (fully withdrawn): trailing zeros are real → kept. If Morpho's stale v1 history still ends at a **pre-withdrawal value**, a **zero point** is appended one bucket after the last point, so the dashboard's forward-fill aggregation drops to zero instead of being stuck at the last held amount (the "portfolio stuck at old v1 balance" bug).
 
 ### Morpho GraphQL schema changes (2025–2026)
@@ -309,7 +316,7 @@ Morpho GraphQL is **server-only** (`fetchMorphoGraphQL()` in route handlers). Th
 | `/api/user/morpho-positions` | User Morpho v2 positions |
 | `/api/vault/v2/...` | V2 Morpho GraphQL proxies |
 
-**NavBar:** Dashboard → `/`, Vaults → `/vaults`. Settings: theme (light/dark) only. Right sidebar (`LearnContent`) is Q&A links to Morpho docs (protocol, Vault V2, curator, Blue, Midnight) and [self-custody](https://muscadine.xyz/self-custody).
+**NavBar:** Dashboard → `/`, Vaults → `/vaults`. Settings: theme (light/dark/auto) and **Vault wrappers** toggle (persisted). Right sidebar (`LearnContent`) is Q&A links to Morpho docs (protocol, Vault V2, curator, Blue, Midnight) and [self-custody](https://muscadine.xyz/self-custody).
 
 **App title:** metadata in `layout.tsx` uses **Muscadine** (`APP_NAME` in `src/lib/base-app.ts`) so Base.dev / RainbowKit / WalletConnect match.
 
@@ -350,7 +357,8 @@ Adaptive layout (content-sized panels; empty sections omitted):
 |--------|---------|-------|
 | Network | All, Base | Default **All**; `base` filters `chainId === 8453` |
 | Strategy | All, Prime, Frontier | Default **All** (shows Prime + Frontier) |
-| Asset | All, USDC, cbBTC, WETH | Local filter state |
+| Asset | All, USDC, cbBTC, WETH | Local filter state. cbBTC hidden when Vault wrappers is on and the wallet has no underlying cbBTC deposit. |
+| Vaults | All, Underlying Vaults, Wrappers Vaults | Shown only when Vault wrappers is **off**. Default **All**. |
 | Scope | Deposits + whitelisted, In wallet, **Whitelisted** | Default **Deposits + whitelisted**. Wallet modes can list external deposits as **External** (not clickable). |
 
 **Table columns** (`VaultExplorerTable.tsx`): Vault, **Your Position**, **Earned Interest**, **APY / TVL** (compact layout). **Whitelisted** rows navigate to `/vault/v2/{address}`; external rows are display-only.
@@ -365,7 +373,9 @@ Whitelisted registry vaults only — unknown / external addresses redirect home.
 
 ### Vault detail charts (`VaultOverview.tsx`)
 
-Chart tabs (order): **APY** → **Total Deposits** → **Share Price**. **Total Deposits** and **Share Price** support USD / token toggle. Axis labels and tooltips use full values with 2 decimals (`formatCurrency` / `formatAssetAmount`). Stat cards use `formatSmartCurrency`.
+Chart tabs (order): **APY** → **Total Deposits** → **Share Price** → **Allocations**. **Total Deposits** and **Share Price** support USD / token toggle. Axis labels and tooltips use full values with 2 decimals (`formatCurrency` / `formatAssetAmount`). Stat cards use `formatSmartCurrency`.
+
+**Allocations:** Wrapper vaults show the inner Morpho vault (columns **Vault** / **TVL**, type **Vault**), not Blue markets. Name and footer link to [Muscadine Analytics](https://analytics.muscadine.xyz/vault/v2/{inner}) (`getVaultAnalyticsUrl`). Underlying vaults keep **Market** / **Market size** and Morpho market URLs.
 
 ---
 
@@ -373,7 +383,7 @@ Chart tabs (order): **APY** → **Total Deposits** → **Share Price**. **Total 
 
 Provider tree (`src/app/Providers.tsx`):
 
-`ErrorBoundary` → `WagmiProvider` → `QueryClient` → `RainbowKit` → `ThemeProvider` → `AdvisoryAgreementProvider` → `ToastProvider` → `WalletProvider` → `VaultDataProvider` → `TransactionProvider`
+`ErrorBoundary` → `WagmiProvider` → `QueryClient` → `RainbowKit` → `ThemeProvider` → `VaultSettingsProvider` → `AdvisoryAgreementProvider` → `ToastProvider` → `WalletProvider` → `VaultDataProvider` → `TransactionProvider`
 
 | Context | File | Role |
 |---------|------|------|
@@ -383,6 +393,7 @@ Provider tree (`src/app/Providers.tsx`):
 | `PriceContext` | `contexts/PriceContext.tsx` | Asset USD prices |
 | `ToastContext` | `contexts/ToastContext.tsx` | Toasts |
 | `ThemeContext` | `contexts/ThemeContext.tsx` | Light/dark |
+| `VaultSettingsContext` | `contexts/VaultSettingsContext.tsx` | Vault wrappers toggle (localStorage) |
 | `AdvisoryAgreementContext` | `contexts/AdvisoryAgreementContext.tsx` | Legal modal gating |
 
 ### Advisory agreement (`AdvisoryAgreementModal.tsx`)
@@ -449,7 +460,7 @@ src/
     transactionUtilsV2.ts # ★ V2 on-chain (ERC-4626 + Bundler3 for WETH/ETH)
     bundler3.ts # Morpho Bundler3 helpers (ETH wrap/unwrap + ERC-4626)
     transactionUtils.ts   # Errors, shared tx helpers
-    vaults.ts             # ★ Vault registry (v2 Prime + Frontier)
+    vaults.ts             # ★ Vault registry (wrappers + underlying v2 Prime/Frontier)
     vault-utils.ts        # Routes, sortVaultsForDisplay, resolvePositionAssetsUsd, isCuratedVaultAddress
     interest-utils.ts     # Earned interest from activity; period + projected estimates
     asset-decimals.ts     # Morpho amount normalization
@@ -544,7 +555,7 @@ npm run lint
 npm start        # Production server
 ```
 
-**CI** (`.github/workflows/ci.yml`, Node 24): `npm run lint` then `npm run build`. Build uses dummy `NEXT_PUBLIC_ALCHEMY_API_KEY` / `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` because `wagmi.ts` requires them at module load. Confirm Vercel production is also Node 24 (`package.json` `engines`).
+**CI** (`.github/workflows/ci.yml`, Node 24): `npm run lint` only. Do not run `npm run build` on GitHub — `wagmi.ts` requires `NEXT_PUBLIC_ALCHEMY_API_KEY` and `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` at module load, and those keys stay in local `.env` / Vercel, never in the repo or GitHub Actions. Production build is Vercel. Confirm Vercel Node is 24 (`package.json` `engines`).
 
 ### Turbopack chunk error
 
@@ -556,10 +567,10 @@ rm -rf .next .turbo && npm run dev
 
 ### Adding a vault
 
-1. Add to `src/lib/vaults.ts` with correct `version`.
-2. Confirm Morpho GraphQL returns it (`vaultByAddress` or `vaultV2ByAddress`).
+1. Add to `src/lib/vaults.ts` with correct `version`, `kind` (`wrapper` | `underlying`), and `underlyingAddress` on wrappers.
+2. Confirm Morpho GraphQL returns it (`vaultV2ByAddress`). Fee wrappers use `type: FeeWrapper` and a `MorphoVaultV2Adapter` — they are still queried as v2 vaults.
 3. Confirm the vault has Morpho dead-share inflation protection (minted to `0x…dEaD`) before listing — we do not RPC-check this at runtime.
-4. v2 writes require no change in `transactionUtilsV2` if address is passed dynamically — registry drives UI labels and routing.
+4. v2 writes require no change in `transactionUtilsV2` if address is passed dynamically — registry drives UI labels and routing. There is no cbBTC wrapper; do not invent one.
 
 ### Changing v2 transaction behavior
 
@@ -597,7 +608,7 @@ Do not bump without checking compatibility:
 
 - See `SECURITY.md` — report issues privately to muscadinelabs@gmail.com
 - Users sign all transactions in their wallet
-- No private keys in the repo; env vars for RPC and WalletConnect only
+- No private keys in the repo; env vars for RPC and WalletConnect only (local `.env` / Vercel — never GitHub Actions)
 
 ---
 

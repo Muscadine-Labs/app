@@ -4,10 +4,16 @@ import { useMemo, useState } from 'react';
 import { useAccount } from 'wagmi';
 import { VAULTS } from '@/lib/vaults';
 import { BASE_CHAIN_ID } from '@/lib/constants';
-import { Vault } from '@/types/vault';
-import { buildExplorerVaultCandidates, sortVaultsForDisplay } from '@/lib/vault-utils';
+import {
+  buildExplorerVaultCandidates,
+  explorerListHasBothVaultKinds,
+  getDepositedVaultAddressSet,
+  selectRegistryVaultsForExplorer,
+  sortVaultsForDisplay,
+} from '@/lib/vault-utils';
 import { useWallet } from '@/contexts/WalletContext';
 import { useVaultData } from '@/contexts/VaultDataContext';
+import { useVaultSettings } from '@/contexts/VaultSettingsContext';
 import { useIsClient } from '@/hooks/useClientOnly';
 import { useVaultListPreloader } from '@/hooks/useVaultDataFetch';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -33,19 +39,28 @@ function VaultExplorerContent({
   const { isConnected } = useAccount();
   const { morphoHoldings } = useWallet();
   const { getVaultData } = useVaultData();
+  const { wrappersOnly } = useVaultSettings();
   const isMounted = useIsClient();
 
+  const depositedAddresses = useMemo(
+    () => getDepositedVaultAddressSet(morphoHoldings.positions),
+    [morphoHoldings.positions]
+  );
+
+  const showCbBtc = useMemo(() => {
+    if (!wrappersOnly) return true;
+    return depositedAddresses.has(VAULTS.cbBTC_VAULT_V2.address.toLowerCase());
+  }, [wrappersOnly, depositedAddresses]);
+
+  const assetFilter =
+    filters.asset === 'cbBTC' && !showCbBtc ? 'all' : filters.asset;
+
   const filteredVaults = useMemo(() => {
-    const registryVaults: Vault[] = Object.values(VAULTS).map((vault) => ({
-      address: vault.address,
-      name: vault.name,
-      symbol: vault.symbol,
-      vaultSymbol: vault.vaultSymbol,
-      chainId: vault.chainId,
-      version: vault.version,
-      strategy: vault.strategy,
-      isCurated: true,
-    }));
+    const registryVaults = selectRegistryVaultsForExplorer({
+      wrappersOnly,
+      kindFilter: filters.kindFilter,
+      depositedAddresses,
+    });
 
     if (filters.walletFilter === 'inWallet' && !isConnected) {
       return [];
@@ -59,7 +74,7 @@ function VaultExplorerContent({
 
     const filtered = candidates.filter((vault) => {
       if (filters.network === 'base' && vault.chainId !== BASE_CHAIN_ID) return false;
-      if (filters.asset !== 'all' && vault.symbol !== filters.asset) return false;
+      if (assetFilter !== 'all' && vault.symbol !== assetFilter) return false;
       if (
         filters.strategy !== 'all' &&
         vault.isCurated !== false &&
@@ -85,9 +100,14 @@ function VaultExplorerContent({
     isMounted,
     getVaultData,
     morphoHoldings.positions,
+    wrappersOnly,
+    depositedAddresses,
+    assetFilter,
   ]);
 
   useVaultListPreloader(filteredVaults);
+
+  const showKindBadge = explorerListHasBothVaultKinds(filteredVaults);
 
   const emptyMessage = useMemo(() => {
     if (filters.walletFilter === 'inWallet' && !isConnected) {
@@ -108,7 +128,12 @@ function VaultExplorerContent({
   return (
     <div className="flex flex-col h-full w-full min-h-0">
       {showFilters && (
-        <VaultExplorerFilters filters={filters} onFiltersChange={setFilters} />
+        <VaultExplorerFilters
+          filters={{ ...filters, asset: assetFilter }}
+          onFiltersChange={setFilters}
+          wrappersOnly={wrappersOnly}
+          showCbBtc={showCbBtc}
+        />
       )}
       <div className="flex-1 min-h-0 overflow-y-auto">
         {walletFilterLoading ? (
@@ -116,7 +141,11 @@ function VaultExplorerContent({
             <Skeleton width="100%" height="12rem" />
           </div>
         ) : (
-          <VaultExplorerTable vaults={filteredVaults} emptyMessage={emptyMessage} />
+          <VaultExplorerTable
+            vaults={filteredVaults}
+            emptyMessage={emptyMessage}
+            showKindBadge={showKindBadge}
+          />
         )}
       </div>
     </div>
