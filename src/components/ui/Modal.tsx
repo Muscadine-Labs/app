@@ -120,7 +120,7 @@ export function Modal({
 
   return (
     <div
-      className={`fixed inset-0 z-50 flex justify-center ${
+      className={`fixed inset-0 z-[100010] flex justify-center ${
         layout === 'sheet'
           ? 'items-end p-0 sm:items-center sm:p-4'
           : 'items-center p-2 sm:p-4'
@@ -143,7 +143,7 @@ export function Modal({
         {/* Header */}
         {(title || showCloseButton) && (
           <div
-            className={`flex items-center justify-between px-4 py-3 sm:px-6 sm:py-4 border-b border-[var(--border-subtle)] ${headerClassName ?? ''}`}
+            className={`flex items-center justify-between px-4 pt-3 pb-1 sm:px-6 sm:pt-4 sm:pb-1 ${headerClassName ?? ''}`}
           >
             {title && (
               <h2

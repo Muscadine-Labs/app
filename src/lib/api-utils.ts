@@ -252,6 +252,16 @@ export async function fetchMorphoGraphQL(
   });
 }
 
+function hasVaultTvl<
+  T extends { totalAssetsUsd?: number; totalAssets?: number; sharePrice?: number },
+>(point: T): boolean {
+  return (
+    (point.totalAssetsUsd ?? 0) > 0 ||
+    (point.totalAssets ?? 0) > 0 ||
+    (point.sharePrice ?? 0) > 0
+  );
+}
+
 /** Morpho timeseries often includes a trailing bucket for the in-progress period with zeros. */
 export function stripIncompleteVaultHistoryBuckets<
   T extends {
@@ -265,10 +275,7 @@ export function stripIncompleteVaultHistoryBuckets<
   let end = history.length;
   while (end > 0) {
     const point = history[end - 1];
-    const zeroTvl =
-      (point.totalAssetsUsd ?? 0) === 0 &&
-      (point.totalAssets ?? 0) === 0 &&
-      (point.sharePrice ?? 0) === 0;
+    const zeroTvl = !hasVaultTvl(point);
     // In-progress buckets often have TVL but APY not yet computed.
     const zeroApyWithTvl =
       (point.totalAssetsUsd ?? 0) > 0 &&
@@ -277,7 +284,14 @@ export function stripIncompleteVaultHistoryBuckets<
     if (!zeroTvl && !zeroApyWithTvl) break;
     end--;
   }
-  return end === history.length ? history : history.slice(0, end);
+  if (end === history.length) return history;
+  // Brand-new vaults (fee wrappers) can have only TVL/share-price points before
+  // Morpho indexes avgNetApy. Keep those so Total Deposits / Share Price render.
+  if (end === 0) {
+    const withTvl = history.filter(hasVaultTvl);
+    return withTvl.length > 0 ? withTvl : [];
+  }
+  return history.slice(0, end);
 }
 
 export function stripIncompletePositionHistoryBuckets<
@@ -321,11 +335,37 @@ export const INTERVAL_SECONDS: Record<string, number> = {
   DAY: 24 * 60 * 60,
 };
 
+function toHistoryDate(timestamp: number): string {
+  return new Date(timestamp * 1000).toISOString().split('T')[0];
+}
+
+function seedLivePositionSeries(
+  livePoint: PositionHistoryItem,
+  now: number,
+  intervalSeconds: number
+): PositionHistoryItem[] {
+  const endTs = livePoint.timestamp > 0 ? livePoint.timestamp : now;
+  const seedInterval = Math.min(intervalSeconds, INTERVAL_SECONDS.HOUR);
+  const startTs = Math.max(0, endTs - seedInterval);
+  const end: PositionHistoryItem = {
+    ...livePoint,
+    timestamp: endTs,
+    date: toHistoryDate(endTs),
+  };
+  if (startTs === endTs) return [end];
+  return [
+    { ...livePoint, timestamp: startTs, date: toHistoryDate(startTs) },
+    end,
+  ];
+}
+
 /**
  * Finalize a position history series using the live `currentPosition`:
  *
  * - Position still OPEN (shares/assets > 0): trailing zero buckets are Morpho's
  *   incomplete in-progress interval — strip them (avoids charts dipping to zero).
+ *   If Morpho has not indexed any history yet (new vault / first deposit), seed a
+ *   short flat line from `livePoint` so Your Position is not a blank chart.
  * - Position CLOSED (fully withdrawn): trailing zeros are REAL — keep them. If the
  *   series still ends at a pre-withdrawal value (a known Morpho v1 quirk), append a
  *   zero point one bucket after the last point so charts and the dashboard's
@@ -336,7 +376,8 @@ export function finalizePositionHistory(
   rawHistory: PositionHistoryItem[],
   currentPosition: CurrentPositionLike | null,
   now: number,
-  intervalSeconds: number = INTERVAL_SECONDS.DAY
+  intervalSeconds: number = INTERVAL_SECONDS.DAY,
+  livePoint?: PositionHistoryItem | null
 ): PositionHistoryItem[] {
   const positionOpen =
     currentPosition !== null &&
@@ -345,7 +386,15 @@ export function finalizePositionHistory(
       toFiniteNumber(currentPosition.assetsUsd) > 0);
 
   if (positionOpen) {
-    return stripIncompletePositionHistoryBuckets(rawHistory);
+    const stripped = stripIncompletePositionHistoryBuckets(rawHistory);
+    if (stripped.length > 0) return stripped;
+    if (
+      livePoint &&
+      (livePoint.assets > 0 || livePoint.assetsUsd > 0 || livePoint.shares > 0)
+    ) {
+      return seedLivePositionSeries(livePoint, now, intervalSeconds);
+    }
+    return stripped;
   }
 
   if (rawHistory.length === 0) return rawHistory;
@@ -359,7 +408,7 @@ export function finalizePositionHistory(
     ...rawHistory,
     {
       timestamp: zeroTimestamp,
-      date: new Date(zeroTimestamp * 1000).toISOString().split('T')[0],
+      date: toHistoryDate(zeroTimestamp),
       assets: 0,
       assetsUsd: 0,
       shares: 0,

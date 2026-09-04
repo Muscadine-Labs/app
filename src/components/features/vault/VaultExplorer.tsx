@@ -2,12 +2,16 @@
 
 import { useMemo, useState } from 'react';
 import { useAccount } from 'wagmi';
-import { VAULTS } from '@/lib/vaults';
 import { BASE_CHAIN_ID } from '@/lib/constants';
-import { Vault } from '@/types/vault';
-import { buildExplorerVaultCandidates, sortVaultsForDisplay } from '@/lib/vault-utils';
+import {
+  buildExplorerVaultCandidates,
+  getDepositedVaultAddressSet,
+  selectRegistryVaultsForExplorer,
+  sortVaultsForDisplay,
+} from '@/lib/vault-utils';
 import { useWallet } from '@/contexts/WalletContext';
 import { useVaultData } from '@/contexts/VaultDataContext';
+import { useVaultSettings } from '@/contexts/VaultSettingsContext';
 import { useIsClient } from '@/hooks/useClientOnly';
 import { useVaultListPreloader } from '@/hooks/useVaultDataFetch';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -33,19 +37,20 @@ function VaultExplorerContent({
   const { isConnected } = useAccount();
   const { morphoHoldings } = useWallet();
   const { getVaultData } = useVaultData();
+  const { wrappersOnly } = useVaultSettings();
   const isMounted = useIsClient();
 
+  const depositedAddresses = useMemo(
+    () => getDepositedVaultAddressSet(morphoHoldings.positions),
+    [morphoHoldings.positions]
+  );
+
   const filteredVaults = useMemo(() => {
-    const registryVaults: Vault[] = Object.values(VAULTS).map((vault) => ({
-      address: vault.address,
-      name: vault.name,
-      symbol: vault.symbol,
-      vaultSymbol: vault.vaultSymbol,
-      chainId: vault.chainId,
-      version: vault.version,
-      strategy: vault.strategy,
-      isCurated: true,
-    }));
+    const registryVaults = selectRegistryVaultsForExplorer({
+      wrappersOnly,
+      kindFilter: filters.kindFilter,
+      depositedAddresses,
+    });
 
     if (filters.walletFilter === 'inWallet' && !isConnected) {
       return [];
@@ -85,6 +90,8 @@ function VaultExplorerContent({
     isMounted,
     getVaultData,
     morphoHoldings.positions,
+    wrappersOnly,
+    depositedAddresses,
   ]);
 
   useVaultListPreloader(filteredVaults);
@@ -108,7 +115,11 @@ function VaultExplorerContent({
   return (
     <div className="flex flex-col h-full w-full min-h-0">
       {showFilters && (
-        <VaultExplorerFilters filters={filters} onFiltersChange={setFilters} />
+        <VaultExplorerFilters
+          filters={filters}
+          onFiltersChange={setFilters}
+          wrappersOnly={wrappersOnly}
+        />
       )}
       <div className="flex-1 min-h-0 overflow-y-auto">
         {walletFilterLoading ? (
@@ -116,7 +127,10 @@ function VaultExplorerContent({
             <Skeleton width="100%" height="12rem" />
           </div>
         ) : (
-          <VaultExplorerTable vaults={filteredVaults} emptyMessage={emptyMessage} />
+          <VaultExplorerTable
+            vaults={filteredVaults}
+            emptyMessage={emptyMessage}
+          />
         )}
       </div>
     </div>

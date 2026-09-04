@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import type { GraphQLError } from '@/types/api';
 import { logger } from '@/lib/logger';
 import { isValidEthereumAddress, findVaultByAddress } from '@/lib/vault-utils';
-import { getAssetDecimalsForSymbol, morphoAmountToRaw, rawAmountToDecimal } from '@/lib/asset-decimals';
+import { getAssetDecimalsForSymbol, morphoAmountToDecimal, morphoAmountToRaw, normalizeMorphoShares, rawAmountToDecimal } from '@/lib/asset-decimals';
 import { isValidChainId, isValidPeriod, MIN_VALID_TIMESTAMP, PERIOD_SECONDS, INTERVAL_MAP, INTERVAL_SECONDS, finalizePositionHistory, fetchMorphoGraphQL, readMorphoGraphQLResponse, MORPHO_RATE_LIMIT_BODY } from '@/lib/api-utils';
 import { MORPHO_GRAPHQL_REVALIDATE_SECONDS } from '@/lib/constants';
 
@@ -175,25 +175,40 @@ export async function GET(
       assetsUsd: vaultPosition.assetsUsd || 0,
       shares: vaultPosition.shares || 0,
     };
-    
+
+    const registryVault = findVaultByAddress(address);
+    const assetSymbol =
+      registryVault?.symbol ??
+      vaultPosition.vault?.asset?.symbol ??
+      'UNKNOWN';
+    const assetDecimals =
+      vaultPosition.vault?.asset?.decimals ??
+      getAssetDecimalsForSymbol(assetSymbol);
+
+    const liveSharesRaw = normalizeMorphoShares(currentPosition.shares);
+    const livePoint = {
+      timestamp: now,
+      date: new Date(now * 1000).toISOString().split('T')[0],
+      assets: morphoAmountToDecimal(currentPosition.assets, assetDecimals),
+      assetsUsd: Number(currentPosition.assetsUsd) || 0,
+      shares: rawAmountToDecimal(
+        liveSharesRaw === '0' ? BigInt(0) : BigInt(liveSharesRaw),
+        18
+      ),
+      assetsRaw: morphoAmountToRaw(currentPosition.assets),
+    };
+
     if (!vaultPosition.history) {
       logger.warn(
         'No historical data for vault position',
         { address, chainId, userAddress, hasPosition: !!vaultPosition }
       );
-      return NextResponse.json({
-        history: [],
-        currentPosition,
-        period,
-        cached: false,
-        timestamp: Date.now(),
-      });
     }
-    
+
     // V2 uses history instead of historicalState
-    const assetsData = vaultPosition.history.assets || [];
-    const assetsUsdData = vaultPosition.history.assetsUsd || [];
-    const sharesData = vaultPosition.history.shares || [];
+    const assetsData = vaultPosition.history?.assets || [];
+    const assetsUsdData = vaultPosition.history?.assetsUsd || [];
+    const sharesData = vaultPosition.history?.shares || [];
     
     const assetsMap = new Map(assetsData.map((p: { x: number; y: number | string }) => [p.x, typeof p.y === 'string' ? parseFloat(p.y) : p.y]));
     const assetsUsdMap = new Map(assetsUsdData.map((p: { x: number; y: number | string }) => [p.x, typeof p.y === 'string' ? parseFloat(p.y) : p.y]));
@@ -203,15 +218,6 @@ export async function GET(
     assetsData.forEach((point: { x: number }) => timestamps.add(point.x));
     assetsUsdData.forEach((point: { x: number }) => timestamps.add(point.x));
     sharesData.forEach((point: { x: number }) => timestamps.add(point.x));
-    
-    const registryVault = findVaultByAddress(address);
-    const assetSymbol =
-      registryVault?.symbol ??
-      vaultPosition.vault?.asset?.symbol ??
-      'UNKNOWN';
-    const assetDecimals =
-      vaultPosition.vault?.asset?.decimals ??
-      getAssetDecimalsForSymbol(assetSymbol);
 
     const rawHistory = Array.from(timestamps)
       .sort((a, b) => a - b)
@@ -239,7 +245,13 @@ export async function GET(
 
     // Strip incomplete trailing buckets while the position is open; once fully
     // withdrawn, ensure the series actually ends at zero (see finalizePositionHistory).
-    const history = finalizePositionHistory(rawHistory, currentPosition, now, INTERVAL_SECONDS[interval]);
+    const history = finalizePositionHistory(
+      rawHistory,
+      currentPosition,
+      now,
+      INTERVAL_SECONDS[interval],
+      livePoint
+    );
 
     return NextResponse.json({
       history,

@@ -3,21 +3,10 @@
 import { useMemo } from 'react';
 import VaultExplorer from '@/components/features/vault/VaultExplorer';
 import { useVaultListPreloader } from '@/hooks/useVaultDataFetch';
-import { VAULTS } from '@/lib/vaults';
-import { Vault } from '@/types/vault';
+import { getAllRegistryVaults } from '@/lib/vault-utils';
 
 export default function VaultsPage() {
-  const vaults: Vault[] = useMemo(
-    () =>
-      Object.values(VAULTS).map((vault) => ({
-        address: vault.address,
-        name: vault.name,
-        symbol: vault.symbol,
-        chainId: vault.chainId,
-        version: vault.version,
-      })),
-    []
-  );
+  const vaults = useMemo(() => getAllRegistryVaults(), []);
 
   useVaultListPreloader(vaults);
 

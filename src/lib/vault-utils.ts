@@ -1,4 +1,9 @@
-import { VAULTS, VaultStrategy } from '@/lib/vaults';
+import {
+  VaultDefinition,
+  VaultKind,
+  VaultStrategy,
+  getRegistryVaultList,
+} from '@/lib/vaults';
 import { Vault } from '@/types/vault';
 import {
   DEFAULT_MORPHO_ASSET_SYMBOL,
@@ -23,6 +28,7 @@ export interface WalletMorphoPosition {
     symbol?: string;
     vaultSymbol?: string;
     strategy?: VaultStrategy;
+    kind?: VaultKind;
     isCurated?: boolean;
     state?: {
       sharePriceUsd?: number;
@@ -160,7 +166,7 @@ export function compareVaultsForDisplay(
   const tvlB = getTvlUsd(b.address);
   if (tvlA !== tvlB) return tvlB - tvlA;
 
-  return a.name.localeCompare(b.name);
+  return a.name.localeCompare(b.name) || (a.vaultSymbol ?? '').localeCompare(b.vaultSymbol ?? '');
 }
 
 export function sortVaultsForDisplay(
@@ -173,19 +179,7 @@ export function sortVaultsForDisplay(
   );
 }
 
-/**
- * Find a vault by its address (case-insensitive)
- */
-export function findVaultByAddress(address: string): Vault | null {
-  if (!address) return null;
-
-  const normalizedAddress = address.toLowerCase().trim();
-  const vault = Object.values(VAULTS).find(
-    (v) => v.address.toLowerCase() === normalizedAddress
-  );
-
-  if (!vault) return null;
-
+export function registryDefinitionToVault(vault: VaultDefinition): Vault {
   return {
     address: vault.address,
     name: vault.name,
@@ -194,8 +188,30 @@ export function findVaultByAddress(address: string): Vault | null {
     chainId: vault.chainId,
     version: vault.version,
     strategy: vault.strategy,
+    kind: vault.kind,
+    underlyingAddress: vault.underlyingAddress,
     isCurated: true,
   };
+}
+
+export function getAllRegistryVaults(): Vault[] {
+  return getRegistryVaultList().map(registryDefinitionToVault);
+}
+
+/**
+ * Find a vault by its address (case-insensitive)
+ */
+export function findVaultByAddress(address: string): Vault | null {
+  if (!address) return null;
+
+  const normalizedAddress = address.toLowerCase().trim();
+  const vault = getRegistryVaultList().find(
+    (v) => v.address.toLowerCase() === normalizedAddress
+  );
+
+  if (!vault) return null;
+
+  return registryDefinitionToVault(vault);
 }
 
 export function isCuratedVaultAddress(address: string): boolean {
@@ -218,6 +234,48 @@ export function createExternalVaultStub(
 }
 
 export type VaultWalletFilterMode = 'all' | 'inWallet' | 'inWalletAndWhitelisted';
+
+export type VaultKindFilter = 'all' | 'underlying' | 'wrappers';
+
+export function getDepositedVaultAddressSet(
+  positions: WalletMorphoPosition[]
+): Set<string> {
+  return new Set(
+    positions
+      .filter(hasOnChainVaultShares)
+      .map((position) => position.vault.address.toLowerCase())
+  );
+}
+
+/** Registry vaults for the explorer, honoring wrappers-only vs kind filter. */
+export function selectRegistryVaultsForExplorer(options: {
+  wrappersOnly: boolean;
+  kindFilter: VaultKindFilter;
+  depositedAddresses: ReadonlySet<string>;
+}): Vault[] {
+  const all = getAllRegistryVaults();
+
+  if (options.wrappersOnly) {
+    return all.filter((vault) => {
+      if (vault.kind === 'wrapper') return true;
+      return options.depositedAddresses.has(vault.address.toLowerCase());
+    });
+  }
+
+  if (options.kindFilter === 'wrappers') {
+    return all.filter((vault) => {
+      if (vault.kind === 'wrapper') return true;
+      return options.depositedAddresses.has(vault.address.toLowerCase());
+    });
+  }
+  if (options.kindFilter === 'underlying') {
+    return all.filter((vault) => {
+      if (vault.kind === 'underlying') return true;
+      return options.depositedAddresses.has(vault.address.toLowerCase());
+    });
+  }
+  return all;
+}
 
 export function dedupeVaultsByAddress(vaults: Vault[]): Vault[] {
   const seen = new Set<string>();
@@ -295,6 +353,13 @@ export function getVaultVersion(
 
 export function getVaultRoute(address: string): string {
   return `/vault/v2/${address}`;
+}
+
+export const MUSCADINE_ANALYTICS_ORIGIN = 'https://analytics.muscadine.xyz';
+
+/** Muscadine Analytics vault page (markets, TVL, allocations). */
+export function getVaultAnalyticsUrl(address: string): string {
+  return `${MUSCADINE_ANALYTICS_ORIGIN}/vault/v2/${address}`;
 }
 
 export function getVaultApiPath(address: string, endpoint: string): string {

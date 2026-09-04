@@ -26,12 +26,12 @@ export async function GET(
     }
 
     const chainId = parseInt(chainIdParam, 10);
-    const { allocations, weightedNetApy, error, rateLimited } =
+    const { allocations, error, rateLimited } =
       await fetchVaultV2AllocationData(address, chainId);
 
     if (rateLimited) {
       return NextResponse.json(
-        { ...MORPHO_RATE_LIMIT_BODY, allocations: [], weightedNetApy: null },
+        { ...MORPHO_RATE_LIMIT_BODY, allocations: [] },
         { status: 503, headers: { 'Cache-Control': 'no-store' } }
       );
     }
@@ -45,7 +45,6 @@ export async function GET(
     return NextResponse.json(
       {
         allocations,
-        weightedNetApy,
         error: error ?? null,
         cached: false,
         timestamp: Date.now(),

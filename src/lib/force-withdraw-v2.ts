@@ -9,6 +9,10 @@
  * supply positions to the user and is a separate path.
  *
  * Used when requested assets exceed instant liquidity (idle + liquidity adapter).
+ * Covers MorphoMarketV1 adapters (Blue markets) and fee-wrapper vault adapters
+ * (empty deallocate `data`, liquidity = inner vault maxWithdraw(adapter) only).
+ * Fee wrappers have a single MorphoVaultV2Adapter — they cannot force-deallocate
+ * underlying Blue markets directly; only what the inner vault can release to the adapter.
  * Ref: https://docs.morpho.org/developers/sdks/morpho-sdk/vault/#force-withdraw--force-redeem
  */
 
@@ -36,7 +40,8 @@ export type MorphoMarketParams = {
 
 export type ForceDeallocationStep = {
   adapter: Address;
-  marketParams: MorphoMarketParams;
+  /** Adapter-specific deallocate payload (Blue market params, or `0x` for vault adapters). */
+  data: Hex;
   amount: bigint;
   penaltyWad: bigint;
   penaltyAssets: bigint;
@@ -170,6 +175,33 @@ const ADAPTER_ABI = [
   },
 ] as const;
 
+const VAULT_ERC4626_ADAPTER_ABI = [
+  {
+    name: 'realAssets',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+  {
+    name: 'morphoVaultV1',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'address' }],
+  },
+] as const;
+
+const INNER_VAULT_LIQUIDITY_ABI = [
+  {
+    name: 'maxWithdraw',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [{ name: 'owner', type: 'address' }],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+] as const;
+
 const MORPHO_BLUE_ABI = [
   {
     name: 'idToMarketParams',
@@ -247,17 +279,64 @@ export function formatForcePenaltyAmount(
   return `${intFormatted}.${frac} ${symbol}`;
 }
 
-type MarketLiquiditySlot = {
+type AdapterLiquiditySlot = {
   adapter: Address;
-  marketParams: MorphoMarketParams;
+  data: Hex;
   available: bigint;
   penaltyWad: bigint;
 };
 
-async function loadMarketLiquiditySlots(
+async function loadVaultErc4626AdapterSlot(
+  publicClient: PublicClient,
+  adapter: Address,
+  penaltyWad: bigint
+): Promise<AdapterLiquiditySlot | null> {
+  try {
+    const innerVault = getAddress(
+      await publicClient.readContract({
+        address: adapter,
+        abi: VAULT_ERC4626_ADAPTER_ABI,
+        functionName: 'morphoVaultV1',
+      })
+    );
+    const realAssets = (await publicClient.readContract({
+      address: adapter,
+      abi: VAULT_ERC4626_ADAPTER_ABI,
+      functionName: 'realAssets',
+    })) as bigint;
+    if (realAssets <= BigInt(0)) return null;
+
+    let withdrawable = BigInt(0);
+    try {
+      withdrawable = (await publicClient.readContract({
+        address: innerVault,
+        abi: INNER_VAULT_LIQUIDITY_ABI,
+        functionName: 'maxWithdraw',
+        args: [adapter],
+      })) as bigint;
+    } catch {
+      withdrawable = BigInt(0);
+    }
+
+    if (withdrawable <= BigInt(0)) {
+      // realAssets can exceed what the inner vault will release to the adapter today.
+      // forceDeallocate on a fee wrapper calls adapter.deallocate → inner ERC-4626 withdraw.
+      return null;
+    }
+
+    const available = minBigInt(realAssets, withdrawable);
+    if (available <= BigInt(0)) return null;
+
+    return { adapter, data: '0x', available, penaltyWad };
+  } catch {
+    return null;
+  }
+}
+
+async function loadAdapterLiquiditySlots(
   publicClient: PublicClient,
   vaultAddress: Address
-): Promise<MarketLiquiditySlot[]> {
+): Promise<AdapterLiquiditySlot[]> {
   const adaptersLength = await publicClient.readContract({
     address: vaultAddress,
     abi: VAULT_V2_FORCE_ABI,
@@ -268,7 +347,7 @@ async function loadMarketLiquiditySlots(
     throw new Error('This vault has no adapters to force-deallocate from.');
   }
 
-  const slots: MarketLiquiditySlot[] = [];
+  const slots: AdapterLiquiditySlot[] = [];
 
   for (let i = BigInt(0); i < adaptersLength; i = i + BigInt(1)) {
     const adapter = getAddress(
@@ -303,11 +382,15 @@ async function loadMarketLiquiditySlots(
         functionName: 'marketIdsLength',
       });
     } catch {
-      // Non–MorphoMarketV1 adapters (e.g. vault-v1 adapters) cannot be force-planned here.
-      logger.warn('Skipping adapter without Morpho market list for force withdraw', {
-        vaultAddress,
-        adapter,
-      });
+      const vaultSlot = await loadVaultErc4626AdapterSlot(publicClient, adapter, penaltyWad);
+      if (vaultSlot) {
+        slots.push(vaultSlot);
+      } else {
+        logger.warn('Skipping adapter with no force-withdraw liquidity path', {
+          vaultAddress,
+          adapter,
+        });
+      }
       continue;
     }
 
@@ -351,13 +434,13 @@ async function loadMarketLiquiditySlots(
 
       slots.push({
         adapter,
-        marketParams: {
+        data: encodeMarketParamsData({
           loanToken: getAddress(paramsTuple[0]),
           collateralToken: getAddress(paramsTuple[1]),
           oracle: getAddress(paramsTuple[2]),
           irm: getAddress(paramsTuple[3]),
           lltv: paramsTuple[4],
-        },
+        }),
         available,
         penaltyWad,
       });
@@ -387,7 +470,7 @@ function buildMulticallArgs(
       functionName: 'forceDeallocate',
       args: [
         step.adapter,
-        encodeMarketParamsData(step.marketParams),
+        step.data,
         step.amount,
         onBehalf,
       ],
@@ -443,9 +526,9 @@ export async function planForceWithdrawV2(
     return null;
   }
 
-  const slots = await loadMarketLiquiditySlots(publicClient, normalizedVault);
+  const slots = await loadAdapterLiquiditySlots(publicClient, normalizedVault);
   if (slots.length === 0) {
-    logger.warn('No force-deallocatable market liquidity found', { vaultAddress: normalizedVault });
+    logger.warn('No force-deallocatable adapter liquidity found', { vaultAddress: normalizedVault });
     return null;
   }
 
@@ -465,7 +548,7 @@ export async function planForceWithdrawV2(
     const penaltyAssets = mulDivUp(amount, slot.penaltyWad, FORCE_DEALLOCATE_WAD);
     deallocations.push({
       adapter: slot.adapter,
-      marketParams: slot.marketParams,
+      data: slot.data,
       amount,
       penaltyWad: slot.penaltyWad,
       penaltyAssets,
@@ -476,7 +559,7 @@ export async function planForceWithdrawV2(
   }
 
   if (remaining > BigInt(0)) {
-    logger.warn('Insufficient market liquidity for force withdraw shortfall', {
+    logger.warn('Insufficient adapter liquidity for force withdraw shortfall', {
       vaultAddress: normalizedVault,
       remaining: remaining.toString(),
       assetsToDeallocate: assetsToDeallocate.toString(),

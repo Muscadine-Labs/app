@@ -4,7 +4,7 @@ import { useEffect } from 'react';
 import { isPageScrollLocked } from '@/hooks/useLockPageScroll';
 
 /**
- * Returning to the Base App WebView can leave a WalletConnect / RainbowKit
+ * Returning to the Base App WebView can leave a WalletConnect / Reown AppKit
  * overlay covering the page (looks blank until the iframe remounts).
  * On pageshow, drop leftover WC chrome and unlock body scroll if no dialog
  * is actually open.
@@ -13,7 +13,7 @@ export function useClearStuckWalletUi() {
   useEffect(() => {
     const restore = () => {
       const dialogOpen = Boolean(
-        document.querySelector('[data-rk] [role="dialog"]')
+        document.querySelector('w3m-modal[open], appkit-modal[open], wcm-modal[open]')
       );
       if (dialogOpen || isPageScrollLocked()) return;
 

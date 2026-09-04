@@ -279,122 +279,12 @@ body {
   min-height: 100dvh;
 }
 
-/* RainbowKit modals above app chrome (NavBar z-50, toasts, vault modals).
-   Do not style `[role=dialog] ~ div` — leftover siblings can cover the
-   Base App WebView and look like a blank screen. */
-[data-rk] {
-  --rk-z-index: 100000;
-}
-
-[data-rk] [role="dialog"] {
-  z-index: 100000 !important;
-}
-
-/* WalletConnect / Reown AppKit QR modal above RainbowKit when connecting via WC */
-w3m-modal[open],
-appkit-modal[open] {
-  z-index: 100001 !important;
-}
-
-/* Wallet list rows must stay clickable (do not inherit pointer-events: none) */
-[data-rk] [role="dialog"] button[data-testid^="rk-wallet-option"] {
-  pointer-events: auto !important;
-  cursor: pointer !important;
-}
-
-/* RainbowKit ConnectButton styling to match app buttons */
-[data-rk] button {
-  font-size: 0.875rem !important; /* text-sm = 14px */
-  line-height: 1.25rem !important;
-  font-weight: 400 !important; /* font-medium */
-}
-
-/* Match ConnectButton text size, padding, and styling with nav links */
-[data-rk] [data-testid="rk-connect-button"] {
-  font-size: 0.875rem !important;
-  padding: 0.375rem 0.75rem !important; /* py-1.5 px-3 */
-  border-radius: 0.375rem !important; /* rounded-md */
-  color: var(--foreground) !important;
-  background: transparent !important;
-  border: none !important;
-  transition: all 0.2s ease-in-out !important;
-}
-
-[data-rk] [data-testid="rk-connect-button"]:hover {
-  background: var(--surface-hover) !important;
-}
-
-[data-rk] [data-testid="rk-connect-button"]:active {
-  background: var(--surface-active) !important;
-}
-
-/* Make ConnectButton text match nav link color */
-[data-rk] [data-testid="rk-connect-button"] * {
-  color: var(--foreground) !important;
-}
-
-/* Style account button when connected to match disconnected state */
-[data-rk] [data-testid="rk-account-button"],
-[data-rk] [data-testid="rk-account-button"] button,
-[data-rk] [data-testid="rk-account-button"] > div {
-  font-size: 0.875rem !important; /* text-sm = 14px */
-  font-weight: 400 !important;
-  line-height: 1.25rem !important;
-  padding: 0.375rem 0.75rem !important; /* py-1.5 px-3 */
-  border-radius: 0.375rem !important; /* rounded-md */
-  color: var(--foreground) !important;
-  background: transparent !important;
-  border: none !important;
-  transition: all 0.2s ease-in-out !important;
-}
-
-[data-rk] [data-testid="rk-account-button"]:hover,
-[data-rk] [data-testid="rk-account-button"] button:hover {
-  background: var(--surface-hover) !important;
-}
-
-[data-rk] [data-testid="rk-account-button"]:active,
-[data-rk] [data-testid="rk-account-button"] button:active {
-  background: var(--surface-active) !important;
-}
-
-/* Make all text in account button match nav link color */
-[data-rk] [data-testid="rk-account-button"] * {
-  color: var(--foreground) !important;
-  font-size: 0.875rem !important;
-  font-weight: 400 !important;
-}
-
-/* Hide dropdown arrow/chevron in RainbowKit buttons (backup for any remaining arrows) */
-/* Only hide SVG arrows in connect/account buttons, NOT in modals */
-[data-rk] [data-testid="rk-account-button"] svg,
-[data-rk] [data-testid="rk-connect-button"] svg:last-child {
-  display: none !important;
-}
-
-/* Ensure modal close button and its icon are visible - override any hiding rules */
-[data-rk] [role="dialog"] button[aria-label*="Close"] svg,
-[data-rk] [role="dialog"] button[aria-label*="close"] svg,
-[data-rk] [role="dialog"] button[title*="Close"] svg,
-[data-rk] [role="dialog"] button[title*="close"] svg,
-[data-rk] [role="dialog"] [data-testid*="close"] svg,
-[data-rk] [role="dialog"] [data-testid*="Close"] svg,
-[data-rk] [role="dialog"] button svg,
-[data-rk] [role="dialog"] svg {
-  display: block !important;
-  visibility: visible !important;
-  opacity: 1 !important;
-  color: var(--foreground) !important;
-}
-
-[data-rk] [role="dialog"] button[aria-label*="Close"],
-[data-rk] [role="dialog"] button[aria-label*="close"],
-[data-rk] [role="dialog"] button[title*="Close"],
-[data-rk] [role="dialog"] button[title*="close"],
-[data-rk] [role="dialog"] [data-testid*="close"],
-[data-rk] [role="dialog"] [data-testid*="Close"] {
-  display: flex !important;
-  visibility: visible !important;
-  opacity: 1 !important;
+/* Reown AppKit modal above app chrome. Do not use :not([open]) — AppKit
+   stores open as a Lit property, not an HTML attribute, so that selector
+   would hide the modal even after connect. */
+w3m-modal,
+appkit-modal,
+wcm-modal {
+  z-index: 100000;
 }
 

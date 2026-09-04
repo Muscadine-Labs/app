@@ -1,5 +1,5 @@
 import { TOKEN_ADDRESSES_LOWER, type TokenBalance } from '@/contexts/WalletContext';
-import { VAULTS } from '@/lib/vaults';
+import { findVaultByAddress } from '@/lib/vault-utils';
 import type { Account } from '@/types/vault';
 
 export type TransactionTab = 'deposit' | 'withdraw';
@@ -37,10 +37,9 @@ export function findTokenBySymbol(
 }
 
 export function isWethVault(vaultAddress: string, symbol: string): boolean {
-  return (
-    symbol.toUpperCase() === 'WETH' ||
-    vaultAddress.toLowerCase() === VAULTS.WETH_VAULT_V2.address.toLowerCase()
-  );
+  const registry = findVaultByAddress(vaultAddress);
+  if (registry) return registry.symbol === 'WETH';
+  return symbol.toUpperCase() === 'WETH';
 }
 
 export function getTokenBalanceRaw(

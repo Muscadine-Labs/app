@@ -8,6 +8,7 @@ import { Vault, getVaultLogo } from '@/types/vault';
 import type { MorphoVaultData } from '@/types/vault';
 import { useVaultData } from '@/contexts/VaultDataContext';
 import { useWallet } from '@/contexts/WalletContext';
+import { VaultNameWithWrapper } from '@/components/features/vault/VaultNameWithWrapper';
 import {
   getVaultRoute,
   hasOnChainVaultShares,
@@ -37,6 +38,14 @@ function handleRowKeyDown(event: KeyboardEvent, onActivate: () => void) {
     event.preventDefault();
     onActivate();
   }
+}
+
+function VaultShareLabel({ vault }: { vault: Vault }) {
+  return (
+    <span className="block text-[10px] text-[var(--foreground-muted)]">
+      {vault.vaultSymbol || vault.symbol}
+    </span>
+  );
 }
 
 function formatCompactTokenAmount(rawValue: string | undefined, decimals: number, symbol: string): string {
@@ -239,8 +248,8 @@ function VaultExplorerMobileCard({ vault, showYourPosition }: VaultExplorerRowPr
       <div className="flex items-start gap-3 mb-3">
         <VaultLogo vault={vault} />
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm font-medium text-[var(--foreground)]">{vault.name}</span>
+          <div className="flex items-center gap-2 flex-wrap min-w-0">
+            <VaultNameWithWrapper name={vault.name} kind={vault.kind} />
             <span className="inline-flex rounded-md bg-[var(--surface-elevated)] px-2 py-0.5 text-[10px] font-medium text-[var(--foreground-secondary)]">
               Base
             </span>
@@ -250,6 +259,7 @@ function VaultExplorerMobileCard({ vault, showYourPosition }: VaultExplorerRowPr
               </span>
             ) : null}
           </div>
+          <VaultShareLabel vault={vault} />
         </div>
         <div className="shrink-0 text-right">
           {loading || !vaultData ? (
@@ -343,8 +353,8 @@ function DashboardVaultMobileCard({
       <div className="flex items-center gap-3 mb-3">
         <VaultLogo vault={vault} />
         <div className="min-w-0">
-          <span className="text-sm font-medium text-[var(--foreground)] block">{vault.name}</span>
-          <span className="text-[10px] text-[var(--foreground-muted)]">{vault.symbol}</span>
+          <VaultNameWithWrapper name={vault.name} kind={vault.kind} />
+          <VaultShareLabel vault={vault} />
           <span className="text-[10px] text-[var(--foreground-muted)] block">
             {isCurated ? 'Whitelisted' : 'External'}
           </span>
@@ -540,15 +550,14 @@ function VaultExplorerRow({ vault, showYourPosition }: VaultExplorerRowProps) {
           <VaultLogo vault={vault} />
           <div className="min-w-0">
             <div className="flex items-center gap-2 min-w-0">
-              <span className="text-sm font-medium text-[var(--foreground)] truncate">
-                {vault.name}
-              </span>
+              <VaultNameWithWrapper name={vault.name} kind={vault.kind} />
               {!isCurated ? (
                 <span className="shrink-0 text-[10px] text-[var(--foreground-muted)]">
                   External
                 </span>
               ) : null}
             </div>
+            <VaultShareLabel vault={vault} />
           </div>
         </div>
       </td>
@@ -631,7 +640,11 @@ export default function VaultExplorerTable({
     <>
       <div className="lg:hidden">
         {vaults.map((vault) => (
-          <VaultExplorerMobileCard key={vault.address} vault={vault} showYourPosition={showYourPosition} />
+          <VaultExplorerMobileCard
+            key={vault.address}
+            vault={vault}
+            showYourPosition={showYourPosition}
+          />
         ))}
       </div>
 
@@ -653,7 +666,11 @@ export default function VaultExplorerTable({
         </thead>
         <tbody>
           {vaults.map((vault) => (
-            <VaultExplorerRow key={vault.address} vault={vault} showYourPosition={showYourPosition} />
+            <VaultExplorerRow
+              key={vault.address}
+              vault={vault}
+              showYourPosition={showYourPosition}
+            />
           ))}
         </tbody>
       </table>
@@ -878,8 +895,8 @@ export function DashboardVaultTable({
                   <div className="flex items-center gap-2 min-w-0">
                     <VaultLogo vault={vault} size={28} />
                     <div className="min-w-0">
-                      <span className="text-sm font-medium text-[var(--foreground)] truncate block">{vault.name}</span>
-                      <span className="text-[10px] text-[var(--foreground-muted)]">{vault.symbol}</span>
+                      <VaultNameWithWrapper name={vault.name} kind={vault.kind} />
+                      <VaultShareLabel vault={vault} />
                     </div>
                   </div>
                 </td>
