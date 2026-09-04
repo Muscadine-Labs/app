@@ -9,8 +9,10 @@
  * supply positions to the user and is a separate path.
  *
  * Used when requested assets exceed instant liquidity (idle + liquidity adapter).
- * Covers MorphoMarketV1 adapters (Blue markets) and MorphoVaultV1-style adapters
- * used by fee wrappers (empty deallocate `data`, inner ERC-4626 liquidity).
+ * Covers MorphoMarketV1 adapters (Blue markets) and fee-wrapper vault adapters
+ * (empty deallocate `data`, liquidity = inner vault maxWithdraw(adapter) only).
+ * Fee wrappers have a single MorphoVaultV2Adapter — they cannot force-deallocate
+ * underlying Blue markets directly; only what the inner vault can release to the adapter.
  * Ref: https://docs.morpho.org/developers/sdks/morpho-sdk/vault/#force-withdraw--force-redeem
  */
 
@@ -316,9 +318,13 @@ async function loadVaultErc4626AdapterSlot(
       withdrawable = BigInt(0);
     }
 
-    // Inner maxWithdraw can be 0 while the adapter still has shares; use realAssets
-    // and let simulateForceWithdrawPlan reject an unsound plan.
-    const available = withdrawable > BigInt(0) ? minBigInt(realAssets, withdrawable) : realAssets;
+    if (withdrawable <= BigInt(0)) {
+      // realAssets can exceed what the inner vault will release to the adapter today.
+      // forceDeallocate on a fee wrapper calls adapter.deallocate → inner ERC-4626 withdraw.
+      return null;
+    }
+
+    const available = minBigInt(realAssets, withdrawable);
     if (available <= BigInt(0)) return null;
 
     return { adapter, data: '0x', available, penaltyWad };

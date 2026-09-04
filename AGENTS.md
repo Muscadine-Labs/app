@@ -43,7 +43,7 @@ Instructions for AI agents working in this repo. Full architecture docs live in 
 - Bundler wrap/unwrap share-price bounds: **0.03%** from on-chain quotes (`BUNDLER_SLIPPAGE_BPS`, Morpho SDK default). Wrap deposits refuse a zero `convertToShares` quote before approve, then re-quote after approvals for `maxSharePrice`. Direct ERC-4626 deposits skip that read.
 - Approval and main txs: `waitForSuccessfulReceipt` — a reverted receipt must not continue to the next step.
 - Resume unwrap only for unwrap-only steps, or after force exit progressed past step 0; never re-force on unwrap failure.
-- Force withdraw is vault `multicall` (not Bundler3) on every v2 vault, including fee wrappers. Market adapters encode Morpho Blue params; wrapper / VaultV1 adapters use empty `data` and inner ERC-4626 liquidity. ETH unwrap after force is Bundler3 and only when the vault asset is WETH.
+- Force withdraw is vault `multicall` (not Bundler3). **Underlying vaults:** Blue market adapters with encoded market params. **Fee wrappers:** single MorphoVaultV2Adapter (`data = 0x`); liquidity is only `min(realAssets, innerVault.maxWithdraw(adapter))` — not underlying Blue markets. When inner `maxWithdraw(adapter)` is 0, no force plan (wrapper Morpho `forceDeallocatableLiquidity` is typically 0). ETH unwrap after force is Bundler3 and only when the vault asset is WETH.
 
 ## Known gotchas
 
