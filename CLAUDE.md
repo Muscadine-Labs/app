@@ -4,7 +4,7 @@ Comprehensive context for AI assistants and developers. This is the canonical �
 
 **Product:** **Muscadine Vaults** — web app for curated Morpho vaults on **Base (chain id 8453)** — deposit, withdraw, portfolio view, vault analytics. **v2 Prime and Frontier** vaults for USDC, cbBTC, and WETH. **v1 MetaMorpho removed** from registry and codebase (v2-only writes).
 
-**Version:** `package.json` → `1.3.4`
+**Version:** `package.json` → `1.4.0`
 
 ---
 
@@ -65,9 +65,9 @@ npm run lint
 
 Never commit real keys. `.env.example` documents placeholders.
 
-`package.json` **`allowScripts`** allowlists native/postinstall scripts for `bufferutil`, `keccak`, `unrs-resolver`, and `utf-8-validate` (transitive; WalletConnect `ws` + eslint-next resolver). Keep versions pinned to `package-lock.json`. Local npm 11.4 does not have `npm approve-scripts`; Vercel’s newer npm emits the pending-scripts warning without this field.
+`package.json` **`allowScripts`** allowlists native/postinstall scripts for `bufferutil`, `keccak`, `unrs-resolver`, `utf-8-validate`, and `@reown/appkit` (transitive; WalletConnect `ws` + eslint-next resolver + AppKit version check). Keep versions pinned to `package-lock.json`. Local npm 11.4 does not have `npm approve-scripts`; Vercel’s newer npm emits the pending-scripts warning without this field.
 
-`package.json` **`overrides`** also pins patched transitive packages GitHub Dependabot flags (`axios`, `hono`, `js-yaml` 4.x, `socket.io-parser`, `brace-expansion` 1.x/5.x). Do not drop those pins without checking [Dependabot alerts](https://github.com/Muscadine-Labs/app/security).
+`package.json` **`overrides`** also pins patched transitive packages GitHub Dependabot flags (`axios`, `hono`, `js-yaml` 4.x, `socket.io-parser`, `brace-expansion` 1.x/5.x, `browserslist` 4.28.7, `decode-uri-component` 0.5.0). Do not drop those pins without checking [Dependabot alerts](https://github.com/Muscadine-Labs/app/security).
 
 ---
 
