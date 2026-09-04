@@ -12,6 +12,10 @@ const RESOURCES = [
     href: 'https://docs.morpho.org/learn/concepts/vault-v2/',
   },
   {
+    question: 'What is a vault wrapper?',
+    href: 'https://docs.morpho.org/developers/earn/concepts/fee-wrapper/',
+  },
+  {
     question: 'What is a curator?',
     href: 'https://docs.morpho.org/learn/concepts/curator/',
   },
@@ -37,7 +41,7 @@ export default function LearnContent() {
           Learning Resources
         </h1>
         <p className="text-sm text-left text-[var(--foreground-secondary)]">
-          Learn about DeFi, Morpho Protocol, and how to use Muscadine vaults.
+          Learn about DeFi, Morpho Protocol, and how to use Muscadine Vaults.
         </p>
       </div>
 

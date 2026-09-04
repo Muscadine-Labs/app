@@ -1,8 +1,7 @@
-'use client'
-
-import { getDefaultConfig } from '@rainbow-me/rainbowkit'
-import { base as baseChain } from 'wagmi/chains'
-import { http, fallback } from 'wagmi'
+import { cookieStorage, createStorage, http, fallback } from 'wagmi'
+import { WagmiAdapter } from '@reown/appkit-adapter-wagmi'
+import { base } from '@reown/appkit/networks'
+import type { AppKitNetwork } from '@reown/appkit/networks'
 import { getAppUrl } from '@/lib/app-url'
 import { APP_NAME } from '@/lib/base-app'
 
@@ -19,33 +18,37 @@ if (!alchemyApiKey) {
 if (!walletConnectProjectId) {
   throw new Error(
     'NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID is required but not set. ' +
-      'Get a project ID at https://cloud.walletconnect.com/'
+      'Get a project ID at https://dashboard.reown.com/'
   )
 }
 
 const appUrl = getAppUrl()
 const alchemyUrl = `https://base-mainnet.g.alchemy.com/v2/${alchemyApiKey}`
 
-export const config = getDefaultConfig({
-  appName: APP_NAME,
-  appDescription: 'Morpho vaults',
-  appUrl,
-  appIcon: `${appUrl}/favicon.png`,
-  projectId: walletConnectProjectId,
-  walletConnectParameters: {
-    metadata: {
-      name: APP_NAME,
-      description: 'Morpho vaults',
-      url: appUrl,
-      icons: [`${appUrl}/favicon.png`],
-    },
-  },
-  chains: [baseChain],
-  transports: {
-    [baseChain.id]: fallback([http(alchemyUrl), http()]),
-  },
+export const projectId = walletConnectProjectId
+
+export const networks: [AppKitNetwork, ...AppKitNetwork[]] = [base]
+
+export const metadata = {
+  name: APP_NAME,
+  description: 'Muscadine Vaults',
+  url: appUrl,
+  icons: [`${appUrl}/favicon.png`],
+}
+
+export const wagmiAdapter = new WagmiAdapter({
+  storage: createStorage({
+    storage: cookieStorage,
+  }),
   ssr: true,
+  projectId,
+  networks,
+  transports: {
+    [base.id]: fallback([http(alchemyUrl), http()]),
+  },
 })
+
+export const config = wagmiAdapter.wagmiConfig
 
 declare module 'wagmi' {
   interface Register {

@@ -2,11 +2,9 @@
 
 import { useMemo, useState } from 'react';
 import { useAccount } from 'wagmi';
-import { VAULTS } from '@/lib/vaults';
 import { BASE_CHAIN_ID } from '@/lib/constants';
 import {
   buildExplorerVaultCandidates,
-  explorerListHasBothVaultKinds,
   getDepositedVaultAddressSet,
   selectRegistryVaultsForExplorer,
   sortVaultsForDisplay,
@@ -47,14 +45,6 @@ function VaultExplorerContent({
     [morphoHoldings.positions]
   );
 
-  const showCbBtc = useMemo(() => {
-    if (!wrappersOnly) return true;
-    return depositedAddresses.has(VAULTS.cbBTC_VAULT_V2.address.toLowerCase());
-  }, [wrappersOnly, depositedAddresses]);
-
-  const assetFilter =
-    filters.asset === 'cbBTC' && !showCbBtc ? 'all' : filters.asset;
-
   const filteredVaults = useMemo(() => {
     const registryVaults = selectRegistryVaultsForExplorer({
       wrappersOnly,
@@ -74,7 +64,7 @@ function VaultExplorerContent({
 
     const filtered = candidates.filter((vault) => {
       if (filters.network === 'base' && vault.chainId !== BASE_CHAIN_ID) return false;
-      if (assetFilter !== 'all' && vault.symbol !== assetFilter) return false;
+      if (filters.asset !== 'all' && vault.symbol !== filters.asset) return false;
       if (
         filters.strategy !== 'all' &&
         vault.isCurated !== false &&
@@ -102,12 +92,9 @@ function VaultExplorerContent({
     morphoHoldings.positions,
     wrappersOnly,
     depositedAddresses,
-    assetFilter,
   ]);
 
   useVaultListPreloader(filteredVaults);
-
-  const showKindBadge = explorerListHasBothVaultKinds(filteredVaults);
 
   const emptyMessage = useMemo(() => {
     if (filters.walletFilter === 'inWallet' && !isConnected) {
@@ -129,10 +116,9 @@ function VaultExplorerContent({
     <div className="flex flex-col h-full w-full min-h-0">
       {showFilters && (
         <VaultExplorerFilters
-          filters={{ ...filters, asset: assetFilter }}
+          filters={filters}
           onFiltersChange={setFilters}
           wrappersOnly={wrappersOnly}
-          showCbBtc={showCbBtc}
         />
       )}
       <div className="flex-1 min-h-0 overflow-y-auto">
@@ -144,7 +130,6 @@ function VaultExplorerContent({
           <VaultExplorerTable
             vaults={filteredVaults}
             emptyMessage={emptyMessage}
-            showKindBadge={showKindBadge}
           />
         )}
       </div>

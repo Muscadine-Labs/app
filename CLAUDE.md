@@ -1,8 +1,8 @@
-# CLAUDE.md — Muscadine App
+# CLAUDE.md — Muscadine Vaults
 
 Comprehensive context for AI assistants and developers. This is the canonical “extra README” for the repo: architecture, Morpho integration, file map, conventions, and operational notes.
 
-**Product:** Web app for Muscadine vaults on **Base (chain id 8453)** — deposit, withdraw, portfolio view, vault analytics. **v2 Prime and Frontier** vaults for USDC, cbBTC, and WETH. **v1 MetaMorpho removed** from registry and codebase (v2-only writes).
+**Product:** **Muscadine Vaults** — web app for curated Morpho vaults on **Base (chain id 8453)** — deposit, withdraw, portfolio view, vault analytics. **v2 Prime and Frontier** vaults for USDC, cbBTC, and WETH. **v1 MetaMorpho removed** from registry and codebase (v2-only writes).
 
 **Version:** `package.json` → `1.3.4`
 
@@ -60,7 +60,7 @@ npm run lint
 | Variable | Required? | Purpose |
 |----------|-----------|---------|
 | `NEXT_PUBLIC_ALCHEMY_API_KEY` | **Yes** | Base RPC (Alchemy) |
-| `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | **Yes** | RainbowKit / WalletConnect |
+| `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | **Yes** | Reown AppKit / WalletConnect |
 | `NEXT_PUBLIC_URL` or `NEXT_PUBLIC_APP_URL` | No (default `https://app.muscadine.xyz`) | Canonical URL + Base Account `appUrl` |
 
 Never commit real keys. `.env.example` documents placeholders.
@@ -78,7 +78,7 @@ Never commit real keys. `.env.example` documents placeholders.
 | Framework | Next.js 16 (App Router) |
 | Bundler (dev/build) | Turbopack (`next dev --turbopack`, `next build --turbopack`) |
 | UI | React 19, Tailwind CSS 4 |
-| Wallet | wagmi **2.x**, RainbowKit 2, viem 2 |
+| Wallet | wagmi **2.x**, Reown AppKit, viem 2 |
 | Chain | Base only (`8453`) |
 | Server data | Next.js Route Handlers → Morpho GraphQL |
 | Client GraphQL | None — Morpho GraphQL is server-only via `fetchMorphoGraphQL()` |
@@ -94,7 +94,7 @@ Never commit real keys. `.env.example` documents placeholders.
 ```text
 ┌─────────────────────────────────────────────────────────────────┐
 │                         Browser (client)                         │
-│  RainbowKit / wagmi ──► viem PublicClient + WalletClient         │
+│  Reown AppKit / wagmi ──► viem PublicClient + WalletClient       │
 │                                                                  │
 │  TransactionFlow ──► transactionUtilsV2 (+ Bundler3 for WETH/ETH) │
 │  WalletContext ──► /api/user/morpho-positions                    │
@@ -119,20 +119,20 @@ Single source of truth: `src/lib/vaults.ts` → `VAULTS` record.
 
 Always resolve version with `getVaultVersion(address)` / `findVaultByAddress()` from `src/lib/vault-utils.ts`. Do not infer v1/v2 from asset symbol alone.
 
-**Default product surface is Morpho fee wrappers** (`kind: 'wrapper'`). They are Vault V2 (`type: FeeWrapper` in GraphQL) immutably allocated to one inner Morpho Vault V2 via `MorphoVaultV2Adapter`. Query them with `vaultV2ByAddress` like any v2 vault — deposits/withdraws are the same ERC-4626 path. There is **no cbBTC wrapper**.
+**Default product surface is Morpho fee wrappers** (`kind: 'wrapper'`). They are Vault V2 (`type: FeeWrapper` in GraphQL) immutably allocated to one underlying Morpho Vault V2 via `MorphoVaultV2Adapter`. Query them with `vaultV2ByAddress` like any v2 vault — deposits/withdraws are the same ERC-4626 path.
 
 | Asset | Wrapper (default) | Underlying V2 Prime | Wrapper Frontier | Underlying Frontier |
 |-------|-------------------|---------------------|------------------|---------------------|
 | USDC | `0x036A01eFdDC87F6634FFDE0533EE528b90fc7A45` (wmpUSDC) | `0x89712980Cb434eF5aE4AB29349419eb976B0b496` (mpUSDC) | `0x54D8417bD21C86A7806b58f5aa2e2E0bB88B856A` (wmfUSDC) | `0x314fD07319ef645bA7D548915CCd91F4788A1839` (mfUSDC) |
 | WETH | `0x548653b09b03A69f93B3890c382fE9DcD245cbc4` (wmpWETH) | `0xD6DCAd2f7Da91FBb27BdA471540d9770c97a5a43` (mpWETH) | — | — |
-| cbBTC | — | `0x99dcd0D75822BA398F13B2A8852B07c7e137EC70` (mpcbBTC) | — | — |
+| cbBTC | `0x0e0a857d2AF1A2d43c82d1FA54766239CAb70147` (wmpcbBTC) | `0x99dcd0D75822BA398F13B2A8852B07c7e137EC70` (mpcbBTC) | — | — |
 
 **Routes:** `/vault/v2/{address}` only (wrappers and underlying are both curated).  
 **API:** `/api/vault/v2/{address}/{complete|history|activity|position-history|earned-interest}`
 
-**Vault registry fields:** `symbol` (underlying asset), `vaultSymbol` (share token label), `strategy` (`prime` | `frontier`), `kind` (`wrapper` | `underlying`), `underlyingAddress` (inner vault on wrappers).
+**Vault registry fields:** `symbol` (underlying asset), `vaultSymbol` (share token label), `strategy` (`prime` | `frontier`), `kind` (`wrapper` | `underlying`), `underlyingAddress` (underlying vault on wrappers). Wrapper and underlying of the same product share the display name (e.g. **Muscadine USDC Prime**); the **wrapper** / **underlying** labels appear only when Vault wrappers is off.
 
-**Settings (NavBar, persisted `muscadine-vault-wrappers`):** **Vault wrappers** toggle, default **on** = explorer shows only wrappers, plus any of the four underlying vaults the wallet is deposited in. cbBTC is omitted from the asset filter unless the user holds the underlying cbBTC vault. Toggle **off** = `/vaults` gains a **Vaults** filter (All / Underlying Vaults / Wrappers Vaults, default All).
+**Settings (NavBar, persisted `muscadine-vault-wrappers`):** **Vault wrappers** toggle, default **on** = explorer shows wrappers only, plus any underlying vaults the wallet is deposited in. Toggle **off** = `/vaults` gains a **Vaults** filter (All / Underlying / Wrappers), default **Underlying** (underlying registry vaults plus deposits, including view-only external).
 
 Explorer filters default to **All** (network, strategy, asset). **No v1/v2 version filter** (v1 removed). There is no developer/over-balance bypass mode.
 
@@ -316,9 +316,9 @@ Morpho GraphQL is **server-only** (`fetchMorphoGraphQL()` in route handlers). Th
 | `/api/user/morpho-positions` | User Morpho v2 positions |
 | `/api/vault/v2/...` | V2 Morpho GraphQL proxies |
 
-**NavBar:** Dashboard → `/`, Vaults → `/vaults`. Settings: theme (light/dark/auto) and **Vault wrappers** toggle (persisted). Right sidebar (`LearnContent`) is Q&A links to Morpho docs (protocol, Vault V2, curator, Blue, Midnight) and [self-custody](https://muscadine.xyz/self-custody).
+**NavBar:** Dashboard → `/`, Vaults → `/vaults`. Settings: theme (light/dark/auto) and **Vault wrappers** toggle (persisted). Right sidebar (`LearnContent`) is Q&A links to Morpho docs (protocol, Vault V2, [fee wrapper](https://docs.morpho.org/developers/earn/concepts/fee-wrapper/), curator, Blue, Midnight) and [self-custody](https://muscadine.xyz/self-custody).
 
-**App title:** metadata in `layout.tsx` uses **Muscadine** (`APP_NAME` in `src/lib/base-app.ts`) so Base.dev / RainbowKit / WalletConnect match.
+**App title:** metadata in `layout.tsx` uses **Muscadine Vaults** (`APP_NAME` in `src/lib/base-app.ts`) so Base.dev / Reown AppKit / WalletConnect match.
 
 ---
 
@@ -338,7 +338,7 @@ Adaptive layout (content-sized panels; empty sections omitted):
 
 **Important:** Portfolio chart includes **v2** positions from the API; **Your Vaults** is **v2-only**.
 
-- **Your Vaults** lists v2 deposits only (`position.version === 'v2'`), sorted by USD. External (non-curated) vaults are shown but **not clickable** (no `/vault/v2/...` detail page). Hidden when empty.
+- **Your Vaults** lists v2 deposits only (`position.version === 'v2'`), sorted by USD. External (non-curated) vaults are shown but **not clickable** (no `/vault/v2/...` detail page). Hidden when empty. **wrapper** / **underlying** pills appear only when Vault wrappers is **off**.
 - **Layout:** Desktop uses two independent columns. Your Vaults sits beside the chart. Wide wallet still uses `wallet|wallet / chart|side`. Below 1000px stacks wallet → chart → Vaults.
 - **Portfolio chart** (`PortfolioPositionChart.tsx`):
   1. Discovers vaults via `/api/user/morpho-positions?includeEmpty=true`.
@@ -357,8 +357,8 @@ Adaptive layout (content-sized panels; empty sections omitted):
 |--------|---------|-------|
 | Network | All, Base | Default **All**; `base` filters `chainId === 8453` |
 | Strategy | All, Prime, Frontier | Default **All** (shows Prime + Frontier) |
-| Asset | All, USDC, cbBTC, WETH | Local filter state. cbBTC hidden when Vault wrappers is on and the wallet has no underlying cbBTC deposit. |
-| Vaults | All, Underlying Vaults, Wrappers Vaults | Shown only when Vault wrappers is **off**. Default **All**. |
+| Asset | All, USDC, cbBTC, WETH | Local filter state. |
+| Vaults | All, Underlying, Wrappers | Shown only when Vault wrappers is **off**. Default **Underlying**. Wrapper / underlying names get a short **wrapper** or **underlying** pill in this mode (explorer, dashboard, vault hero). |
 | Scope | Deposits + whitelisted, In wallet, **Whitelisted** | Default **Deposits + whitelisted**. Wallet modes can list external deposits as **External** (not clickable). |
 
 **Table columns** (`VaultExplorerTable.tsx`): Vault, **Your Position**, **Earned Interest**, **APY / TVL** (compact layout). **Whitelisted** rows navigate to `/vault/v2/{address}`; external rows are display-only.
@@ -375,7 +375,7 @@ Whitelisted registry vaults only — unknown / external addresses redirect home.
 
 Chart tabs (order): **APY** → **Total Deposits** → **Share Price** → **Allocations**. **Total Deposits** and **Share Price** support USD / token toggle. Axis labels and tooltips use full values with 2 decimals (`formatCurrency` / `formatAssetAmount`). Stat cards use `formatSmartCurrency`.
 
-**Allocations:** Wrapper vaults show the inner Morpho vault (columns **Vault** / **TVL**, type **Vault**), not Blue markets. Name and footer link to [Muscadine Analytics](https://analytics.muscadine.xyz/vault/v2/{inner}) (`getVaultAnalyticsUrl`). Underlying vaults keep **Market** / **Market size** and Morpho market URLs.
+**Allocations:** Wrapper vaults show **{amount} to {underlying vault}** as a group header, then the underlying vault’s Morpho Blue markets underneath (same columns as underlying vaults: **Market** / Type / Allocated / APY / Liquidity / **Market size**). Nested allocated amounts are the wrapper’s share of each underlying-vault market. Name and footer still link to [Muscadine Analytics](https://analytics.muscadine.xyz/vault/v2/{address}) (`getVaultAnalyticsUrl`). Underlying vaults keep a flat market table and Morpho market URLs.
 
 ---
 
@@ -383,7 +383,7 @@ Chart tabs (order): **APY** → **Total Deposits** → **Share Price** → **All
 
 Provider tree (`src/app/Providers.tsx`):
 
-`ErrorBoundary` → `WagmiProvider` → `QueryClient` → `RainbowKit` → `ThemeProvider` → `VaultSettingsProvider` → `AdvisoryAgreementProvider` → `ToastProvider` → `WalletProvider` → `VaultDataProvider` → `TransactionProvider`
+`ErrorBoundary` → `WagmiProvider` → `QueryClient` → `ThemeProvider` → `VaultSettingsProvider` → `AdvisoryAgreementProvider` → `ToastProvider` → `WalletProvider` → `VaultDataProvider` → `TransactionProvider` (Reown AppKit initialized via `createAppKit` in `src/config/appkit.ts`; no SIWE/SIWX)
 
 | Context | File | Role |
 |---------|------|------|
@@ -449,7 +449,8 @@ src/
     ui/                   # Button, Modal, Toast, Skeleton, Icon
     common/               # ErrorBoundary, CopiableAddress
   config/
-    wagmi.ts              # Base + Alchemy + RainbowKit wallets
+    wagmi.ts              # Base + Alchemy + Reown WagmiAdapter
+    appkit.ts             # createAppKit (no SIWE/SIWX; EIP-6963 + featured Base/Rabby/Phantom)
     navigation.tsx        # Nav links (Dashboard, Vaults)
   contexts/               # See table above
   hooks/
@@ -512,7 +513,7 @@ src/
 
 ## Base App
 
-Standard web app on Base — no Farcaster manifest or mini-app SDK. Register on [base.dev](https://base.dev) with primary URL **`https://app.muscadine.xyz`** (no separate `miniapp.*` subdomain). Listing **name** should be **Muscadine** so in-app search matches by name, not only the URL.
+Standard web app on Base — no Farcaster manifest or mini-app SDK. Register on [base.dev](https://base.dev) with primary URL **`https://app.muscadine.xyz`** (no separate `miniapp.*` subdomain). Listing **name** should be **Muscadine Vaults** so in-app search matches by name, not only the URL.
 
 | Piece | Location |
 |-------|----------|
@@ -520,7 +521,7 @@ Standard web app on Base — no Farcaster manifest or mini-app SDK. Register on 
 | `base:app_id` meta tag | `layout.tsx` `metadata.other` **and** explicit `<meta name="base:app_id">` (id `6925cdc1547fca5d08131407`) |
 | `appUrl` / `appIcon` for Base Account UI | `getAppUrl()` + `/favicon.png` in wagmi config |
 | Builder code (ERC-8021) | `src/lib/builder-code.ts` → `transactionUtilsV2.ts` |
-| Base App WebView | `isBaseAppWebView()` — Connect uses injected/Coinbase, not WalletConnect. Layout `dvh`. Do not CSS-elevate RainbowKit dialog siblings. |
+| Base App WebView | `isBaseAppWebView()` — Connect uses injected/Coinbase, not WalletConnect. Layout `dvh`. Do not CSS-elevate leftover AppKit dialog siblings. |
 
 Optional later: [Base Notifications API](https://docs.base.org/apps/technical-guides/base-notifications) (wallet-address based; no Farcaster).
 
@@ -570,7 +571,7 @@ rm -rf .next .turbo && npm run dev
 1. Add to `src/lib/vaults.ts` with correct `version`, `kind` (`wrapper` | `underlying`), and `underlyingAddress` on wrappers.
 2. Confirm Morpho GraphQL returns it (`vaultV2ByAddress`). Fee wrappers use `type: FeeWrapper` and a `MorphoVaultV2Adapter` — they are still queried as v2 vaults.
 3. Confirm the vault has Morpho dead-share inflation protection (minted to `0x…dEaD`) before listing — we do not RPC-check this at runtime.
-4. v2 writes require no change in `transactionUtilsV2` if address is passed dynamically — registry drives UI labels and routing. There is no cbBTC wrapper; do not invent one.
+4. v2 writes require no change in `transactionUtilsV2` if address is passed dynamically — registry drives UI labels and routing.
 
 ### Changing v2 transaction behavior
 
@@ -584,10 +585,10 @@ Do not bump without checking compatibility:
 
 | Package | Constraint |
 |---------|------------|
-| `wagmi` | Stay on **2.x** — RainbowKit 2 requirement |
+| `wagmi` | Stay on **2.x** — Reown AppKit requirement |
 | `eslint` | Stay on **9.x** (`eslint@^9.39`) — `eslint-config-next` breaks on 10 |
 | `ox` | Stay on **0.14.x** — `ox@1` is a breaking rewrite; used for ERC-8021 builder codes |
-| `valtio` | Keep a **root** `valtio` (2.x) — RainbowKit/WalletConnect `derive-valtio` must resolve `valtio/vanilla` under Turbopack |
+| `valtio` | Keep a **root** `valtio` (2.x) — Reown AppKit / WalletConnect must resolve `valtio/vanilla` under Turbopack |
 | `@morpho-org/*-wagmi` 4.x | Often requires wagmi 3 |
 
 ---

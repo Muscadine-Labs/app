@@ -26,7 +26,7 @@ export interface Vault {
     version?: 'v1' | 'v2';
     strategy?: VaultStrategy;
     kind?: VaultKind;
-    /** Inner Morpho vault when `kind` is `wrapper`. */
+    /** Underlying Morpho vault when `kind` is `wrapper`. */
     underlyingAddress?: string;
     /** True when vault is in the Muscadine registry (has a detail page). */
     isCurated?: boolean;
@@ -70,14 +70,6 @@ export interface Vault {
     performanceFee?: number; // Percentage
     managementFee?: number; // Percentage
     
-    // Market Information
-    allocatedMarkets?: string[];
-    // Market assets with addresses for logo fetching
-    marketAssets?: Array<{
-        symbol: string;
-        address?: string;
-    }>;
-    
     // Additional Info
     description?: string;
     lastUpdated?: string;
@@ -109,7 +101,6 @@ export interface MorphoVaultData extends Vault {
     oracleAddress: string;
     ownerAddress: string;
     allocators: string[];
-    allocatedMarkets: string[];
     status: 'active' | 'paused' | 'deprecated';
     curator: string;
     curatorAddress: string;

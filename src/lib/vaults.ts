@@ -5,7 +5,7 @@ export type VaultStrategy = 'prime' | 'frontier';
 
 /**
  * `wrapper` = Morpho fee wrapper (default product surface).
- * `underlying` = inner Morpho Vault V2 the wrapper deposits into.
+ * `underlying` = Morpho Vault V2 the wrapper deposits into.
  */
 export type VaultKind = 'wrapper' | 'underlying';
 
@@ -14,17 +14,22 @@ export interface VaultDefinition {
   name: string;
   /** Underlying asset symbol (USDC, cbBTC, WETH). */
   symbol: string;
-  /** Share token symbol for display (e.g. mpUSDC, wmpUSDC). */
+  /** Share token label (e.g. mpUSDC, wmpUSDC). */
   vaultSymbol: string;
   chainId: number;
   version: VaultVersion;
   strategy: VaultStrategy;
   kind: VaultKind;
-  /** Inner Morpho vault this fee wrapper is immutably bound to. */
+  /** Underlying Morpho vault this fee wrapper is immutably bound to. */
   underlyingAddress?: string;
 }
 
 const BASE = 8453;
+
+const USDC_PRIME_WRAPPER = '0x036A01eFdDC87F6634FFDE0533EE528b90fc7A45';
+const USDC_FRONTIER_WRAPPER = '0x54D8417bD21C86A7806b58f5aa2e2E0bB88B856A';
+const WETH_PRIME_WRAPPER = '0x548653b09b03A69f93B3890c382fE9DcD245cbc4';
+const CBBTC_PRIME_WRAPPER = '0x0e0a857d2AF1A2d43c82d1FA54766239CAb70147';
 
 const USDC_PRIME_UNDERLYING = '0x89712980Cb434eF5aE4AB29349419eb976B0b496';
 const USDC_FRONTIER_UNDERLYING = '0x314fD07319ef645bA7D548915CCd91F4788A1839';
@@ -33,8 +38,8 @@ const CBBTC_PRIME_UNDERLYING = '0x99dcd0D75822BA398F13B2A8852B07c7e137EC70';
 
 export const VAULTS: Record<string, VaultDefinition> = {
   USDC_VAULT_V2_WRAPPER: {
-    address: '0x036A01eFdDC87F6634FFDE0533EE528b90fc7A45',
-    name: 'USDC Prime',
+    address: USDC_PRIME_WRAPPER,
+    name: 'Muscadine USDC Prime',
     symbol: 'USDC',
     vaultSymbol: 'wmpUSDC',
     chainId: BASE,
@@ -44,8 +49,8 @@ export const VAULTS: Record<string, VaultDefinition> = {
     underlyingAddress: USDC_PRIME_UNDERLYING,
   },
   USDC_FRONTIER_VAULT_V2_WRAPPER: {
-    address: '0x54D8417bD21C86A7806b58f5aa2e2E0bB88B856A',
-    name: 'USDC Frontier',
+    address: USDC_FRONTIER_WRAPPER,
+    name: 'Muscadine USDC Frontier',
     symbol: 'USDC',
     vaultSymbol: 'wmfUSDC',
     chainId: BASE,
@@ -55,8 +60,8 @@ export const VAULTS: Record<string, VaultDefinition> = {
     underlyingAddress: USDC_FRONTIER_UNDERLYING,
   },
   WETH_VAULT_V2_WRAPPER: {
-    address: '0x548653b09b03A69f93B3890c382fE9DcD245cbc4',
-    name: 'WETH Prime',
+    address: WETH_PRIME_WRAPPER,
+    name: 'Muscadine WETH Prime',
     symbol: 'WETH',
     vaultSymbol: 'wmpWETH',
     chainId: BASE,
@@ -64,6 +69,17 @@ export const VAULTS: Record<string, VaultDefinition> = {
     strategy: 'prime',
     kind: 'wrapper',
     underlyingAddress: WETH_PRIME_UNDERLYING,
+  },
+  CBBTC_VAULT_V2_WRAPPER: {
+    address: CBBTC_PRIME_WRAPPER,
+    name: 'Muscadine cbBTC Prime',
+    symbol: 'cbBTC',
+    vaultSymbol: 'wmpcbBTC',
+    chainId: BASE,
+    version: 'v2',
+    strategy: 'prime',
+    kind: 'wrapper',
+    underlyingAddress: CBBTC_PRIME_UNDERLYING,
   },
   USDC_VAULT_V2: {
     address: USDC_PRIME_UNDERLYING,

@@ -38,6 +38,14 @@ function isVaultTargetList(rows: VaultMarketAllocation[]): boolean {
   return rows.some((row) => row.kind === 'vault') && !rows.some((row) => row.kind === 'market');
 }
 
+function isNestedAllocation(row: VaultMarketAllocation): boolean {
+  return (row.nestLevel ?? 0) > 0;
+}
+
+function isVaultGroupHeader(row: VaultMarketAllocation): boolean {
+  return row.kind === 'vault';
+}
+
 function formatAllocationType(row: VaultMarketAllocation): string {
   if (row.kind === 'idle') return '—';
   if (row.kind === 'vault') return 'Vault';
@@ -75,13 +83,15 @@ function formatCompactRowSummary(
   row: VaultMarketAllocation,
   valueType: AllocatedValueType
 ): string {
+  if (isVaultGroupHeader(row)) {
+    return '';
+  }
+
   const parts: string[] = [];
 
   if (row.kind === 'market') {
     const typeLabel = formatAllocationType(row);
     if (typeLabel !== '—') parts.push(typeLabel);
-  } else if (row.kind === 'vault') {
-    parts.push(formatAllocationType(row));
   }
 
   parts.push(formatAllocated(row, valueType));
@@ -131,20 +141,68 @@ function AllocationMarketName({ row }: { row: VaultMarketAllocation }) {
   return <span className="font-medium text-[var(--foreground)]">{row.name}</span>;
 }
 
+function AllocationVaultGroupLabel({
+  row,
+  allocatedValueType,
+}: {
+  row: VaultMarketAllocation;
+  allocatedValueType: AllocatedValueType;
+}) {
+  return (
+    <span className="whitespace-nowrap font-medium text-[var(--foreground)]">
+      {formatAllocated(row, allocatedValueType)}{' '}
+      <span className="font-normal text-[var(--foreground-muted)]">to</span>{' '}
+      <AllocationMarketName row={row} />
+    </span>
+  );
+}
+
+function AllocationNameCell({
+  row,
+  allocatedValueType,
+  showGroupHeader,
+}: {
+  row: VaultMarketAllocation;
+  allocatedValueType: AllocatedValueType;
+  showGroupHeader: boolean;
+}) {
+  if (showGroupHeader && isVaultGroupHeader(row)) {
+    return <AllocationVaultGroupLabel row={row} allocatedValueType={allocatedValueType} />;
+  }
+  return <AllocationMarketName row={row} />;
+}
+
 function AllocationMobileCard({
   row,
   allocatedValueType,
   vaultTokenLabel,
+  showGroupHeader,
 }: {
   row: VaultMarketAllocation;
   allocatedValueType: AllocatedValueType;
   vaultTokenLabel: string;
+  showGroupHeader: boolean;
 }) {
   const allocatedLabel =
     allocatedValueType === 'usd' ? 'Allocated (USD)' : `Allocated (${vaultTokenLabel})`;
+  const nested = isNestedAllocation(row);
+
+  if (showGroupHeader && isVaultGroupHeader(row)) {
+    return (
+      <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface)]/40 px-3 py-2.5 overflow-x-auto">
+        <span className="whitespace-nowrap">
+          <AllocationVaultGroupLabel row={row} allocatedValueType={allocatedValueType} />
+        </span>
+      </div>
+    );
+  }
 
   return (
-    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface)]/40 px-3 py-2.5 space-y-2">
+    <div
+      className={`rounded-lg border border-[var(--border-subtle)] bg-[var(--surface)]/40 px-3 py-2.5 space-y-2 ${
+        nested ? 'ml-3' : ''
+      }`}
+    >
       <AllocationMarketName row={row} />
 
       <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
@@ -186,8 +244,12 @@ const METRIC_CELL =
   'py-1.5 px-2 sm:py-2 sm:px-2.5 lg:py-2.5 lg:px-3 tabular-nums whitespace-nowrap w-[1%]';
 const TYPE_CELL = `${METRIC_CELL} text-[var(--foreground-secondary)]`;
 const AMOUNT_CELL = `${METRIC_CELL} text-right text-[var(--foreground)]`;
-const MARKET_CELL =
-  'py-1.5 pl-2 pr-1 sm:py-2 sm:pl-2.5 sm:pr-1.5 lg:py-2.5 lg:pl-3 lg:pr-2 whitespace-nowrap w-[1%]';
+const MARKET_CELL_BASE =
+  'py-1.5 pr-1 sm:py-2 sm:pr-1.5 lg:py-2.5 lg:pr-2 w-[1%]';
+const MARKET_CELL = `${MARKET_CELL_BASE} pl-2 sm:pl-2.5 lg:pl-3 whitespace-nowrap`;
+const NESTED_MARKET_CELL = `${MARKET_CELL_BASE} pl-5 sm:pl-6 lg:pl-8 whitespace-nowrap`;
+const GROUP_HEADER_CELL =
+  'py-1.5 pl-2 pr-2 sm:py-2 sm:pl-2.5 sm:pr-2.5 lg:py-2.5 lg:pl-3 lg:pr-3 whitespace-nowrap';
 const TH = 'font-medium text-[var(--foreground-secondary)]';
 
 export function VaultAllocations({
@@ -263,13 +325,20 @@ export function VaultAllocations({
   const vaultTokenLabel = vaultData.symbol || 'Token';
   const allocatedHeader =
     allocatedValueType === 'usd' ? 'Allocated (USD)' : `Allocated (${vaultTokenLabel})`;
-  const vaultTargets =
-    vaultData.kind === 'wrapper' || isVaultTargetList(allocations);
+  const vaultTargets = isVaultTargetList(allocations);
+  const showGroupHeader =
+    allocations.some((row) => row.kind === 'vault') &&
+    allocations.some((row) => row.kind === 'market');
   const analyticsAddress =
     vaultData.underlyingAddress ||
     allocations.find((row) => row.kind === 'vault')?.vaultAddress ||
     vaultData.address;
   const analyticsHref = getVaultAnalyticsUrl(analyticsAddress);
+  const allocationsDescription = vaultTargets
+    ? 'Vault capital allocated to the underlying Morpho vault'
+    : showGroupHeader
+      ? 'Allocated to the underlying Morpho vault, then to its Morpho markets'
+      : 'Vault capital deployed to Morpho markets and idle liquidity';
 
   return (
     <div className="space-y-3 min-h-[10rem]">
@@ -277,9 +346,7 @@ export function VaultAllocations({
         <div>
           <h3 className="text-base font-semibold text-[var(--foreground)]">Allocations</h3>
           <p className="text-xs text-[var(--foreground-muted)] mt-0.5">
-            {vaultTargets
-              ? 'Vault capital allocated to the underlying Morpho vault'
-              : 'Vault capital deployed to Morpho markets and idle liquidity'}
+            {allocationsDescription}
           </p>
         </div>
       )}
@@ -329,6 +396,7 @@ export function VaultAllocations({
                 row={row}
                 allocatedValueType={allocatedValueType}
                 vaultTokenLabel={vaultTokenLabel}
+                showGroupHeader={showGroupHeader}
               />
             ))}
           </div>
@@ -355,19 +423,45 @@ export function VaultAllocations({
                 {allocations.map((row) => {
                   const sizeShort = formatSizeShortLabel(row);
                   const sizeValue = formatOptionalUsd(row.marketSizeUsd);
+                  const groupHeader = showGroupHeader && isVaultGroupHeader(row);
+                  const nested = isNestedAllocation(row);
+                  const compact = formatCompactRowSummary(row, allocatedValueType);
+                  const nameCell = nested ? NESTED_MARKET_CELL : MARKET_CELL;
+                  if (groupHeader) {
+                    return (
+                      <tr
+                        key={row.id}
+                        className="border-b border-[var(--border-subtle)] last:border-b-0 bg-[var(--surface)]/40"
+                      >
+                        <td colSpan={6} className={GROUP_HEADER_CELL}>
+                          <AllocationNameCell
+                            row={row}
+                            allocatedValueType={allocatedValueType}
+                            showGroupHeader={showGroupHeader}
+                          />
+                        </td>
+                      </tr>
+                    );
+                  }
                   return (
                   <tr
                     key={row.id}
                     className="border-b border-[var(--border-subtle)] last:border-b-0 hover:bg-[var(--surface)]/50"
                   >
-                    <td className={MARKET_CELL}>
-                      <AllocationMarketName row={row} />
-                      <p
-                        className="mt-0.5 text-[10px] leading-snug text-[var(--foreground-muted)] min-[40rem]:hidden"
-                        title={formatCompactRowSummary(row, allocatedValueType)}
-                      >
-                        {formatCompactRowSummary(row, allocatedValueType)}
-                      </p>
+                    <td className={nameCell}>
+                      <AllocationNameCell
+                        row={row}
+                        allocatedValueType={allocatedValueType}
+                        showGroupHeader={showGroupHeader}
+                      />
+                      {compact ? (
+                        <p
+                          className="mt-0.5 text-[10px] leading-snug text-[var(--foreground-muted)] min-[40rem]:hidden"
+                          title={compact}
+                        >
+                          {compact}
+                        </p>
+                      ) : null}
                       <p
                         className="mt-0.5 text-[10px] leading-snug text-[var(--foreground-muted)] hidden min-[40rem]:block md:hidden"
                         title={`Liq ${formatOptionalUsd(row.liquidityUsd)} · ${sizeShort} ${sizeValue}`}
@@ -381,7 +475,9 @@ export function VaultAllocations({
                         {sizeShort} {sizeValue}
                       </p>
                     </td>
-                    <td className={`${TYPE_CELL} hidden min-[40rem]:table-cell`}>{formatAllocationType(row)}</td>
+                    <td className={`${TYPE_CELL} hidden min-[40rem]:table-cell`}>
+                      {formatAllocationType(row)}
+                    </td>
                     <td className={`${AMOUNT_CELL} hidden min-[40rem]:table-cell`}>
                       {formatAllocated(row, allocatedValueType)}
                     </td>

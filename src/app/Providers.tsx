@@ -1,17 +1,16 @@
 'use client'
 
-import { ReactNode, useState } from 'react'
+import { ReactNode, useState, useEffect } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { WagmiProvider } from 'wagmi'
-import { RainbowKitProvider, darkTheme } from '@rainbow-me/rainbowkit'
 import { config } from '@/config/wagmi'
-import { base } from 'wagmi/chains'
-import '@rainbow-me/rainbowkit/styles.css'
+import '@/config/appkit'
+import { useAppKitTheme } from '@reown/appkit/react'
 import { VaultDataProvider } from '../contexts/VaultDataContext'
 import { WalletProvider } from '../contexts/WalletContext'
 import { TransactionProvider } from '../contexts/TransactionContext'
 import { ToastProvider } from '../contexts/ToastContext'
-import { ThemeProvider } from '../contexts/ThemeContext'
+import { ThemeProvider, useTheme } from '../contexts/ThemeContext'
 import { VaultSettingsProvider } from '../contexts/VaultSettingsContext'
 import { AdvisoryAgreementProvider } from '../contexts/AdvisoryAgreementContext'
 import { ErrorBoundary } from '../components/common/ErrorBoundary'
@@ -21,6 +20,17 @@ import { logger } from '../lib/logger'
 type Props = {
   children: ReactNode
   initialState?: Parameters<typeof WagmiProvider>[0]['initialState']
+}
+
+function AppKitThemeSync() {
+  const { effectiveTheme } = useTheme()
+  const { setThemeMode } = useAppKitTheme()
+
+  useEffect(() => {
+    setThemeMode(effectiveTheme)
+  }, [effectiveTheme, setThemeMode])
+
+  return null
 }
 
 export function Providers({ children, initialState }: Props) {
@@ -51,33 +61,23 @@ export function Providers({ children, initialState }: Props) {
         reconnectOnMount={true} // Automatically reconnect on mount (page reload) - defaults to true but explicit for clarity
       >
         <QueryClientProvider client={queryClient}>
-          <RainbowKitProvider
-            initialChain={base}
-            theme={darkTheme({
-              accentColor: 'var(--primary)',
-              accentColorForeground: 'white',
-              borderRadius: 'medium',
-              fontStack: 'system',
-              overlayBlur: 'small',
-            })}
-          >
-            <ThemeProvider>
-              <VaultSettingsProvider>
-                <AdvisoryAgreementProvider>
-                  <ToastProvider>
-                    <WalletProvider>
-                      <VaultDataProvider>
-                        <TransactionProvider>
-                          <AdvisoryAgreementModal />
-                          {children}
-                        </TransactionProvider>
-                      </VaultDataProvider>
-                    </WalletProvider>
-                  </ToastProvider>
-                </AdvisoryAgreementProvider>
-              </VaultSettingsProvider>
-            </ThemeProvider>
-          </RainbowKitProvider>
+          <ThemeProvider>
+            <AppKitThemeSync />
+            <VaultSettingsProvider>
+              <AdvisoryAgreementProvider>
+                <ToastProvider>
+                  <WalletProvider>
+                    <VaultDataProvider>
+                      <TransactionProvider>
+                        <AdvisoryAgreementModal />
+                        {children}
+                      </TransactionProvider>
+                    </VaultDataProvider>
+                  </WalletProvider>
+                </ToastProvider>
+              </AdvisoryAgreementProvider>
+            </VaultSettingsProvider>
+          </ThemeProvider>
         </QueryClientProvider>
       </WagmiProvider>
     </ErrorBoundary>

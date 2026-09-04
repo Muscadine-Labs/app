@@ -3,42 +3,12 @@
 import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
 import { formatUnits } from 'viem';
 import { Vault, MorphoVaultData, VaultLiquidityBreakdown } from '@/types/vault';
-import { getVaultVersion, findVaultByAddress, getAllRegistryVaults, isCuratedVaultAddress } from '@/lib/vault-utils';
+import { getVaultVersion, findVaultByAddress, isCuratedVaultAddress } from '@/lib/vault-utils';
 import { MORPHO_PRELOAD_BATCH_SIZE, MORPHO_FETCH_ERROR_COOLDOWN_MS, CLIENT_VAULT_DATA_CACHE_MS } from '../lib/constants';
-
-interface AllocationData {
-  market?: {
-    uniqueKey?: string; // Market unique key (market ID) needed for simulation
-    loanAsset?: {
-      address?: string;
-      symbol?: string;
-      name?: string;
-    };
-    collateralAsset?: {
-      address?: string;
-      symbol?: string;
-      name?: string;
-    };
-  };
-}
-
-interface YieldData {
-  [key: string]: unknown;
-}
-
-interface MetadataData {
-  [key: string]: unknown;
-  description?: string;
-  curators?: Array<{ name?: string }>;
-}
 
 interface VaultDataState {
   [vaultAddress: string]: {
     basic: Vault | null;
-    allocation: AllocationData[] | null;
-    yield: YieldData | null;
-    metadata: MetadataData | null;
-    adapters: string[] | null; // Adapter addresses for v2 vaults
     loading: boolean;
     error: string | null;
     lastFetched: number;
@@ -54,15 +24,11 @@ interface VaultDataContextType {
     forceRefresh?: boolean
   ) => Promise<void>;
   getVaultData: (address: string) => MorphoVaultData | null;
-  getVaultMarketIds: (address: string) => `0x${string}`[]; // Get market uniqueKeys for simulation
-  getVaultAdapters: (address: string) => `0x${string}`[]; // Get adapter addresses for v2 vaults
   isLoading: (address: string) => boolean;
   hasError: (address: string) => boolean;
   getVaultError: (address: string) => string | null;
   isStaleData: (address: string) => boolean;
   preloadVaults: (vaults: Vault[]) => Promise<void>;
-  /** Preload all registry vaults once per app session (explorer + vault detail). */
-  preloadRegistryVaults: () => Promise<void>;
 }
 
 const VaultDataContext = createContext<VaultDataContextType | undefined>(undefined);
@@ -79,7 +45,6 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
   
   // Request deduplication maps with cleanup mechanism
   const pendingRequests = React.useRef<Map<string, Promise<void>>>(new Map());
-  const registryPreloadedRef = React.useRef(false);
   
   // Ref to track current vaultData to avoid dependency issues
   const vaultDataRef = React.useRef<VaultDataState>(vaultData);
@@ -168,9 +133,6 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
         }
 
         const vaultInfo = data.data.vaultByAddress;
-        // For v2 vaults, also get the original vaultV2ByAddress to access adapters
-        // Note: vaultV2ByAddress is only present for v2 vaults after normalization
-        const vaultV2Info = data.data.vaultV2ByAddress;
         const liquidityBreakdown = (
           vaultInfo as { liquidityBreakdown?: VaultLiquidityBreakdown }
         ).liquidityBreakdown;
@@ -178,18 +140,6 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
         // Extract curator name from metadata
         const curatorAddress = vaultInfo.state?.curator;
         const curatorName = vaultInfo.metadata?.curators?.[0]?.name;
-        
-        // Extract adapter addresses for v2 vaults
-        // Adapters are only available in the original vaultV2ByAddress structure
-        const adapterAddresses: string[] = [];
-        if (vaultVersion === 'v2') {
-          // Try to get adapters from vaultV2ByAddress (original v2 structure)
-          if (vaultV2Info?.adapters?.items && Array.isArray(vaultV2Info.adapters.items)) {
-            adapterAddresses.push(...vaultV2Info.adapters.items
-              .map((adapter: { address: string }) => adapter.address)
-              .filter((addr: string) => addr && typeof addr === 'string' && addr.startsWith('0x')));
-          }
-        }
         
         // APY: headline is Morpho netApy; grossApy for popover breakdown.
         const headlineApy = vaultInfo.state?.netApy ?? vaultInfo.state?.apy ?? 0;
@@ -235,7 +185,7 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
         // Build the vault object
         const vault: Vault = {
           address: vaultInfo.address,
-          name: vaultInfo.name || registryVault?.name || `Vault ${address.slice(0, 6)}...${address.slice(-4)}`,
+          name: registryVault?.name || vaultInfo.name || `Vault ${address.slice(0, 6)}...${address.slice(-4)}`,
           symbol: registryVault?.symbol || vaultInfo.asset?.symbol || 'UNKNOWN',
           vaultSymbol: registryVault?.vaultSymbol,
           chainId: effectiveChainId,
@@ -268,7 +218,6 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
           curator: curatorName || curatorAddress || 'Unknown Curator',
           curatorAddress: curatorAddress,
           guardianAddress: vaultInfo.state?.guardian,
-          oracleAddress: vaultInfo.state?.allocation?.[0]?.market?.oracleAddress,
           ownerAddress: vaultInfo.state?.owner || '',
           allocators: vaultInfo.allocators?.map((alloc: { address: string }) => alloc.address) || [],
           performanceFee:
@@ -277,39 +226,6 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
               0) * 100,
           managementFee: ((vaultInfo as { managementFee?: number }).managementFee ?? 0) * 100,
           description: vaultInfo.metadata?.description || 'Morpho vault',
-          allocatedMarkets: vaultInfo.state?.allocation?.map((alloc: AllocationData) => 
-            `${alloc.market?.loanAsset?.symbol || alloc.market?.loanAsset?.name}/${alloc.market?.collateralAsset?.symbol || alloc.market?.collateralAsset?.name}`
-          ) || [],
-          // Extract unique market assets with their addresses for logo fetching
-          marketAssets: (() => {
-            const assetMap = new Map<string, { symbol: string; address?: string }>();
-            
-            vaultInfo.state?.allocation?.forEach((alloc: AllocationData) => {
-              // Add loan asset
-              if (alloc.market?.loanAsset?.symbol) {
-                const symbol = alloc.market.loanAsset.symbol;
-                if (!assetMap.has(symbol)) {
-                  assetMap.set(symbol, {
-                    symbol,
-                    address: alloc.market.loanAsset.address,
-                  });
-                }
-              }
-              
-              // Add collateral asset
-              if (alloc.market?.collateralAsset?.symbol) {
-                const symbol = alloc.market.collateralAsset.symbol;
-                if (!assetMap.has(symbol)) {
-                  assetMap.set(symbol, {
-                    symbol,
-                    address: alloc.market.collateralAsset.address,
-                  });
-                }
-              }
-            });
-            
-            return Array.from(assetMap.values());
-          })(),
           timelockDuration: vaultInfo.state?.timelock || 0,
           lastUpdated: new Date().toISOString(),
           isCurated: isCuratedVaultAddress(vaultInfo.address),
@@ -319,10 +235,6 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
           ...prev,
           [address]: {
             basic: vault,
-            allocation: vaultInfo.state?.allocation || null,
-            yield: vaultInfo as YieldData,
-            metadata: vaultInfo.metadata as MetadataData,
-            adapters: adapterAddresses.length > 0 ? adapterAddresses : null,
             loading: false,
             error: null,
             lastFetched: Date.now(),
@@ -334,7 +246,6 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
           ...prev,
           [address]: {
             ...prev[address],
-            adapters: null,
             loading: false,
             error: error instanceof Error ? error.message : 'Unknown error',
             lastFetched: Date.now(),
@@ -381,7 +292,6 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
       oracleAddress: basic.oracleAddress || '',
       ownerAddress: basic.ownerAddress || '',
       allocators: basic.allocators || [],
-      allocatedMarkets: basic.allocatedMarkets || [],
       status: basic.status || 'active',
       curator: basic.curator || 'Morpho Labs',
       curatorAddress: basic.curatorAddress || '',
@@ -422,49 +332,15 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
     }
   }, [fetchCompleteVaultData]);
 
-  const preloadRegistryVaults = useCallback(async () => {
-    if (registryPreloadedRef.current) return;
-    registryPreloadedRef.current = true;
-
-    await preloadVaults(getAllRegistryVaults());
-  }, [preloadVaults]);
-
-  // Extract market uniqueKeys from vault allocation data for simulation state
-  const getVaultMarketIds = useCallback((address: string): `0x${string}`[] => {
-    const data = vaultData[address];
-    if (!data?.allocation || !Array.isArray(data.allocation)) {
-      return [];
-    }
-    
-    return data.allocation
-      .map((alloc: AllocationData) => alloc?.market?.uniqueKey)
-      .filter((uniqueKey: string | undefined): uniqueKey is string => !!uniqueKey)
-      .filter((key: string) => key.startsWith('0x')) as `0x${string}`[];
-  }, [vaultData]);
-
-  // Extract adapter addresses for v2 vaults
-  const getVaultAdapters = useCallback((address: string): `0x${string}`[] => {
-    const data = vaultData[address];
-    if (!data?.adapters || !Array.isArray(data.adapters)) {
-      return [];
-    }
-    
-    return data.adapters
-      .filter((addr: string) => addr && addr.startsWith('0x')) as `0x${string}`[];
-  }, [vaultData]);
-
   const value: VaultDataContextType = {
     vaultData,
     fetchVaultData: fetchCompleteVaultData,
     getVaultData,
-    getVaultMarketIds,
-    getVaultAdapters,
     isLoading,
     hasError,
     getVaultError,
     isStaleData,
     preloadVaults,
-    preloadRegistryVaults,
   };
 
   return (

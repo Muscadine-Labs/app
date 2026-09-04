@@ -663,7 +663,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
             version: p.version ?? 'v2',
             vault: {
               address: p.vault.address,
-              name: p.vault.name || curated?.name,
+              name: curated?.name || p.vault.name,
               symbol: p.vault.symbol,
               vaultSymbol: curated?.vaultSymbol ?? p.vault.vaultSymbol,
               strategy: (curated?.strategy ?? p.vault.strategy) as VaultStrategy | undefined,
@@ -755,8 +755,11 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     const morphoStatus = await fetchVaultPositions(walletAddress);
     if (fetchId !== walletDataFetchIdRef.current || morphoStatus === 'aborted') return;
 
+    // Alchemy miss is recoverable — wagmi RPC fallback is already enabled above.
     if (!ok) {
-      throw new Error('Failed to fetch token balances');
+      logger.warn('Alchemy token balances unavailable; using wallet RPC fallback', {
+        address: walletAddress,
+      });
     }
     if (morphoStatus === 'retryable') {
       throw new Error('Morpho positions temporarily unavailable');

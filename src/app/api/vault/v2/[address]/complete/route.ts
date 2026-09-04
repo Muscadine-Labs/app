@@ -97,14 +97,6 @@ export async function GET(
             supplyApr
           }
           
-          # Adapters (addresses only — allocation detail lives in /allocations route)
-          adapters(first: 20) {
-            items {
-              address
-              type
-            }
-          }
-          
           # Configuration & Curation
           allocators {
             allocator {
@@ -285,9 +277,7 @@ export async function GET(
           rewards: vault.rewards || [],
         },
       };
-      
-      // Also keep vaultV2ByAddress for reference
-      data.data.vaultV2ByAddress = vault;
+      delete data.data.vaultV2ByAddress;
     }
 
     return NextResponse.json({

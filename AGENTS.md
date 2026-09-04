@@ -1,4 +1,4 @@
-# AGENTS.md — Muscadine App
+# AGENTS.md — Muscadine Vaults
 
 Instructions for AI agents working in this repo. Full architecture docs live in `CLAUDE.md` — read it before non-trivial changes.
 
@@ -15,21 +15,21 @@ Instructions for AI agents working in this repo. Full architecture docs live in 
 
 ## Key constraints
 
-- **wagmi must stay on 2.x** (RainbowKit 2 requirement). **eslint stays on 9.x**. Pin **`qr@0.5.5`** in `package.json` overrides (WalletConnect QR `border=0` crash with `qr@0.6.0`). Keep a **root `valtio`** (RainbowKit/Turbopack `valtio/vanilla` resolve). Keep **`ox` on 0.14.x**. Keep **`allowScripts`** in `package.json` in sync with lockfile versions for `bufferutil`, `keccak`, `unrs-resolver`, and `utf-8-validate` (npm 11+ install-script allowlist; silences Vercel `allow-scripts-pending`). Keep Dependabot-patched transitive pins in **`overrides`**: `axios`, `hono`, `js-yaml` 4.3.1, `socket.io-parser`, `brace-expansion@1` / `@5`.
+- **wagmi must stay on 2.x** (Reown AppKit requirement). **eslint stays on 9.x**. Pin **`qr@0.5.5`** in `package.json` overrides (WalletConnect QR `border=0` crash with `qr@0.6.0`). Keep a **root `valtio`** (AppKit/Turbopack `valtio/vanilla` resolve). Keep **`ox` on 0.14.x**. Keep **`allowScripts`** in `package.json` in sync with lockfile versions for `bufferutil`, `keccak`, `unrs-resolver`, and `utf-8-validate` (npm 11+ install-script allowlist; silences Vercel `allow-scripts-pending`). Keep Dependabot-patched transitive pins in **`overrides`**: `axios`, `hono`, `js-yaml` 4.3.1, `socket.io-parser`, `brace-expansion@1` / `@5`.
 - **Base only** (chain id 8453). **v1 MetaMorpho removed** — registry and writes are v2 Prime/Frontier only.
 - **Builder code** `bc_mwkqu9rd` on all vault txs via `src/lib/builder-code.ts`.
 - **v2 writes:** direct ERC-4626 in `transactionUtilsV2.ts`; Morpho Bundler3 in `bundler3.ts` only for ETH wrap/unwrap. No Morpho npm bundler SDK.
-- Registry: `src/lib/vaults.ts` — fields include `strategy` (`prime` | `frontier`), `kind` (`wrapper` | `underlying`), `vaultSymbol` (e.g. `wmpUSDC`, `mpUSDC`). Default explorer surface is fee wrappers (NavBar **Vault wrappers** toggle, persisted `muscadine-vault-wrappers`). No cbBTC wrapper. Confirm Morpho dead shares (`0x…dEaD`) **before listing**; do not add a runtime RPC check — curated vaults already have them.
+- Registry: `src/lib/vaults.ts` — fields include `strategy` (`prime` | `frontier`), `kind` (`wrapper` | `underlying`), `vaultSymbol` (e.g. `wmpUSDC`, `mpUSDC`, `wmpcbBTC`). Default explorer surface is fee wrappers (NavBar **Vault wrappers** toggle, persisted `muscadine-vault-wrappers`). Confirm Morpho dead shares (`0x…dEaD`) **before listing**; do not add a runtime RPC check — curated vaults already have them.
 - **No “Powered by Morpho” badge** on vault pages (looks tacky). Morpho attribution is the disclaimer: first-connect advisory, NavBar Protocol link, and review/confirm.
-- Use `findVaultByAddress` / `isCuratedVaultAddress` from `src/lib/vault-utils.ts` — never infer vault by asset symbol alone. Wrapper allocation rows and the allocations footer link to Muscadine Analytics (`getVaultAnalyticsUrl`), not the in-app vault page.
+- Use `findVaultByAddress` / `isCuratedVaultAddress` from `src/lib/vault-utils.ts` — never infer vault by asset symbol alone. Wrapper allocations show `{amount} to {underlying vault}` then nested underlying-vault markets; the group name and allocations footer link to Muscadine Analytics (`getVaultAnalyticsUrl`), not the in-app vault page.
 - Use `logger` from `src/lib/logger.ts`, not `console.log`.
 - **Token display decimals:** UI via `getDisplayFractionDigits` — USDC **6**, cbBTC/ETH/WETH **8**. Prefer raw `bigint` amounts. **Transactions** always use full token decimals (`formatBigIntForInput` — ETH 18, cbBTC 8, USDC 6). Chart axes stay compact.
-- **No developer / over-balance bypass mode** — `VaultVersionContext` removed. Explorer filters default to All for everyone; transact blocks amounts over balance. When Vault wrappers is off, `/vaults` shows All / Underlying Vaults / Wrappers Vaults.
+- **No developer / over-balance bypass mode** — `VaultVersionContext` removed. Explorer filters default to All for everyone; transact blocks amounts over balance. When Vault wrappers is off, `/vaults` defaults to **Underlying** (underlying vaults + deposits, including view-only external) and shows All / Underlying / Wrappers.
 
 ## Dashboard & positions
 
 - **Wallet strip:** Total / Wallet (liquid) / Vaults USD (`WalletOverview`).
-- **Your Vaults** (dashboard): **v2** positions only (registry + external Morpho v2 vaults).
+- **Your Vaults** (dashboard): **v2** positions only (registry + external Morpho v2 vaults). **wrapper** / **underlying** pills only when Vault wrappers is **off**.
 - **Morpho Vaults total** includes **all** user v2 positions from Morpho (`/api/user/morpho-positions`), not only Muscadine registry vaults.
 - **External vaults** (not in `vaults.ts`): shown on dashboard / explorer wallet filters with an **External** label, **not clickable**. Navigation uses `isCuratedVaultAddress()`; `/vault/v2/{external}` redirects home.
 - **Portfolio chart:** v2 positions via `/api/user/morpho-positions` + `/api/vault/v2/.../position-history` (`aggregatePortfolioHistory` in `portfolio-utils.ts`). Keep zero-share v2 rows for history when `includeEmpty=true`.
@@ -52,7 +52,7 @@ Instructions for AI agents working in this repo. Full architecture docs live in 
 - Morpho public API rate limit (429) / blips (502): `fetchMorphoGraphQL()` retries transient statuses. Positions route returns **503** + `retryable` for rate-limit/transient; other failures **502** without retryable spam.
 - Morpho asset USD price: query `price { usd }`; parse via `resolveMorphoAssetPriceUsd()` in `api-utils.ts`.
 - Overlay scroll lock: use `useLockPageScroll()` — locks `body` and `[data-app-scroll]` in `AppLayout`. Reference counted, so nested overlays are safe; never set `overflow` directly.
-- Base App WebView: layout uses `dvh`; do not style RainbowKit `[role=dialog] ~ div` (leftover overlays look blank). In Base App, Connect prefers injected/Coinbase over WalletConnect.
+- Base App WebView: layout uses `dvh`; do not style leftover AppKit dialog siblings (overlays look blank). In Base App, Connect prefers injected/Coinbase over WalletConnect. Wallet connect uses Reown AppKit (`src/config/appkit.ts`) — do **not** enable SIWE/SIWX, email, socials, or `reownAuthentication` (those prompt a sign-message after connect).
 - Turbopack chunk errors: `rm -rf .next .turbo && npm run dev`.
 
 ## Commands

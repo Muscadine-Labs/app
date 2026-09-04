@@ -8,11 +8,11 @@ import { Vault, getVaultLogo } from '@/types/vault';
 import type { MorphoVaultData } from '@/types/vault';
 import { useVaultData } from '@/contexts/VaultDataContext';
 import { useWallet } from '@/contexts/WalletContext';
+import { VaultNameWithWrapper } from '@/components/features/vault/VaultNameWithWrapper';
 import {
   getVaultRoute,
   hasOnChainVaultShares,
   isCuratedVaultAddress,
-  explorerListHasBothVaultKinds,
   resolvePositionAssetsUsd,
 } from '@/lib/vault-utils';
 import {
@@ -38,6 +38,14 @@ function handleRowKeyDown(event: KeyboardEvent, onActivate: () => void) {
     event.preventDefault();
     onActivate();
   }
+}
+
+function VaultShareLabel({ vault }: { vault: Vault }) {
+  return (
+    <span className="block text-[10px] text-[var(--foreground-muted)]">
+      {vault.vaultSymbol || vault.symbol}
+    </span>
+  );
 }
 
 function formatCompactTokenAmount(rawValue: string | undefined, decimals: number, symbol: string): string {
@@ -88,15 +96,6 @@ function VaultLogo({ vault, size = 32 }: { vault: Vault; size?: number }) {
         style={{ width: '100%', height: '100%' }}
       />
     </div>
-  );
-}
-
-function VaultKindBadge({ kind }: { kind?: Vault['kind'] }) {
-  if (kind !== 'wrapper' && kind !== 'underlying') return null;
-  return (
-    <span className="inline-flex shrink-0 rounded-md bg-[var(--surface-elevated)] px-2 py-0.5 text-[10px] font-medium text-[var(--foreground-muted)]">
-      {kind === 'wrapper' ? 'Wrapper' : 'Underlying'}
-    </span>
   );
 }
 
@@ -220,7 +219,7 @@ function EarnedInterestCell({
   );
 }
 
-function VaultExplorerMobileCard({ vault, showYourPosition, showKindBadge }: VaultExplorerRowProps) {
+function VaultExplorerMobileCard({ vault, showYourPosition }: VaultExplorerRowProps) {
   const router = useRouter();
   const { getVaultData, isLoading } = useVaultData();
   const vaultData = getVaultData(vault.address);
@@ -249,18 +248,18 @@ function VaultExplorerMobileCard({ vault, showYourPosition, showKindBadge }: Vau
       <div className="flex items-start gap-3 mb-3">
         <VaultLogo vault={vault} />
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm font-medium text-[var(--foreground)]">{vault.name}</span>
+          <div className="flex items-center gap-2 flex-wrap min-w-0">
+            <VaultNameWithWrapper name={vault.name} kind={vault.kind} />
             <span className="inline-flex rounded-md bg-[var(--surface-elevated)] px-2 py-0.5 text-[10px] font-medium text-[var(--foreground-secondary)]">
               Base
             </span>
-            {showKindBadge ? <VaultKindBadge kind={vault.kind} /> : null}
             {!isCurated ? (
               <span className="inline-flex rounded-md bg-[var(--surface-elevated)] px-2 py-0.5 text-[10px] font-medium text-[var(--foreground-muted)]">
                 External
               </span>
             ) : null}
           </div>
+          <VaultShareLabel vault={vault} />
         </div>
         <div className="shrink-0 text-right">
           {loading || !vaultData ? (
@@ -316,14 +315,12 @@ function DashboardVaultMobileCard({
   positionUsd,
   loading,
   vaultData,
-  showKindBadge,
 }: {
   vault: Vault;
   positionAssets?: string;
   positionUsd: number;
   loading: boolean;
   vaultData: MorphoVaultData | null;
-  showKindBadge?: boolean;
 }) {
   const router = useRouter();
   const { address } = useAccount();
@@ -356,9 +353,8 @@ function DashboardVaultMobileCard({
       <div className="flex items-center gap-3 mb-3">
         <VaultLogo vault={vault} />
         <div className="min-w-0">
-          <span className="text-sm font-medium text-[var(--foreground)] block">{vault.name}</span>
-          {showKindBadge ? <VaultKindBadge kind={vault.kind} /> : null}
-          <span className="text-[10px] text-[var(--foreground-muted)]">{vault.symbol}</span>
+          <VaultNameWithWrapper name={vault.name} kind={vault.kind} />
+          <VaultShareLabel vault={vault} />
           <span className="text-[10px] text-[var(--foreground-muted)] block">
             {isCurated ? 'Whitelisted' : 'External'}
           </span>
@@ -513,10 +509,9 @@ function PositionCell({
 interface VaultExplorerRowProps {
   vault: Vault;
   showYourPosition: boolean;
-  showKindBadge?: boolean;
 }
 
-function VaultExplorerRow({ vault, showYourPosition, showKindBadge }: VaultExplorerRowProps) {
+function VaultExplorerRow({ vault, showYourPosition }: VaultExplorerRowProps) {
   const router = useRouter();
   const { getVaultData, isLoading } = useVaultData();
   const vaultData = getVaultData(vault.address);
@@ -555,16 +550,14 @@ function VaultExplorerRow({ vault, showYourPosition, showKindBadge }: VaultExplo
           <VaultLogo vault={vault} />
           <div className="min-w-0">
             <div className="flex items-center gap-2 min-w-0">
-              <span className="text-sm font-medium text-[var(--foreground)] truncate">
-                {vault.name}
-              </span>
-              {showKindBadge ? <VaultKindBadge kind={vault.kind} /> : null}
+              <VaultNameWithWrapper name={vault.name} kind={vault.kind} />
               {!isCurated ? (
                 <span className="shrink-0 text-[10px] text-[var(--foreground-muted)]">
                   External
                 </span>
               ) : null}
             </div>
+            <VaultShareLabel vault={vault} />
           </div>
         </div>
       </td>
@@ -617,13 +610,11 @@ function VaultExplorerRow({ vault, showYourPosition, showKindBadge }: VaultExplo
 interface VaultExplorerTableProps {
   vaults: Vault[];
   emptyMessage?: string;
-  showKindBadge?: boolean;
 }
 
 export default function VaultExplorerTable({
   vaults,
   emptyMessage = 'No vaults match the selected filters.',
-  showKindBadge = false,
 }: VaultExplorerTableProps) {
   const isMounted = useIsClient();
   const { isConnected } = useAccount();
@@ -653,7 +644,6 @@ export default function VaultExplorerTable({
             key={vault.address}
             vault={vault}
             showYourPosition={showYourPosition}
-            showKindBadge={showKindBadge}
           />
         ))}
       </div>
@@ -680,7 +670,6 @@ export default function VaultExplorerTable({
               key={vault.address}
               vault={vault}
               showYourPosition={showYourPosition}
-              showKindBadge={showKindBadge}
             />
           ))}
         </tbody>
@@ -826,8 +815,6 @@ export function DashboardVaultTable({
     );
   }
 
-  const showKindBadge = explorerListHasBothVaultKinds(vaults);
-
   return (
     // Container width (not viewport): half-column dashboards stay on cards until wide enough for the table.
     <div className="@container min-w-0">
@@ -851,7 +838,6 @@ export function DashboardVaultTable({
               positionUsd={positionUsd}
               loading={loading}
               vaultData={vaultData}
-              showKindBadge={showKindBadge}
             />
           );
         })}
@@ -909,9 +895,8 @@ export function DashboardVaultTable({
                   <div className="flex items-center gap-2 min-w-0">
                     <VaultLogo vault={vault} size={28} />
                     <div className="min-w-0">
-                      <span className="text-sm font-medium text-[var(--foreground)] truncate block">{vault.name}</span>
-                      {showKindBadge ? <VaultKindBadge kind={vault.kind} /> : null}
-                      <span className="text-[10px] text-[var(--foreground-muted)]">{vault.symbol}</span>
+                      <VaultNameWithWrapper name={vault.name} kind={vault.kind} />
+                      <VaultShareLabel vault={vault} />
                     </div>
                   </div>
                 </td>

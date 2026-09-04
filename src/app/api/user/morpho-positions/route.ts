@@ -57,7 +57,7 @@ function mapPosition(
   return {
     vault: {
       address: vaultAddress,
-      name: vaultName || registryVault?.name,
+      name: registryVault?.name || vaultName,
       symbol: assetSymbol,
       vaultSymbol: registryVault?.vaultSymbol,
       strategy: registryVault?.strategy,

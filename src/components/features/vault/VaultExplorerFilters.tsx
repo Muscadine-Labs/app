@@ -251,7 +251,6 @@ interface VaultExplorerFiltersProps {
   filters: VaultExplorerFilterState;
   onFiltersChange: (filters: VaultExplorerFilterState) => void;
   wrappersOnly: boolean;
-  showCbBtc: boolean;
 }
 
 export function getDefaultExplorerFilters(): VaultExplorerFilterState {
@@ -260,7 +259,7 @@ export function getDefaultExplorerFilters(): VaultExplorerFilterState {
     asset: 'all',
     strategy: 'all',
     walletFilter: 'inWalletAndWhitelisted',
-    kindFilter: 'all',
+    kindFilter: 'underlying',
   };
 }
 
@@ -268,7 +267,6 @@ export default function VaultExplorerFilters({
   filters,
   onFiltersChange,
   wrappersOnly,
-  showCbBtc,
 }: VaultExplorerFiltersProps) {
   const update = (partial: Partial<VaultExplorerFilterState>) => {
     onFiltersChange({ ...filters, ...partial });
@@ -277,7 +275,7 @@ export default function VaultExplorerFilters({
   const assetOptions = [
     { label: 'All', value: 'all' },
     { label: 'USDC', value: 'USDC' },
-    ...(showCbBtc ? [{ label: 'cbBTC', value: 'cbBTC' }] : []),
+    { label: 'cbBTC', value: 'cbBTC' },
     { label: 'WETH', value: 'WETH' },
   ];
 
@@ -316,8 +314,8 @@ export default function VaultExplorerFilters({
               value={filters.kindFilter}
               options={[
                 { label: 'All', value: 'all' },
-                { label: 'Underlying Vaults', value: 'underlying' },
-                { label: 'Wrappers Vaults', value: 'wrappers' },
+                { label: 'Underlying', value: 'underlying' },
+                { label: 'Wrappers', value: 'wrappers' },
               ]}
               onChange={(value) => update({ kindFilter: value as VaultKindFilter })}
             />

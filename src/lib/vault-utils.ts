@@ -166,7 +166,7 @@ export function compareVaultsForDisplay(
   const tvlB = getTvlUsd(b.address);
   if (tvlA !== tvlB) return tvlB - tvlA;
 
-  return a.name.localeCompare(b.name);
+  return a.name.localeCompare(b.name) || (a.vaultSymbol ?? '').localeCompare(b.vaultSymbol ?? '');
 }
 
 export function sortVaultsForDisplay(
@@ -263,23 +263,18 @@ export function selectRegistryVaultsForExplorer(options: {
   }
 
   if (options.kindFilter === 'wrappers') {
-    return all.filter((vault) => vault.kind === 'wrapper');
+    return all.filter((vault) => {
+      if (vault.kind === 'wrapper') return true;
+      return options.depositedAddresses.has(vault.address.toLowerCase());
+    });
   }
   if (options.kindFilter === 'underlying') {
-    return all.filter((vault) => vault.kind === 'underlying');
+    return all.filter((vault) => {
+      if (vault.kind === 'underlying') return true;
+      return options.depositedAddresses.has(vault.address.toLowerCase());
+    });
   }
   return all;
-}
-
-export function explorerListHasBothVaultKinds(vaults: Vault[]): boolean {
-  let hasWrapper = false;
-  let hasUnderlying = false;
-  for (const vault of vaults) {
-    if (vault.kind === 'wrapper') hasWrapper = true;
-    if (vault.kind === 'underlying') hasUnderlying = true;
-    if (hasWrapper && hasUnderlying) return true;
-  }
-  return false;
 }
 
 export function dedupeVaultsByAddress(vaults: Vault[]): Vault[] {
