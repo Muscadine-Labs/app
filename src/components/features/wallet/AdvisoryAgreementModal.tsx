@@ -80,6 +80,21 @@ export function AdvisoryAgreementModal() {
             By connecting your wallet, you access Muscadine Labs curated Morpho vault strategies configured under our disclosed strategy and risk parameters. You retain custody at all times—we do not hold your keys or take possession of your assets.
           </p>
 
+          <div className="rounded-lg border border-[var(--warning)]/50 bg-[var(--warning-subtle)] p-3">
+            <p className="text-xs sm:text-sm text-[var(--foreground)] leading-relaxed">
+              The default vaults in this app are Morpho Vault fee wrappers. They allocate only to the underlying Muscadine vaults (underlying vaults have a deposit gate) and charge a performance fee.{' '}
+              <a
+                href="https://analytics.muscadine.xyz"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[var(--primary)] hover:underline"
+              >
+                See analytics
+              </a>{' '}
+              for more details.
+            </p>
+          </div>
+
           <p className="text-xs sm:text-sm text-[var(--foreground)] leading-relaxed">
             Accessing the Morpho Protocol through this app is governed by Muscadine’s{' '}
             <a
