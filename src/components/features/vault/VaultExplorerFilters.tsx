@@ -250,7 +250,7 @@ export interface VaultExplorerFilterState {
 interface VaultExplorerFiltersProps {
   filters: VaultExplorerFilterState;
   onFiltersChange: (filters: VaultExplorerFilterState) => void;
-  wrappersOnly: boolean;
+  showKindFilter: boolean;
 }
 
 export function getDefaultExplorerFilters(): VaultExplorerFilterState {
@@ -259,14 +259,14 @@ export function getDefaultExplorerFilters(): VaultExplorerFilterState {
     asset: 'all',
     strategy: 'all',
     walletFilter: 'inWalletAndWhitelisted',
-    kindFilter: 'underlying',
+    kindFilter: 'wrappers',
   };
 }
 
 export default function VaultExplorerFilters({
   filters,
   onFiltersChange,
-  wrappersOnly,
+  showKindFilter,
 }: VaultExplorerFiltersProps) {
   const update = (partial: Partial<VaultExplorerFilterState>) => {
     onFiltersChange({ ...filters, ...partial });
@@ -308,7 +308,7 @@ export default function VaultExplorerFilters({
             options={assetOptions}
             onChange={(value) => update({ asset: value as VaultAssetFilter })}
           />
-          {!wrappersOnly && (
+          {showKindFilter && (
             <FilterDropdown
               label="Vaults"
               value={filters.kindFilter}

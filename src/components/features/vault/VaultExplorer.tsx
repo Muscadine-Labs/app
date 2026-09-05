@@ -1,8 +1,12 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAccount } from 'wagmi';
 import { BASE_CHAIN_ID } from '@/lib/constants';
+import {
+  getDefaultVaultKindFilter,
+  hasVisibleUnderlyingVaults,
+} from '@/lib/vault-access';
 import {
   buildExplorerVaultCandidates,
   getDepositedVaultAddressSet,
@@ -11,8 +15,8 @@ import {
 } from '@/lib/vault-utils';
 import { useWallet } from '@/contexts/WalletContext';
 import { useVaultData } from '@/contexts/VaultDataContext';
-import { useVaultSettings } from '@/contexts/VaultSettingsContext';
 import { useIsClient } from '@/hooks/useClientOnly';
+import { useUnderlyingDepositAccess } from '@/hooks/useUnderlyingDepositAccess';
 import { useVaultListPreloader } from '@/hooks/useVaultDataFetch';
 import { Skeleton } from '@/components/ui/Skeleton';
 import VaultExplorerFilters, {
@@ -34,22 +38,69 @@ function VaultExplorerContent({
     ...getDefaultExplorerFilters(),
     ...initialFilters,
   }));
-  const { isConnected } = useAccount();
+  const kindFilterManualRef = useRef(false);
+  const { address, isConnected } = useAccount();
   const { morphoHoldings } = useWallet();
   const { getVaultData } = useVaultData();
-  const { wrappersOnly } = useVaultSettings();
+  const { eligibleUnderlyingAddresses, isLoading: accessLoading } =
+    useUnderlyingDepositAccess();
   const isMounted = useIsClient();
+
+  useEffect(() => {
+    kindFilterManualRef.current = false;
+  }, [address]);
 
   const depositedAddresses = useMemo(
     () => getDepositedVaultAddressSet(morphoHoldings.positions),
     [morphoHoldings.positions]
   );
 
+  const defaultKindFilter = useMemo(
+    () =>
+      getDefaultVaultKindFilter({
+        eligibleUnderlyingAddresses,
+        depositedAddresses,
+      }),
+    [eligibleUnderlyingAddresses, depositedAddresses]
+  );
+
+  useEffect(() => {
+    if (kindFilterManualRef.current) return;
+    if (accessLoading) return;
+    if (isConnected && morphoHoldings.isLoading) return;
+    setFilters((prev) =>
+      prev.kindFilter === defaultKindFilter
+        ? prev
+        : { ...prev, kindFilter: defaultKindFilter }
+    );
+  }, [
+    defaultKindFilter,
+    accessLoading,
+    isConnected,
+    morphoHoldings.isLoading,
+  ]);
+
+  const handleFiltersChange = (next: VaultExplorerFilterState) => {
+    if (next.kindFilter !== filters.kindFilter) {
+      kindFilterManualRef.current = true;
+    }
+    setFilters(next);
+  };
+
+  const showKindFilter = useMemo(
+    () =>
+      hasVisibleUnderlyingVaults({
+        eligibleUnderlyingAddresses,
+        depositedAddresses,
+      }),
+    [eligibleUnderlyingAddresses, depositedAddresses]
+  );
+
   const filteredVaults = useMemo(() => {
     const registryVaults = selectRegistryVaultsForExplorer({
-      wrappersOnly,
-      kindFilter: filters.kindFilter,
+      kindFilter: showKindFilter ? filters.kindFilter : 'all',
       depositedAddresses,
+      eligibleUnderlyingAddresses,
     });
 
     if (filters.walletFilter === 'inWallet' && !isConnected) {
@@ -90,8 +141,9 @@ function VaultExplorerContent({
     isMounted,
     getVaultData,
     morphoHoldings.positions,
-    wrappersOnly,
     depositedAddresses,
+    eligibleUnderlyingAddresses,
+    showKindFilter,
   ]);
 
   useVaultListPreloader(filteredVaults);
@@ -117,8 +169,8 @@ function VaultExplorerContent({
       {showFilters && (
         <VaultExplorerFilters
           filters={filters}
-          onFiltersChange={setFilters}
-          wrappersOnly={wrappersOnly}
+          onFiltersChange={handleFiltersChange}
+          showKindFilter={showKindFilter}
         />
       )}
       <div className="flex-1 min-h-0 overflow-y-auto">

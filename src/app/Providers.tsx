@@ -11,7 +11,6 @@ import { WalletProvider } from '../contexts/WalletContext'
 import { TransactionProvider } from '../contexts/TransactionContext'
 import { ToastProvider } from '../contexts/ToastContext'
 import { ThemeProvider, useTheme } from '../contexts/ThemeContext'
-import { VaultSettingsProvider } from '../contexts/VaultSettingsContext'
 import { AdvisoryAgreementProvider } from '../contexts/AdvisoryAgreementContext'
 import { ErrorBoundary } from '../components/common/ErrorBoundary'
 import { AdvisoryAgreementModal } from '../components/features/wallet/AdvisoryAgreementModal'
@@ -63,8 +62,7 @@ export function Providers({ children, initialState }: Props) {
         <QueryClientProvider client={queryClient}>
           <ThemeProvider>
             <AppKitThemeSync />
-            <VaultSettingsProvider>
-              <AdvisoryAgreementProvider>
+            <AdvisoryAgreementProvider>
                 <ToastProvider>
                   <WalletProvider>
                     <VaultDataProvider>
@@ -76,7 +74,6 @@ export function Providers({ children, initialState }: Props) {
                   </WalletProvider>
                 </ToastProvider>
               </AdvisoryAgreementProvider>
-            </VaultSettingsProvider>
           </ThemeProvider>
         </QueryClientProvider>
       </WagmiProvider>

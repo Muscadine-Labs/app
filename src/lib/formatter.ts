@@ -215,6 +215,13 @@ export function getVaultChartTokenFractionDigits(symbol: string): number {
   return 2;
 }
 
+/** Share-price charts — USDC needs an extra digit vs TVL (near-1.00 prices). */
+export function getSharePriceTokenFractionDigits(symbol: string): number {
+  const normalized = symbol.toUpperCase();
+  if (normalized === 'USDC') return 3;
+  return getVaultChartTokenFractionDigits(symbol);
+}
+
 /** viem parseUnits rejects scientific notation; chart values are already decimal numbers. */
 export function chartTokenAmountToRaw(value: number, assetDecimals: number): bigint {
   if (!Number.isFinite(value)) return BigInt(0);
@@ -255,14 +262,13 @@ export function formatSharePriceAxisTokenValue(
   const numberValue = Number(value);
   if (!Number.isFinite(numberValue)) return '';
 
-  const { minimumFractionDigits, maximumFractionDigits } =
-    getChartTokenAxisFractionDigits(symbol);
+  const digits = getSharePriceTokenFractionDigits(symbol);
   const resolvedDecimals = assetDecimals > 0 ? assetDecimals : 18;
   const formatted = formatAssetAmount(
     chartTokenAmountToRaw(numberValue, resolvedDecimals),
     resolvedDecimals,
     symbol,
-    { minimumFractionDigits, maximumFractionDigits }
+    { minimumFractionDigits: digits, maximumFractionDigits: digits }
   );
   return formatted.replace(` ${symbol}`, '').trim();
 }
@@ -338,14 +344,26 @@ export function formatVaultChartTokenAmount(
   return formatted;
 }
 
-/** Share price uses the same fixed decimals as other vault v2 chart token amounts. */
+/** Share price token label (USDC uses 3 decimals; other assets match chart token digits). */
 export function formatSharePriceTokenAmount(
   value: number,
   assetDecimals: number,
   symbol: string,
   options: { includeSymbol?: boolean } = {}
 ): string {
-  return formatVaultChartTokenAmount(value, assetDecimals, symbol, options);
+  const { includeSymbol = true } = options;
+  const fractionDigits = getSharePriceTokenFractionDigits(symbol);
+  const resolvedDecimals = assetDecimals > 0 ? assetDecimals : 18;
+  const formatted = formatAssetAmount(
+    chartTokenAmountToRaw(value, resolvedDecimals),
+    resolvedDecimals,
+    symbol,
+    { minimumFractionDigits: fractionDigits, maximumFractionDigits: fractionDigits }
+  );
+  if (!includeSymbol) {
+    return formatted.replace(` ${symbol}`, '').trim();
+  }
+  return formatted;
 }
 
 /** Share price in USD — standard currency formatting. */

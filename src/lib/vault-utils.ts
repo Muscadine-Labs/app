@@ -4,6 +4,7 @@ import {
   VaultStrategy,
   getRegistryVaultList,
 } from '@/lib/vaults';
+import { isUnderlyingVisible } from '@/lib/vault-access';
 import { Vault } from '@/types/vault';
 import {
   DEFAULT_MORPHO_ASSET_SYMBOL,
@@ -247,34 +248,90 @@ export function getDepositedVaultAddressSet(
   );
 }
 
-/** Registry vaults for the explorer, honoring wrappers-only vs kind filter. */
-export function selectRegistryVaultsForExplorer(options: {
-  wrappersOnly: boolean;
-  kindFilter: VaultKindFilter;
-  depositedAddresses: ReadonlySet<string>;
-}): Vault[] {
-  const all = getAllRegistryVaults();
+/**
+ * Dashboard Your Vaults: one row per held side of a wrapper/underlying pair.
+ * Both appear only when the wallet holds shares in both contracts.
+ */
+export function filterDashboardDepositedVaults(
+  vaults: Vault[],
+  depositedAddresses: ReadonlySet<string>
+): Vault[] {
+  const drop = new Set<string>();
 
-  if (options.wrappersOnly) {
-    return all.filter((vault) => {
-      if (vault.kind === 'wrapper') return true;
-      return options.depositedAddresses.has(vault.address.toLowerCase());
-    });
+  for (const def of getRegistryVaultList()) {
+    if (def.kind !== 'wrapper' || !def.underlyingAddress) continue;
+    const wrapperKey = def.address.toLowerCase();
+    const underlyingKey = def.underlyingAddress.toLowerCase();
+    const hasWrapper = depositedAddresses.has(wrapperKey);
+    const hasUnderlying = depositedAddresses.has(underlyingKey);
+
+    if (hasWrapper && hasUnderlying) continue;
+    if (hasWrapper) drop.add(underlyingKey);
+    if (hasUnderlying) drop.add(wrapperKey);
   }
 
+  return vaults.filter((vault) => !drop.has(vault.address.toLowerCase()));
+}
+
+/**
+ * /vaults explorer: gate-eligible underlyings stay visible (even with no shares).
+ * Otherwise hide the unheld sibling — wrapper-only drops underlying, not vice versa.
+ */
+export function collapseExplorerRegistryVaultPairs(
+  vaults: Vault[],
+  depositedAddresses: ReadonlySet<string>,
+  eligibleUnderlyingAddresses: ReadonlySet<string>
+): Vault[] {
+  const drop = new Set<string>();
+
+  for (const def of getRegistryVaultList()) {
+    if (def.kind !== 'wrapper' || !def.underlyingAddress) continue;
+    const wrapperKey = def.address.toLowerCase();
+    const underlyingKey = def.underlyingAddress.toLowerCase();
+
+    if (eligibleUnderlyingAddresses.has(underlyingKey)) continue;
+
+    const hasWrapper = depositedAddresses.has(wrapperKey);
+    const hasUnderlying = depositedAddresses.has(underlyingKey);
+    if (hasWrapper && hasUnderlying) continue;
+    if (hasWrapper && !hasUnderlying) drop.add(underlyingKey);
+  }
+
+  return vaults.filter((vault) => !drop.has(vault.address.toLowerCase()));
+}
+
+/** Registry vaults for the explorer: wrappers always; underlyings by live gate or shares. */
+export function selectRegistryVaultsForExplorer(options: {
+  kindFilter: VaultKindFilter;
+  depositedAddresses: ReadonlySet<string>;
+  eligibleUnderlyingAddresses: ReadonlySet<string>;
+}): Vault[] {
+  const accessible = getAllRegistryVaults().filter((vault) =>
+    isUnderlyingVisible({
+      vaultKind: vault.kind,
+      vaultAddress: vault.address,
+      eligibleUnderlyingAddresses: options.eligibleUnderlyingAddresses,
+      depositedAddresses: options.depositedAddresses,
+    })
+  );
+
   if (options.kindFilter === 'wrappers') {
-    return all.filter((vault) => {
+    return accessible.filter((vault) => {
       if (vault.kind === 'wrapper') return true;
       return options.depositedAddresses.has(vault.address.toLowerCase());
     });
   }
   if (options.kindFilter === 'underlying') {
-    return all.filter((vault) => {
+    return accessible.filter((vault) => {
       if (vault.kind === 'underlying') return true;
       return options.depositedAddresses.has(vault.address.toLowerCase());
     });
   }
-  return all;
+  return collapseExplorerRegistryVaultPairs(
+    accessible,
+    options.depositedAddresses,
+    options.eligibleUnderlyingAddresses
+  );
 }
 
 export function dedupeVaultsByAddress(vaults: Vault[]): Vault[] {

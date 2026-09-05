@@ -19,6 +19,7 @@ import {
 import { usePrices } from '@/contexts/PriceContext';
 import { ConnectButton } from '@/components/features/wallet';
 import { isWethVault } from '@/lib/transaction-form-utils';
+import { allowsNativeEthVaultDeposit } from '@/lib/vault-access';
 import { parseTransactionAmount } from '@/lib/liquidity-utils';
 import {
   buildPastEarningsRows,
@@ -42,6 +43,7 @@ interface VaultTransactPanelProps {
   earningsLoading: boolean;
   activityLoading: boolean;
   activityError: boolean;
+  canDeposit: boolean;
 }
 
 function amountUsdValue(
@@ -97,6 +99,7 @@ export function VaultTransactPanel({
   earningsLoading,
   activityLoading,
   activityError,
+  canDeposit,
 }: VaultTransactPanelProps) {
   const { btc: btcPrice, eth: ethPrice } = usePrices();
   const [rewardsModeOverride, setRewardsModeOverride] = useState<RewardsMode | null>(
@@ -137,7 +140,10 @@ export function VaultTransactPanel({
   };
 
   const depositsDisabled =
-    vaultData.status === 'paused' || vaultData.status === 'deprecated';
+    !canDeposit ||
+    vaultData.status === 'paused' ||
+    vaultData.status === 'deprecated';
+  const allowEthDeposit = allowsNativeEthVaultDeposit(vaultData.address);
 
   const inputUsd = amountUsdValue(
     tx.amount,
@@ -254,7 +260,8 @@ export function VaultTransactPanel({
               </p>
               <div className="flex items-center gap-2">
                 {isWethVault(vaultData.address, vaultData.symbol) &&
-                  tx.effectiveActiveTab === 'deposit' && (
+                  tx.effectiveActiveTab === 'deposit' &&
+                  allowEthDeposit && (
                     <select
                       value={tx.preferredAsset || 'WETH'}
                       onChange={(e) =>

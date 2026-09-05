@@ -126,3 +126,24 @@ export const VAULTS: Record<string, VaultDefinition> = {
 export function getRegistryVaultList(): VaultDefinition[] {
   return Object.values(VAULTS);
 }
+
+export function getUnderlyingVaultDefinitions(): VaultDefinition[] {
+  return getRegistryVaultList().filter((vault) => vault.kind === 'underlying');
+}
+
+export function findWrapperForUnderlying(
+  underlyingAddress: string
+): VaultDefinition | undefined {
+  const key = underlyingAddress.toLowerCase();
+  return getRegistryVaultList().find(
+    (vault) =>
+      vault.kind === 'wrapper' && vault.underlyingAddress?.toLowerCase() === key
+  );
+}
+
+export function isUnderlyingVaultAddress(address: string): boolean {
+  const key = address.toLowerCase();
+  return getRegistryVaultList().some(
+    (vault) => vault.kind === 'underlying' && vault.address.toLowerCase() === key
+  );
+}

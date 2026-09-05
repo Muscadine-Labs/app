@@ -19,6 +19,8 @@ import {
   sortVaultsForDisplay,
   hasOnChainVaultShares,
   resolvePositionAssetsUsd,
+  getDepositedVaultAddressSet,
+  filterDashboardDepositedVaults,
 } from '@/lib/vault-utils';
 import { Vault } from '@/types/vault';
 import { BASE_CHAIN_ID } from '@/lib/constants';
@@ -74,6 +76,8 @@ export default function Home() {
   const walletStripRef = useRef<HTMLDivElement>(null);
 
   const depositedVaults: Vault[] = useMemo(() => {
+    const depositedAddresses = getDepositedVaultAddressSet(morphoHoldings.positions);
+
     const vaults: Vault[] = morphoHoldings.positions
       .filter(
         (position) =>
@@ -98,7 +102,7 @@ export default function Home() {
       });
 
     return sortVaultsForDisplay(
-      vaults,
+      filterDashboardDepositedVaults(vaults, depositedAddresses),
       morphoHoldings.positions,
       (addr) => {
         const position = morphoHoldings.positions.find(

@@ -16,6 +16,7 @@ import {
   getTokenBalanceRaw,
   isWethVault,
 } from '@/lib/transaction-form-utils';
+import { allowsNativeEthVaultDeposit } from '@/lib/vault-access';
 import type { VaultAccount, WalletAccount } from '@/types/vault';
 
 export type VaultTransactionTab = 'deposit' | 'withdraw';
@@ -162,6 +163,21 @@ export function useScopedVaultTransaction({
   );
 
   useEffect(() => {
+    if (effectiveActiveTab !== 'deposit') return;
+    if (!isWethVault(vaultAddress, vaultSymbol)) return;
+    if (allowsNativeEthVaultDeposit(vaultAddress)) return;
+    if (preferredAsset === 'ETH' || preferredAsset === 'ALL') {
+      setPreferredAsset('WETH');
+    }
+  }, [
+    effectiveActiveTab,
+    vaultAddress,
+    vaultSymbol,
+    preferredAsset,
+    setPreferredAsset,
+  ]);
+
+  useEffect(() => {
     if (vaultKeyRef.current !== vaultAddress) {
       vaultKeyRef.current = vaultAddress;
       initializedRef.current = false;
@@ -279,6 +295,7 @@ export function useScopedVaultTransaction({
 
   const isWethVaultEthDeposit = useMemo(() => {
     if (effectiveActiveTab !== 'deposit') return false;
+    if (!allowsNativeEthVaultDeposit(vaultAddress)) return false;
     const assetPreference = preferredAsset || 'WETH';
     return (
       isWethVault(vaultAddress, vaultSymbol) &&

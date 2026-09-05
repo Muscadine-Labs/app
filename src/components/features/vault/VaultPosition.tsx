@@ -47,6 +47,7 @@ interface VaultPositionProps {
   vaultData: MorphoVaultData;
   transactTab: VaultTransactionTab;
   onTransactTabChange: (tab: VaultTransactionTab) => void;
+  canDeposit: boolean;
 }
 
 type TimeFrame = 'all' | '1Y' | '90D' | '30D' | '7D';
@@ -71,6 +72,7 @@ export default function VaultPosition({
   vaultData,
   transactTab,
   onTransactTabChange,
+  canDeposit,
 }: VaultPositionProps) {
   const { address, isConnected } = useAccount();
   const { btc: btcPrice, eth: ethPrice } = usePrices();
@@ -688,6 +690,7 @@ export default function VaultPosition({
           earningsLoading={earnedInterest.isLoading}
           activityLoading={activityLoading}
           activityError={activityError}
+          canDeposit={canDeposit}
         />
       }
     >
