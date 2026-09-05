@@ -1,81 +1,29 @@
 'use client';
 
 import { useMemo } from 'react';
-import { useAccount, useReadContracts } from 'wagmi';
-import { type Address, getAddress } from 'viem';
-import { VAULT_V2_SEND_ASSETS_ABI } from '@/lib/abis';
-import { BASE_CHAIN_ID } from '@/lib/constants';
+import { useAccount } from 'wagmi';
+import { isDepositorAllowlistAddress } from '@/lib/deposit-gate-config';
 import { getUnderlyingVaultDefinitions } from '@/lib/vaults';
-import { isEligibleToDepositToUnderlying } from '@/lib/vault-access';
 
-const ACCESS_STALE_MS = 12_000;
-
+/**
+ * Underlying deposit eligibility for the connected wallet.
+ *
+ * Gate UI is always active (config-only allowlist). No on-chain gate RPC.
+ * Ops verifies whitelist with `npm run gates:verify` in curator after config changes.
+ */
 export function useUnderlyingDepositAccess() {
   const { address } = useAccount();
   const underlyings = useMemo(() => getUnderlyingVaultDefinitions(), []);
 
-  const gateContracts = useMemo(
-    () =>
-      underlyings.map((vault) => ({
-        address: getAddress(vault.address),
-        abi: VAULT_V2_SEND_ASSETS_ABI,
-        functionName: 'sendAssetsGate' as const,
-        chainId: BASE_CHAIN_ID,
-      })),
-    [underlyings]
-  );
-
-  const canSendContracts = useMemo(() => {
-    if (!address) return [];
-    const account = getAddress(address);
-    return underlyings.map((vault) => ({
-      address: getAddress(vault.address),
-      abi: VAULT_V2_SEND_ASSETS_ABI,
-      functionName: 'canSendAssets' as const,
-      args: [account] as const,
-      chainId: BASE_CHAIN_ID,
-    }));
-  }, [underlyings, address]);
-
-  const { data: gateResults, isPending: gatesPending } = useReadContracts({
-    allowFailure: true,
-    contracts: gateContracts,
-    query: { staleTime: ACCESS_STALE_MS },
-  });
-
-  const { data: canSendResults, isPending: canSendPending } = useReadContracts({
-    allowFailure: true,
-    contracts: canSendContracts,
-    query: {
-      enabled: Boolean(address) && canSendContracts.length > 0,
-      staleTime: ACCESS_STALE_MS,
-    },
-  });
-
   const eligibleUnderlyingAddresses = useMemo(() => {
     const eligible = new Set<string>();
-    if (!address) return eligible;
+    if (!address || !isDepositorAllowlistAddress(address)) return eligible;
 
-    underlyings.forEach((vault, index) => {
-      const gate = gateResults?.[index]?.result;
-      const canSend = canSendResults?.[index]?.result;
-      if (
-        isEligibleToDepositToUnderlying(
-          typeof gate === 'string' ? (gate as Address) : null,
-          canSend === true
-        )
-      ) {
-        eligible.add(vault.address.toLowerCase());
-      }
-    });
-
+    for (const vault of underlyings) {
+      eligible.add(vault.address.toLowerCase());
+    }
     return eligible;
-  }, [address, underlyings, gateResults, canSendResults]);
+  }, [address, underlyings]);
 
-  const isLoading = Boolean(address) && (gatesPending || canSendPending);
-
-  return {
-    eligibleUnderlyingAddresses,
-    isLoading,
-  };
+  return { eligibleUnderlyingAddresses };
 }

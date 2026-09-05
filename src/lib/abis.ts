@@ -49,21 +49,3 @@ export const ERC4626_ABI = [
   },
 ] as const;
 
-/** Morpho Vault V2 send-assets gate views — call on the vault, not the gate. */
-export const VAULT_V2_SEND_ASSETS_ABI = [
-  {
-    type: 'function',
-    name: 'sendAssetsGate',
-    stateMutability: 'view',
-    inputs: [],
-    outputs: [{ name: '', type: 'address' }],
-  },
-  {
-    type: 'function',
-    name: 'canSendAssets',
-    stateMutability: 'view',
-    inputs: [{ name: 'account', type: 'address' }],
-    outputs: [{ name: '', type: 'bool' }],
-  },
-] as const;
-

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useAccount } from 'wagmi';
 import { BASE_CHAIN_ID } from '@/lib/constants';
 import {
@@ -38,21 +38,27 @@ function VaultExplorerContent({
     ...getDefaultExplorerFilters(),
     ...initialFilters,
   }));
-  const kindFilterManualRef = useRef(false);
+  const [kindFilterManual, setKindFilterManual] = useState(false);
   const { address, isConnected } = useAccount();
   const { morphoHoldings } = useWallet();
   const { getVaultData } = useVaultData();
-  const { eligibleUnderlyingAddresses, isLoading: accessLoading } =
-    useUnderlyingDepositAccess();
+  const { eligibleUnderlyingAddresses } = useUnderlyingDepositAccess();
   const isMounted = useIsClient();
 
-  useEffect(() => {
-    kindFilterManualRef.current = false;
-  }, [address]);
+  const [trackedAddress, setTrackedAddress] = useState(address);
+  if (address !== trackedAddress) {
+    setTrackedAddress(address);
+    setKindFilterManual(false);
+  }
 
   const depositedAddresses = useMemo(
     () => getDepositedVaultAddressSet(morphoHoldings.positions),
     [morphoHoldings.positions]
+  );
+
+  const preferUnderlyingTab = useMemo(
+    () => eligibleUnderlyingAddresses.size > 0,
+    [eligibleUnderlyingAddresses]
   );
 
   const defaultKindFilter = useMemo(
@@ -60,45 +66,35 @@ function VaultExplorerContent({
       getDefaultVaultKindFilter({
         eligibleUnderlyingAddresses,
         depositedAddresses,
+        preferUnderlying: preferUnderlyingTab,
       }),
-    [eligibleUnderlyingAddresses, depositedAddresses]
+    [eligibleUnderlyingAddresses, depositedAddresses, preferUnderlyingTab]
   );
 
-  useEffect(() => {
-    if (kindFilterManualRef.current) return;
-    if (accessLoading) return;
-    if (isConnected && morphoHoldings.isLoading) return;
-    setFilters((prev) =>
-      prev.kindFilter === defaultKindFilter
-        ? prev
-        : { ...prev, kindFilter: defaultKindFilter }
-    );
-  }, [
-    defaultKindFilter,
-    accessLoading,
-    isConnected,
-    morphoHoldings.isLoading,
-  ]);
+  if (address && !kindFilterManual && filters.kindFilter !== defaultKindFilter) {
+    setFilters({ ...filters, kindFilter: defaultKindFilter });
+  }
 
   const handleFiltersChange = (next: VaultExplorerFilterState) => {
     if (next.kindFilter !== filters.kindFilter) {
-      kindFilterManualRef.current = true;
+      setKindFilterManual(true);
     }
     setFilters(next);
   };
 
   const showKindFilter = useMemo(
     () =>
+      preferUnderlyingTab ||
       hasVisibleUnderlyingVaults({
         eligibleUnderlyingAddresses,
         depositedAddresses,
       }),
-    [eligibleUnderlyingAddresses, depositedAddresses]
+    [preferUnderlyingTab, eligibleUnderlyingAddresses, depositedAddresses]
   );
 
   const filteredVaults = useMemo(() => {
     const registryVaults = selectRegistryVaultsForExplorer({
-      kindFilter: showKindFilter ? filters.kindFilter : 'all',
+      kindFilter: showKindFilter ? filters.kindFilter : 'wrappers',
       depositedAddresses,
       eligibleUnderlyingAddresses,
     });

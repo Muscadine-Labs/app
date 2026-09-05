@@ -50,6 +50,8 @@ interface MorphoHoldings {
   positions: VaultPosition[];
   isLoading: boolean;
   error: string | null;
+  /** Wallet whose positions fetch has finished (success or error). Null until then. */
+  resolvedAddress: string | null;
 }
 
 interface WalletContextType {
@@ -264,6 +266,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     positions: [],
     isLoading: false,
     error: null,
+    resolvedAddress: null,
   });
   
   // Debounced wallet state to prevent rapid state changes during auth flows
@@ -543,6 +546,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
         positions: [],
         isLoading: false,
         error: null,
+        resolvedAddress: null,
       });
       return 'ok';
     }
@@ -557,7 +561,9 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       isLoading: true,
       error: null,
       // Drop prior wallet data immediately on switch; keep snapshot on same-wallet refresh.
-      ...(addressChanged ? { positions: [], totalValueUsd: 0 } : {}),
+      ...(addressChanged
+        ? { positions: [], totalValueUsd: 0, resolvedAddress: null }
+        : {}),
     }));
 
     const url = `/api/user/morpho-positions?address=${encodeURIComponent(requestedAddress)}&chainId=8453&includeEmpty=true`;
@@ -620,10 +626,12 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
           message,
         });
         // Keep last successful snapshot for this wallet (already cleared on address change).
+        // Always settle resolvedAddress so underlying pages do not hang on Morpho errors.
         setMorphoHoldings((prev) => ({
           ...prev,
           isLoading: false,
           error: message,
+          resolvedAddress: requestedAddress,
         }));
         const retryable =
           body?.retryable === true ||
@@ -692,6 +700,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
         positions,
         isLoading: false,
         error: null,
+        resolvedAddress: requestedAddress,
       });
 
       logger.info('Morpho vault positions fetched from API', {
@@ -709,6 +718,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
         ...prev,
         isLoading: false,
         error: err instanceof Error ? err.message : 'Failed to fetch vault positions',
+        resolvedAddress: requestedAddress,
       }));
       return 'retryable';
     }
@@ -791,6 +801,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
           positions: [],
           isLoading: false,
           error: null,
+          resolvedAddress: null,
         }));
         setTokenPrices({});
         setAlchemyTokenBalances([]);

@@ -19,17 +19,18 @@ Instructions for AI agents working in this repo. Full architecture docs live in 
 - **Base only** (chain id 8453). **v1 MetaMorpho removed** — registry and writes are v2 Prime/Frontier only.
 - **Builder code** `bc_mwkqu9rd` on all vault txs via `src/lib/builder-code.ts`.
 - **v2 writes:** direct ERC-4626 in `transactionUtilsV2.ts`; Morpho Bundler3 in `bundler3.ts` only for ETH wrap/unwrap. No Morpho npm bundler SDK.
-- Registry: `src/lib/vaults.ts` — fields include `strategy` (`prime` | `frontier`), `kind` (`wrapper` | `underlying`), `vaultSymbol` (e.g. `wmpUSDC`, `mpUSDC`, `wmpcbBTC`). Default explorer surface is fee wrappers (NavBar **Vault wrappers** toggle, persisted `muscadine-vault-wrappers`). Confirm Morpho dead shares (`0x…dEaD`) **before listing**; do not add a runtime RPC check — curated vaults already have them.
+- Registry: `src/lib/vaults.ts` — fields include `strategy` (`prime` | `frontier`), `kind` (`wrapper` | `underlying`), `vaultSymbol` (e.g. `wmpUSDC`, `mpUSDC`, `wmpcbBTC`). Explorer uses gate-driven visibility (`useUnderlyingDepositAccess`, `vault-access.ts`). Confirm Morpho dead shares (`0x…dEaD`) **before listing**; do not add a runtime RPC check — curated vaults already have them.
+- **Deposit gates:** config-only depositor allowlist in `src/lib/deposit-gate-config.ts` (gate UI always active; no gate RPC). Sync from curator; run curator `npm run gates:verify` after allowlist edits. See `CLAUDE.md` § Configuration.
 - **No “Powered by Morpho” badge** on vault pages (looks tacky). Morpho attribution is the disclaimer: first-connect advisory, NavBar Protocol link, and review/confirm.
 - Use `findVaultByAddress` / `isCuratedVaultAddress` from `src/lib/vault-utils.ts` — never infer vault by asset symbol alone. Wrapper allocations show `{amount} to {underlying vault}` then nested underlying-vault markets; the group name and allocations footer link to Muscadine Analytics (`getVaultAnalyticsUrl`), not the in-app vault page.
 - Use `logger` from `src/lib/logger.ts`, not `console.log`.
 - **Token display decimals:** UI via `getDisplayFractionDigits` — USDC **6**, cbBTC/ETH/WETH **8**. Prefer raw `bigint` amounts. **Transactions** always use full token decimals (`formatBigIntForInput` — ETH 18, cbBTC 8, USDC 6). Chart axes stay compact.
-- **No developer / over-balance bypass mode** — `VaultVersionContext` removed. Explorer filters default to All for everyone; transact blocks amounts over balance. When Vault wrappers is off, `/vaults` defaults to **Underlying** (underlying vaults + deposits, including view-only external) and shows All / Underlying / Wrappers.
+- **No developer / over-balance bypass mode** — `VaultVersionContext` removed. Explorer filters default to All for strategy/asset; transact blocks amounts over balance. `/vaults` defaults to **Wrappers** for the public; allowlisted depositors (and wallets with underlying shares) get a Vaults filter (All / Underlying / Wrappers), default **Underlying** for allowlisted.
 
 ## Dashboard & positions
 
 - **Wallet strip:** Total / Wallet (liquid) / Vaults USD (`WalletOverview`).
-- **Your Vaults** (dashboard): **v2** positions only (registry + external Morpho v2 vaults). **wrapper** / **underlying** pills only when Vault wrappers is **off**.
+- **Your Vaults** (dashboard): **v2** positions only (registry + external Morpho v2 vaults). **wrapper** / **underlying** pills only when the wallet holds **both** sides of a pair.
 - **Morpho Vaults total** includes **all** user v2 positions from Morpho (`/api/user/morpho-positions`), not only Muscadine registry vaults.
 - **External vaults** (not in `vaults.ts`): shown on dashboard / explorer wallet filters with an **External** label, **not clickable**. Navigation uses `isCuratedVaultAddress()`; `/vault/v2/{external}` redirects home.
 - **Portfolio chart:** v2 positions via `/api/user/morpho-positions` + `/api/vault/v2/.../position-history` (`aggregatePortfolioHistory` in `portfolio-utils.ts`). Keep zero-share v2 rows for history when `includeEmpty=true`.

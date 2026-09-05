@@ -130,9 +130,9 @@ Always resolve version with `getVaultVersion(address)` / `findVaultByAddress()` 
 **Routes:** `/vault/v2/{address}` only (wrappers and underlying are both curated).  
 **API:** `/api/vault/v2/{address}/{complete|history|activity|position-history|earned-interest}`
 
-**Vault registry fields:** `symbol` (underlying asset), `vaultSymbol` (share token label), `strategy` (`prime` | `frontier`), `kind` (`wrapper` | `underlying`), `underlyingAddress` (underlying vault on wrappers). Wrapper and underlying of the same product share the display name (e.g. **Muscadine USDC Prime**); the **wrapper** / **underlying** labels appear only when Vault wrappers is off.
+**Vault registry fields:** `symbol` (underlying asset), `vaultSymbol` (share token label), `strategy` (`prime` | `frontier`), `kind` (`wrapper` | `underlying`), `underlyingAddress` (underlying vault on wrappers). Wrapper and underlying of the same product share the display name (e.g. **Muscadine USDC Prime**). **wrapper** / **underlying** pills: explorer + vault hero when both product types are visible; dashboard Your Vaults only when the wallet holds **both** sides of a pair.
 
-**Settings (NavBar, persisted `muscadine-vault-wrappers`):** **Vault wrappers** toggle, default **on** = explorer shows wrappers only, plus any underlying vaults the wallet is deposited in. Toggle **off** = `/vaults` gains a **Vaults** filter (All / Underlying / Wrappers), default **Underlying** (underlying registry vaults plus deposits, including view-only external).
+**Explorer visibility** is gate-driven (`deposit-gate-config.ts`, `useUnderlyingDepositAccess`). Public default is fee wrappers. Allowlisted depositors (and wallets holding underlying shares) see a Vaults filter (All / Underlying / Wrappers); allowlisted default tab is **Underlying**. There is no NavBar wrappers toggle (`VaultSettingsContext` removed).
 
 Explorer filters default to **All** (network, strategy, asset). **No v1/v2 version filter** (v1 removed). There is no developer/over-balance bypass mode.
 
@@ -319,7 +319,7 @@ Morpho GraphQL is **server-only** (`fetchMorphoGraphQL()` in route handlers). Th
 | `/api/user/morpho-positions` | User Morpho v2 positions |
 | `/api/vault/v2/...` | V2 Morpho GraphQL proxies |
 
-**NavBar:** Dashboard → `/`, Vaults → `/vaults`. Settings: theme (light/dark/auto) and **Vault wrappers** toggle (persisted). Right sidebar (`LearnContent`) is Q&A links to Morpho docs (protocol, Vault V2, [fee wrapper](https://docs.morpho.org/developers/earn/concepts/fee-wrapper/), curator, Blue, Midnight) and [self-custody](https://muscadine.xyz/self-custody).
+**NavBar:** Dashboard → `/`, Vaults → `/vaults`. Settings: theme (light/dark/auto). Right sidebar (`LearnContent`) is Q&A links to Morpho docs (protocol, Vault V2, [fee wrapper](https://docs.morpho.org/developers/earn/concepts/fee-wrapper/), curator, Blue, Midnight) and [self-custody](https://muscadine.xyz/self-custody).
 
 **App title:** metadata in `layout.tsx` uses **Muscadine Vaults** (`APP_NAME` in `src/lib/base-app.ts`) so Base.dev / Reown AppKit / WalletConnect match.
 
@@ -341,7 +341,7 @@ Adaptive layout (content-sized panels; empty sections omitted):
 
 **Important:** Portfolio chart includes **v2** positions from the API; **Your Vaults** is **v2-only**.
 
-- **Your Vaults** lists v2 deposits only (`position.version === 'v2'`), sorted by USD. External (non-curated) vaults are shown but **not clickable** (no `/vault/v2/...` detail page). Hidden when empty. **wrapper** / **underlying** pills appear only when Vault wrappers is **off**.
+- **Your Vaults** lists v2 deposits only (`position.version === 'v2'`), sorted by USD. External (non-curated) vaults are shown but **not clickable** (no `/vault/v2/...` detail page). Hidden when empty. **wrapper** / **underlying** pills appear only when the wallet holds **both** sides of a pair.
 - **Layout:** Desktop uses two independent columns. Your Vaults sits beside the chart. Wide wallet still uses `wallet|wallet / chart|side`. Below 1000px stacks wallet → chart → Vaults.
 - **Portfolio chart** (`PortfolioPositionChart.tsx`):
   1. Discovers vaults via `/api/user/morpho-positions?includeEmpty=true`.
@@ -361,7 +361,7 @@ Adaptive layout (content-sized panels; empty sections omitted):
 | Network | All, Base | Default **All**; `base` filters `chainId === 8453` |
 | Strategy | All, Prime, Frontier | Default **All** (shows Prime + Frontier) |
 | Asset | All, USDC, cbBTC, WETH | Local filter state. |
-| Vaults | All, Underlying, Wrappers | Shown only when Vault wrappers is **off**. Default **Underlying**. Wrapper / underlying names get a short **wrapper** or **underlying** pill in this mode (explorer, dashboard, vault hero). |
+| Vaults | All, Underlying, Wrappers | Shown when the wallet is allowlisted or holds underlying shares. Default **Underlying** for allowlisted depositors; **Wrappers** otherwise. Kind pills on explorer/hero when both product types are visible. |
 | Scope | Deposits + whitelisted, In wallet, **Whitelisted** | Default **Deposits + whitelisted**. Wallet modes can list external deposits as **External** (not clickable). |
 
 **Table columns** (`VaultExplorerTable.tsx`): Vault, **Your Position**, **Earned Interest**, **APY / TVL** (compact layout). **Whitelisted** rows navigate to `/vault/v2/{address}`; external rows are display-only.
@@ -386,7 +386,7 @@ Chart tabs (order): **APY** → **Total Deposits** → **Share Price** → **All
 
 Provider tree (`src/app/Providers.tsx`):
 
-`ErrorBoundary` → `WagmiProvider` → `QueryClient` → `ThemeProvider` → `VaultSettingsProvider` → `AdvisoryAgreementProvider` → `ToastProvider` → `WalletProvider` → `VaultDataProvider` → `TransactionProvider` (Reown AppKit initialized via `createAppKit` in `src/config/appkit.ts`; no SIWE/SIWX)
+`ErrorBoundary` → `WagmiProvider` → `QueryClient` → `ThemeProvider` → `AdvisoryAgreementProvider` → `ToastProvider` → `WalletProvider` → `VaultDataProvider` → `TransactionProvider` (Reown AppKit initialized via `createAppKit` in `src/config/appkit.ts`; no SIWE/SIWX)
 
 | Context | File | Role |
 |---------|------|------|
@@ -396,7 +396,6 @@ Provider tree (`src/app/Providers.tsx`):
 | `PriceContext` | `contexts/PriceContext.tsx` | Asset USD prices |
 | `ToastContext` | `contexts/ToastContext.tsx` | Toasts |
 | `ThemeContext` | `contexts/ThemeContext.tsx` | Light/dark |
-| `VaultSettingsContext` | `contexts/VaultSettingsContext.tsx` | Vault wrappers toggle (localStorage) |
 | `AdvisoryAgreementContext` | `contexts/AdvisoryAgreementContext.tsx` | Legal modal gating |
 
 ### Advisory agreement (`AdvisoryAgreementModal.tsx`)
@@ -547,6 +546,17 @@ Optional later: [Base Notifications API](https://docs.base.org/apps/technical-gu
 - Webpack/Turbopack aliases for `wagmi` and `@tanstack/react-query` (singleton React Query context)
 - Externals: `pino-pretty`, `lokijs`, `encoding`
 - Redirect: `/transact` → `/vaults` (308)
+
+### Deposit gates (underlying-only)
+
+**No gate RPC in the app** — do not add `sendAssetsGate`, `canSendAssets`, or gate `isWhitelisted` reads to client hooks.
+
+| Piece | Location |
+|-------|----------|
+| Depositor allowlist (5 EOAs) | `src/lib/deposit-gate-config.ts` — keep in sync with curator `lib/config/deposit-gates.ts` |
+| Eligibility hook | `src/hooks/useUnderlyingDepositAccess.ts` — config only; gate UI always active |
+
+**Ops loop (every allowlist change):** edit curator + app config → **`npm run gates:verify`** in curator (RPC) → redeploy app. See `curator/docs/brain/deposit-gates.md`. Optional revert to live RPC whitelist: `TODO.md`.
 
 ---
 

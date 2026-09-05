@@ -10,7 +10,10 @@ import {
   resolveVaultForPage,
   getVaultRoute,
 } from '@/lib/vault-utils';
-import { canDepositToVault } from '@/lib/vault-access';
+import {
+  canDepositToVault,
+  resolveUnderlyingVaultPageAccess,
+} from '@/lib/vault-access';
 import { findWrapperForUnderlying } from '@/lib/vaults';
 import { useVaultDataFetch } from '@/hooks/useVaultDataFetch';
 import { useUnderlyingDepositAccess } from '@/hooks/useUnderlyingDepositAccess';
@@ -24,6 +27,38 @@ import { Button } from '@/components/ui';
 import { Skeleton } from '@/components/ui/Skeleton';
 import type { VaultTransactionTab } from '@/hooks/useScopedVaultTransaction';
 import { useTransactionState } from '@/contexts/TransactionContext';
+
+function VaultPageSkeleton({ className }: { className: string }) {
+  return (
+    <div className={className}>
+      <div className="flex-shrink-0 mb-5">
+        <div className="flex flex-col gap-2">
+          <Skeleton width="12rem" height="2.25rem" />
+          <div className="flex items-center gap-2">
+            <Skeleton variant="circular" width="1.25rem" height="1.25rem" />
+            <Skeleton width="4rem" height="1rem" />
+          </div>
+        </div>
+      </div>
+
+      <div className="flex-shrink-0 mb-6">
+        <div className="flex gap-2">
+          <Skeleton width="6rem" height="2.5rem" className="mb-2" />
+          <Skeleton width="8rem" height="2.5rem" className="mb-2" />
+          <Skeleton width="6rem" height="2.5rem" className="mb-2" />
+        </div>
+      </div>
+
+      <div className="space-y-5">
+        <Skeleton width="100%" height="12rem" />
+        <div className="space-y-3">
+          <Skeleton width="100%" height="3.5rem" />
+          <Skeleton width="100%" height="3.5rem" />
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function VaultV2Page() {
   const params = useParams();
@@ -55,40 +90,45 @@ export default function VaultV2Page() {
   };
 
   const vault = useMemo(() => resolveVaultForPage(address), [address]);
-  const { isConnected } = useAccount();
+  const { status: walletStatus, address: walletAddress } = useAccount();
   const { morphoHoldings } = useWallet();
-  const { eligibleUnderlyingAddresses, isLoading: accessLoading } =
-    useUnderlyingDepositAccess();
+  const { eligibleUnderlyingAddresses } = useUnderlyingDepositAccess();
   const depositedAddresses = useMemo(
     () => getDepositedVaultAddressSet(morphoHoldings.positions),
     [morphoHoldings.positions]
   );
 
-  const { vaultData, isLoading, hasError, refetch, errorMessage } = useVaultDataFetch(vault);
+  const underlyingAccess = useMemo(() => {
+    if (!vault || vault.kind !== 'underlying') return 'allowed' as const;
+    return resolveUnderlyingVaultPageAccess({
+      vaultAddress: vault.address,
+      eligibleUnderlyingAddresses,
+      depositedAddresses,
+      walletStatus,
+      walletAddress,
+      positionsResolvedFor: morphoHoldings.resolvedAddress,
+    });
+  }, [
+    vault,
+    eligibleUnderlyingAddresses,
+    depositedAddresses,
+    walletStatus,
+    walletAddress,
+    morphoHoldings.resolvedAddress,
+  ]);
+
+  const shouldFetchVaultData =
+    !!vault && (vault.kind !== 'underlying' || underlyingAccess !== 'denied');
+
+  const { vaultData, isLoading, hasError, refetch, errorMessage } = useVaultDataFetch(
+    shouldFetchVaultData ? vault : null
+  );
 
   const canDeposit = canDepositToVault({
     vaultKind: vault?.kind,
     vaultAddress: vault?.address ?? '',
     eligibleUnderlyingAddresses,
-    accessLoading,
   });
-
-  const underlyingPageBlocked = useMemo(() => {
-    if (!vault || vault.kind !== 'underlying') return false;
-    if (accessLoading) return true;
-    if (isConnected && morphoHoldings.isLoading) return true;
-    const key = vault.address.toLowerCase();
-    return (
-      !eligibleUnderlyingAddresses.has(key) && !depositedAddresses.has(key)
-    );
-  }, [
-    vault,
-    accessLoading,
-    isConnected,
-    morphoHoldings.isLoading,
-    eligibleUnderlyingAddresses,
-    depositedAddresses,
-  ]);
 
   useEffect(() => {
     if (!address) return;
@@ -99,59 +139,30 @@ export default function VaultV2Page() {
 
   useEffect(() => {
     if (!vault || vault.kind !== 'underlying') return;
-    if (accessLoading) return;
-    if (isConnected && morphoHoldings.isLoading) return;
-    const key = vault.address.toLowerCase();
-    if (eligibleUnderlyingAddresses.has(key) || depositedAddresses.has(key)) {
-      return;
-    }
+    if (underlyingAccess !== 'denied') return;
     const wrapper = findWrapperForUnderlying(vault.address);
     router.replace(wrapper ? getVaultRoute(wrapper.address) : '/vaults');
-  }, [
-    vault,
-    accessLoading,
-    isConnected,
-    morphoHoldings.isLoading,
-    eligibleUnderlyingAddresses,
-    depositedAddresses,
-    router,
-  ]);
+  }, [vault, underlyingAccess, router]);
 
   const showMobileSticky = activeTab === 'overview';
   const pageShellClassName = `w-full bg-[var(--background)] flex flex-col p-4 sm:p-6 md:p-8 ${
     showMobileSticky ? 'pb-24 min-[1000px]:pb-8' : 'pb-8'
   } min-h-full`;
 
-  if (!vault || underlyingPageBlocked || (isLoading && !vaultData)) {
-    return (
-      <div className={pageShellClassName}>
-        <div className="flex-shrink-0 mb-5">
-          <div className="flex flex-col gap-2">
-            <Skeleton width="12rem" height="2.25rem" />
-            <div className="flex items-center gap-2">
-              <Skeleton variant="circular" width="1.25rem" height="1.25rem" />
-              <Skeleton width="4rem" height="1rem" />
-            </div>
-          </div>
-        </div>
+  if (!vault) {
+    return <VaultPageSkeleton className={pageShellClassName} />;
+  }
 
-        <div className="flex-shrink-0 mb-6">
-            <div className="flex gap-2">
-              <Skeleton width="6rem" height="2.5rem" className="mb-2" />
-              <Skeleton width="8rem" height="2.5rem" className="mb-2" />
-              <Skeleton width="6rem" height="2.5rem" className="mb-2" />
-            </div>
-        </div>
+  if (vault.kind === 'underlying' && underlyingAccess === 'denied') {
+    return null;
+  }
 
-        <div className="space-y-5">
-          <Skeleton width="100%" height="12rem" />
-          <div className="space-y-3">
-            <Skeleton width="100%" height="3.5rem" />
-            <Skeleton width="100%" height="3.5rem" />
-          </div>
-        </div>
-      </div>
-    );
+  const showLoadingSkeleton =
+    (vault.kind === 'underlying' && underlyingAccess === 'pending') ||
+    (isLoading && !vaultData);
+
+  if (showLoadingSkeleton) {
+    return <VaultPageSkeleton className={pageShellClassName} />;
   }
 
   if (hasError && !vaultData) {

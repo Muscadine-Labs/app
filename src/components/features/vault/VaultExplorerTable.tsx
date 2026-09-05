@@ -11,9 +11,11 @@ import { useWallet } from '@/contexts/WalletContext';
 import { VaultNameWithWrapper } from '@/components/features/vault/VaultNameWithWrapper';
 import {
   getVaultRoute,
+  getDepositedVaultAddressSet,
   hasOnChainVaultShares,
   isCuratedVaultAddress,
   resolvePositionAssetsUsd,
+  userHoldsBothVaultPairSides,
 } from '@/lib/vault-utils';
 import {
   formatNumber,
@@ -315,12 +317,14 @@ function DashboardVaultMobileCard({
   positionUsd,
   loading,
   vaultData,
+  showKindMark,
 }: {
   vault: Vault;
   positionAssets?: string;
   positionUsd: number;
   loading: boolean;
   vaultData: MorphoVaultData | null;
+  showKindMark: boolean;
 }) {
   const router = useRouter();
   const { address } = useAccount();
@@ -353,7 +357,11 @@ function DashboardVaultMobileCard({
       <div className="flex items-center gap-3 mb-3">
         <VaultLogo vault={vault} />
         <div className="min-w-0">
-          <VaultNameWithWrapper name={vault.name} kind={vault.kind} />
+          <VaultNameWithWrapper
+            name={vault.name}
+            kind={vault.kind}
+            showKindMark={showKindMark}
+          />
           <VaultShareLabel vault={vault} />
           <span className="text-[10px] text-[var(--foreground-muted)] block">
             {isCurated ? 'Whitelisted' : 'External'}
@@ -767,6 +775,10 @@ export function DashboardVaultTable({
   const { morphoHoldings } = useWallet();
   const { getVaultData, isLoading } = useVaultData();
   const { address } = useAccount();
+  const depositedAddresses = useMemo(
+    () => getDepositedVaultAddressSet(morphoHoldings.positions),
+    [morphoHoldings.positions]
+  );
 
   if (!isMounted) {
     return (
@@ -838,6 +850,7 @@ export function DashboardVaultTable({
               positionUsd={positionUsd}
               loading={loading}
               vaultData={vaultData}
+              showKindMark={userHoldsBothVaultPairSides(vault, depositedAddresses)}
             />
           );
         })}
@@ -895,7 +908,11 @@ export function DashboardVaultTable({
                   <div className="flex items-center gap-2 min-w-0">
                     <VaultLogo vault={vault} size={28} />
                     <div className="min-w-0">
-                      <VaultNameWithWrapper name={vault.name} kind={vault.kind} />
+                      <VaultNameWithWrapper
+                        name={vault.name}
+                        kind={vault.kind}
+                        showKindMark={userHoldsBothVaultPairSides(vault, depositedAddresses)}
+                      />
                       <VaultShareLabel vault={vault} />
                     </div>
                   </div>

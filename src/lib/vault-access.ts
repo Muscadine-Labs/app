@@ -1,23 +1,5 @@
-import { type Address, getAddress, zeroAddress } from 'viem';
 import type { VaultKind } from '@/lib/vaults';
 import { isUnderlyingVaultAddress } from '@/lib/vaults';
-
-/**
- * True when the connected wallet may deposit into a gated underlying vault.
- * `canSendAssets` is true while no gate is set — treat that as closed for UI.
- */
-export function isEligibleToDepositToUnderlying(
-  sendAssetsGate: Address | string | null | undefined,
-  canSendAssets: boolean | undefined
-): boolean {
-  if (!sendAssetsGate) return false;
-  try {
-    if (getAddress(sendAssetsGate) === zeroAddress) return false;
-  } catch {
-    return false;
-  }
-  return canSendAssets === true;
-}
 
 /** Underlying rows: live gate pass, or an existing share balance (exits). */
 export function isUnderlyingVisible(options: {
@@ -38,10 +20,8 @@ export function canDepositToVault(options: {
   vaultKind: VaultKind | undefined;
   vaultAddress: string;
   eligibleUnderlyingAddresses: ReadonlySet<string>;
-  accessLoading: boolean;
 }): boolean {
   if (options.vaultKind !== 'underlying') return true;
-  if (options.accessLoading) return false;
   return options.eligibleUnderlyingAddresses.has(
     options.vaultAddress.toLowerCase()
   );
@@ -67,7 +47,44 @@ export function hasVisibleUnderlyingVaults(options: {
 export function getDefaultVaultKindFilter(options: {
   eligibleUnderlyingAddresses: ReadonlySet<string>;
   depositedAddresses: ReadonlySet<string>;
+  /** Allowlisted depositor — avoids tab flash on refresh. */
+  preferUnderlying?: boolean;
 }): 'underlying' | 'wrappers' {
-  if (options.eligibleUnderlyingAddresses.size > 0) return 'underlying';
+  if (options.preferUnderlying || options.eligibleUnderlyingAddresses.size > 0) {
+    return 'underlying';
+  }
   return 'wrappers';
+}
+
+export type UnderlyingVaultPageAccess = 'allowed' | 'pending' | 'denied';
+
+/** Underlying vault detail page — allow depositors + exit holders; redirect everyone else. */
+export function resolveUnderlyingVaultPageAccess(options: {
+  vaultAddress: string;
+  eligibleUnderlyingAddresses: ReadonlySet<string>;
+  depositedAddresses: ReadonlySet<string>;
+  walletStatus: 'connected' | 'connecting' | 'reconnecting' | 'disconnected';
+  walletAddress?: string | null;
+  positionsResolvedFor: string | null;
+}): UnderlyingVaultPageAccess {
+  const key = options.vaultAddress.toLowerCase();
+  if (options.eligibleUnderlyingAddresses.has(key)) return 'allowed';
+  if (options.depositedAddresses.has(key)) return 'allowed';
+
+  if (
+    options.walletStatus === 'connecting' ||
+    options.walletStatus === 'reconnecting'
+  ) {
+    return 'pending';
+  }
+
+  if (options.walletStatus === 'connected') {
+    const wallet = options.walletAddress?.toLowerCase();
+    const resolved = options.positionsResolvedFor?.toLowerCase();
+    if (!wallet || !resolved || resolved !== wallet) {
+      return 'pending';
+    }
+  }
+
+  return 'denied';
 }

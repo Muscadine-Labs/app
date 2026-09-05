@@ -2,6 +2,7 @@ import {
   VaultDefinition,
   VaultKind,
   VaultStrategy,
+  findWrapperForUnderlying,
   getRegistryVaultList,
 } from '@/lib/vaults';
 import { isUnderlyingVisible } from '@/lib/vault-access';
@@ -271,6 +272,28 @@ export function filterDashboardDepositedVaults(
   }
 
   return vaults.filter((vault) => !drop.has(vault.address.toLowerCase()));
+}
+
+/** Dashboard kind pill — only when the wallet holds wrapper and underlying for the pair. */
+export function userHoldsBothVaultPairSides(
+  vault: Vault,
+  depositedAddresses: ReadonlySet<string>
+): boolean {
+  if (vault.kind === 'wrapper' && vault.underlyingAddress) {
+    return (
+      depositedAddresses.has(vault.address.toLowerCase()) &&
+      depositedAddresses.has(vault.underlyingAddress.toLowerCase())
+    );
+  }
+  if (vault.kind === 'underlying') {
+    const wrapper = findWrapperForUnderlying(vault.address);
+    if (!wrapper) return false;
+    return (
+      depositedAddresses.has(wrapper.address.toLowerCase()) &&
+      depositedAddresses.has(vault.address.toLowerCase())
+    );
+  }
+  return false;
 }
 
 /**
