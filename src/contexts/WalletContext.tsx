@@ -728,23 +728,19 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     if (!walletAddress) return;
     const fetchId = ++walletDataFetchIdRef.current;
 
-    if (refetchEthBalance) {
-      await refetchEthBalance();
-    }
+    const symbols = ['ETH', 'USDC', 'CBBTC', 'CBETH', 'WSTETH', 'STETH', 'WETH'];
+
+    const [, tokenResult, prices, morphoStatus] = await Promise.all([
+      refetchEthBalance?.() ?? Promise.resolve(),
+      fetchAllTokenBalances(walletAddress),
+      fetchTokenPrices(symbols),
+      fetchVaultPositions(walletAddress),
+    ]);
     if (fetchId !== walletDataFetchIdRef.current) return;
 
-    const { tokens, ok } = await fetchAllTokenBalances(walletAddress);
-    if (fetchId !== walletDataFetchIdRef.current) return;
-
+    const { tokens, ok } = tokenResult;
     setAlchemyTokenBalances(tokens);
     setNeedsWagmiFallback(ok ? { ...WAGMI_FALLBACK_NONE } : { ...WAGMI_FALLBACK_ALL });
-    // When Alchemy fails, enabling the wagmi reads is enough — they fetch on the next render.
-    // Refetching here is a no-op because `enabled` is still false on this tick.
-
-    const symbols = new Set<string>(['ETH', 'USDC', 'CBBTC', 'CBETH', 'WSTETH', 'STETH', 'WETH']);
-
-    const prices = await fetchTokenPrices(Array.from(symbols));
-    if (fetchId !== walletDataFetchIdRef.current) return;
 
     setTokenPrices({
       eth: prices.eth || 0,
@@ -759,11 +755,10 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     logger.debug('Token balances and prices updated', {
       alchemyOk: ok,
       alchemyBalanceCount: tokens.length,
-      tokenCount: symbols.size,
+      tokenCount: symbols.length,
     });
 
-    const morphoStatus = await fetchVaultPositions(walletAddress);
-    if (fetchId !== walletDataFetchIdRef.current || morphoStatus === 'aborted') return;
+    if (morphoStatus === 'aborted') return;
 
     // Alchemy miss is recoverable — wagmi RPC fallback is already enabled above.
     if (!ok) {

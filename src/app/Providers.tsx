@@ -4,8 +4,8 @@ import { ReactNode, useState, useEffect } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { WagmiProvider } from 'wagmi'
 import { config } from '@/config/wagmi'
-import '@/config/appkit'
 import { useAppKitTheme } from '@reown/appkit/react'
+import { ensureAppKitInit } from '@/lib/appkit-init'
 import { VaultDataProvider } from '../contexts/VaultDataContext'
 import { WalletProvider } from '../contexts/WalletContext'
 import { TransactionProvider } from '../contexts/TransactionContext'
@@ -21,7 +21,7 @@ type Props = {
   initialState?: Parameters<typeof WagmiProvider>[0]['initialState']
 }
 
-function AppKitThemeSync() {
+function AppKitThemeSyncInner() {
   const { effectiveTheme } = useTheme()
   const { setThemeMode } = useAppKitTheme()
 
@@ -30,6 +30,17 @@ function AppKitThemeSync() {
   }, [effectiveTheme, setThemeMode])
 
   return null
+}
+
+function AppKitThemeSync() {
+  const [ready, setReady] = useState(false)
+
+  useEffect(() => {
+    void ensureAppKitInit().then(() => setReady(true))
+  }, [])
+
+  if (!ready) return null
+  return <AppKitThemeSyncInner />
 }
 
 export function Providers({ children, initialState }: Props) {

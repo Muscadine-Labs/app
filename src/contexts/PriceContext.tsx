@@ -1,7 +1,16 @@
 'use client';
 
-import { createContext, useContext, ReactNode } from 'react';
+import {
+  createContext,
+  useContext,
+  ReactNode,
+  useState,
+  useCallback,
+  useEffect,
+  useMemo,
+} from 'react';
 import { useQuery } from '@tanstack/react-query';
+
 interface PriceData {
   btc: number | null;
   eth: number | null;
@@ -9,90 +18,104 @@ interface PriceData {
   error: string | null;
 }
 
-const PriceContext = createContext<PriceData>({
+const defaultPrices: PriceData = {
   btc: null,
   eth: null,
-  loading: true,
-  error: null
-});
+  loading: false,
+  error: null,
+};
+
+const PriceContext = createContext<PriceData>(defaultPrices);
+const EnablePriceFetchContext = createContext<(() => void) | null>(null);
 
 export function PriceProvider({ children }: { children: ReactNode }) {
-    const { data, error, isLoading } = useQuery({
-      queryKey: ['crypto-prices'],
-      queryFn: async () => {
-        // Try to get cached data from localStorage first (only on client)
-        let cachedData: string | null = null;
-        let cachedTimestamp: string | null = null;
-        
-        if (typeof window !== 'undefined') {
-          cachedData = localStorage.getItem('crypto-prices');
-          cachedTimestamp = localStorage.getItem('crypto-prices-timestamp');
+  const [fetchEnabled, setFetchEnabled] = useState(false);
+  const enableFetch = useCallback(() => {
+    setFetchEnabled(true);
+  }, []);
+
+  const { data, error, isLoading } = useQuery({
+    queryKey: ['crypto-prices'],
+    enabled: fetchEnabled,
+    queryFn: async () => {
+      let cachedData: string | null = null;
+      let cachedTimestamp: string | null = null;
+
+      if (typeof window !== 'undefined') {
+        cachedData = localStorage.getItem('crypto-prices');
+        cachedTimestamp = localStorage.getItem('crypto-prices-timestamp');
+      }
+
+      const now = Date.now();
+      const CACHE_DURATION = 5 * 60 * 1000;
+
+      const parseCachedPrices = (raw: string | null) => {
+        if (!raw) return null;
+        try {
+          const parsed = JSON.parse(raw) as { btc?: number | null; eth?: number | null };
+          if (parsed && typeof parsed === 'object') return parsed;
+        } catch {
+          // Ignore corrupt localStorage
         }
+        return null;
+      };
 
-        const now = Date.now();
-        const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+      const cachedPrices = parseCachedPrices(cachedData);
+      const cachedAt = cachedTimestamp ? parseInt(cachedTimestamp, 10) : NaN;
 
-        const parseCachedPrices = (raw: string | null) => {
-          if (!raw) return null;
-          try {
-            const parsed = JSON.parse(raw) as { btc?: number | null; eth?: number | null };
-            if (parsed && typeof parsed === 'object') return parsed;
-          } catch {
-            // Ignore corrupt localStorage
-          }
-          return null;
-        };
+      if (cachedPrices && Number.isFinite(cachedAt) && now - cachedAt < CACHE_DURATION) {
+        return cachedPrices;
+      }
 
-        const cachedPrices = parseCachedPrices(cachedData);
-        const cachedAt = cachedTimestamp ? parseInt(cachedTimestamp, 10) : NaN;
-
-        // If we have cached data that's still fresh, return it immediately
-        if (cachedPrices && Number.isFinite(cachedAt) && now - cachedAt < CACHE_DURATION) {
+      const response = await fetch('/api/prices?symbols=BTC,ETH');
+      if (!response.ok) {
+        if (cachedPrices) {
           return cachedPrices;
         }
+        throw new Error('Failed to fetch prices');
+      }
 
-        // Fetch fresh data from API (now using dynamic symbols)
-        const response = await fetch('/api/prices?symbols=BTC,ETH');
-        if (!response.ok) {
-          // If API fails but we have cached data (even stale), use it
-          if (cachedPrices) {
-            return cachedPrices;
-          }
-          throw new Error('Failed to fetch prices');
-        }
+      const freshData = await response.json();
+      if (!freshData || typeof freshData !== 'object' || freshData.error) {
+        if (cachedPrices) return cachedPrices;
+        throw new Error('Failed to fetch prices');
+      }
 
-        const freshData = await response.json();
-        if (!freshData || typeof freshData !== 'object' || freshData.error) {
-          if (cachedPrices) return cachedPrices;
-          throw new Error('Failed to fetch prices');
-        }
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('crypto-prices', JSON.stringify(freshData));
+        localStorage.setItem('crypto-prices-timestamp', now.toString());
+      }
 
-        // Cache the fresh data in localStorage (only on client)
-        if (typeof window !== 'undefined') {
-          localStorage.setItem('crypto-prices', JSON.stringify(freshData));
-          localStorage.setItem('crypto-prices-timestamp', now.toString());
-        }
+      return freshData;
+    },
+    staleTime: 5 * 60 * 1000,
+    refetchInterval: 5 * 60 * 1000,
+    retry: 3,
+  });
 
-        return freshData;
-      },
-      staleTime: 5 * 60 * 1000, // 5 minutes
-      refetchInterval: 5 * 60 * 1000, // 5 minutes
-      retry: 3,
-    });
-  
-    const prices = {
-      btc: data?.btc || null,
-      eth: data?.eth || null,
-      loading: isLoading,
-      error: error?.message || null
-    };
-  
-    return (
-      <PriceContext.Provider value={prices}>
-        {children}
-      </PriceContext.Provider>
-    );
-  }
+  const prices = useMemo(
+    () => ({
+      btc: data?.btc ?? null,
+      eth: data?.eth ?? null,
+      loading: fetchEnabled ? isLoading : false,
+      error: error?.message ?? null,
+    }),
+    [data, error, isLoading, fetchEnabled]
+  );
 
-export const usePrices = () => useContext(PriceContext);
+  return (
+    <EnablePriceFetchContext.Provider value={enableFetch}>
+      <PriceContext.Provider value={prices}>{children}</PriceContext.Provider>
+    </EnablePriceFetchContext.Provider>
+  );
+}
 
+export const usePrices = () => {
+  const enableFetch = useContext(EnablePriceFetchContext);
+
+  useEffect(() => {
+    enableFetch?.();
+  }, [enableFetch]);
+
+  return useContext(PriceContext);
+};

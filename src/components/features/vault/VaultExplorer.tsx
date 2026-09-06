@@ -38,18 +38,12 @@ function VaultExplorerContent({
     ...getDefaultExplorerFilters(),
     ...initialFilters,
   }));
-  const [kindFilterManual, setKindFilterManual] = useState(false);
+  const [manualKindAddress, setManualKindAddress] = useState<string | null>(null);
   const { address, isConnected } = useAccount();
   const { morphoHoldings } = useWallet();
   const { getVaultData } = useVaultData();
   const { eligibleUnderlyingAddresses } = useUnderlyingDepositAccess();
   const isMounted = useIsClient();
-
-  const [trackedAddress, setTrackedAddress] = useState(address);
-  if (address !== trackedAddress) {
-    setTrackedAddress(address);
-    setKindFilterManual(false);
-  }
 
   const depositedAddresses = useMemo(
     () => getDepositedVaultAddressSet(morphoHoldings.positions),
@@ -71,13 +65,19 @@ function VaultExplorerContent({
     [eligibleUnderlyingAddresses, depositedAddresses, preferUnderlyingTab]
   );
 
-  if (address && !kindFilterManual && filters.kindFilter !== defaultKindFilter) {
-    setFilters({ ...filters, kindFilter: defaultKindFilter });
-  }
+  const kindFilterManual = Boolean(address && manualKindAddress === address);
+
+  const activeFilters = useMemo(
+    () => ({
+      ...filters,
+      kindFilter: kindFilterManual ? filters.kindFilter : defaultKindFilter,
+    }),
+    [filters, kindFilterManual, defaultKindFilter]
+  );
 
   const handleFiltersChange = (next: VaultExplorerFilterState) => {
-    if (next.kindFilter !== filters.kindFilter) {
-      setKindFilterManual(true);
+    if (next.kindFilter !== activeFilters.kindFilter) {
+      setManualKindAddress(address ?? null);
     }
     setFilters(next);
   };
@@ -94,28 +94,28 @@ function VaultExplorerContent({
 
   const filteredVaults = useMemo(() => {
     const registryVaults = selectRegistryVaultsForExplorer({
-      kindFilter: showKindFilter ? filters.kindFilter : 'wrappers',
+      kindFilter: showKindFilter ? activeFilters.kindFilter : 'wrappers',
       depositedAddresses,
       eligibleUnderlyingAddresses,
     });
 
-    if (filters.walletFilter === 'inWallet' && !isConnected) {
+    if (activeFilters.walletFilter === 'inWallet' && !isConnected) {
       return [];
     }
 
     const candidates = buildExplorerVaultCandidates(
       registryVaults,
       morphoHoldings.positions,
-      filters.walletFilter
+      activeFilters.walletFilter
     );
 
     const filtered = candidates.filter((vault) => {
-      if (filters.network === 'base' && vault.chainId !== BASE_CHAIN_ID) return false;
-      if (filters.asset !== 'all' && vault.symbol !== filters.asset) return false;
+      if (activeFilters.network === 'base' && vault.chainId !== BASE_CHAIN_ID) return false;
+      if (activeFilters.asset !== 'all' && vault.symbol !== activeFilters.asset) return false;
       if (
-        filters.strategy !== 'all' &&
+        activeFilters.strategy !== 'all' &&
         vault.isCurated !== false &&
-        vault.strategy !== filters.strategy
+        vault.strategy !== activeFilters.strategy
       ) {
         return false;
       }
@@ -132,7 +132,7 @@ function VaultExplorerContent({
       (address) => getVaultData(address)?.totalDeposits ?? 0
     );
   }, [
-    filters,
+    activeFilters,
     isConnected,
     isMounted,
     getVaultData,
@@ -145,26 +145,26 @@ function VaultExplorerContent({
   useVaultListPreloader(filteredVaults);
 
   const emptyMessage = useMemo(() => {
-    if (filters.walletFilter === 'inWallet' && !isConnected) {
+    if (activeFilters.walletFilter === 'inWallet' && !isConnected) {
       return 'Connect your wallet to see vaults you are deposited in.';
     }
-    if (filters.walletFilter === 'inWallet') {
+    if (activeFilters.walletFilter === 'inWallet') {
       return 'No deposited vaults match the selected filters.';
     }
-    if (filters.walletFilter === 'inWalletAndWhitelisted') {
+    if (activeFilters.walletFilter === 'inWalletAndWhitelisted') {
       return 'No vaults match the selected filters.';
     }
     return 'No vaults match the selected filters.';
-  }, [filters.walletFilter, isConnected]);
+  }, [activeFilters.walletFilter, isConnected]);
 
   const walletFilterLoading =
-    filters.walletFilter === 'inWallet' && isConnected && morphoHoldings.isLoading;
+    activeFilters.walletFilter === 'inWallet' && isConnected && morphoHoldings.isLoading;
 
   return (
     <div className="flex flex-col h-full w-full min-h-0">
       {showFilters && (
         <VaultExplorerFilters
-          filters={filters}
+          filters={activeFilters}
           onFiltersChange={handleFiltersChange}
           showKindFilter={showKindFilter}
         />

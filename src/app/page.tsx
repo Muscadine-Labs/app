@@ -1,11 +1,9 @@
 'use client';
 
 import { useMemo, useRef, type CSSProperties, type ReactNode } from 'react';
+import dynamic from 'next/dynamic';
 import { useAccount } from 'wagmi';
-import {
-  WalletOverview,
-  PortfolioPositionChart,
-} from '@/components/features/wallet';
+import { WalletOverview } from '@/components/features/wallet';
 import { DashboardVaultTable } from '@/components/features/vault/VaultExplorerTable';
 import { useVaultListPreloader } from '@/hooks/useVaultDataFetch';
 import {
@@ -25,12 +23,25 @@ import {
 import { Vault } from '@/types/vault';
 import { BASE_CHAIN_ID } from '@/lib/constants';
 import type { VaultStrategy } from '@/lib/vaults';
+import { Skeleton } from '@/components/ui/Skeleton';
 
 /** Chart height under the wallet. */
 const CHART_HEIGHT_CLASS = 'h-[300px] sm:h-[340px] min-[1000px]:h-[380px]';
 const PANEL_SCROLL_MAX = 'max-h-[20rem]';
 /** Visible rows before Your Vaults scrolls. */
 const DASHBOARD_PANEL_VISIBLE_ROWS = 4;
+
+const PortfolioPositionChart = dynamic(
+  () => import('@/components/features/wallet/PortfolioPositionChart'),
+  {
+    ssr: false,
+    loading: () => (
+      <div className={`rounded-lg bg-[var(--surface)] ${CHART_HEIGHT_CLASS} p-4`}>
+        <Skeleton width="100%" height="100%" />
+      </div>
+    ),
+  }
+);
 
 function DashboardPanel({
   title,

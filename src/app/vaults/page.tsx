@@ -1,15 +1,8 @@
 'use client';
 
-import { useMemo } from 'react';
 import VaultExplorer from '@/components/features/vault/VaultExplorer';
-import { useVaultListPreloader } from '@/hooks/useVaultDataFetch';
-import { getAllRegistryVaults } from '@/lib/vault-utils';
 
 export default function VaultsPage() {
-  const vaults = useMemo(() => getAllRegistryVaults(), []);
-
-  useVaultListPreloader(vaults);
-
   return (
     <div className="w-full bg-[var(--background)] h-full">
       <div className="flex-1 overflow-y-auto">

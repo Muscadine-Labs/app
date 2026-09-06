@@ -12,8 +12,6 @@ module.exports = {
         fontFamily: {
           'figtree': ['var(--font-figtree)'],
           'funnel': ['var(--font-funnel-display)'],
-          'outfit': ['var(--font-outfit)'],
-          'tinos': ['var(--font-tinos)'],
         },
         colors: {
           background: 'rgb(var(--background) / <alpha-value>)',

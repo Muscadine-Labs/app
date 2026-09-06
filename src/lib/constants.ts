@@ -42,7 +42,7 @@ export const MORPHO_MAX_RETRIES = 3;
 /** In-memory Morpho response cache TTL in `fetchMorphoGraphQL` (dev and production). */
 export const MORPHO_MEMORY_CACHE_MS = 60_000;
 /** Vault list preload concurrency — small batches avoid Morpho rate-limit bursts. */
-export const MORPHO_PRELOAD_BATCH_SIZE = 2;
+export const MORPHO_PRELOAD_BATCH_SIZE = 4;
 /** Back off failed Morpho fetches (rate limits, 5xx) before retrying the same vault. */
 export const MORPHO_FETCH_ERROR_COOLDOWN_MS = 60_000;
 

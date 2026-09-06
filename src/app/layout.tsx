@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from 'next'
-import { Figtree, Funnel_Display, Outfit, Tinos } from 'next/font/google'
+import { Figtree, Funnel_Display } from 'next/font/google'
 import './globals.css'
 import { AppLayout } from '@/components/layout/AppLayout'
 import { headers } from 'next/headers'
@@ -15,28 +15,14 @@ const appUrl = getAppUrl()
 
 const figtree = Figtree({
   subsets: ['latin'],
-  weight: ['300', '400', '500', '600', '700', '800', '900'],
-  style: ['normal', 'italic'],
+  weight: ['400', '500', '600', '700'],
   variable: '--font-figtree',
 })
 
 const funnelDisplay = Funnel_Display({
   subsets: ['latin'],
-  weight: ['300', '400', '500', '600', '700', '800'],
+  weight: ['400', '600'],
   variable: '--font-funnel-display',
-})
-
-const outfit = Outfit({
-  subsets: ['latin'],
-  weight: ['100', '200', '300', '400', '500', '600', '700', '800', '900'],
-  variable: '--font-outfit',
-})
-
-const tinos = Tinos({
-  subsets: ['latin'],
-  weight: ['400', '700'],
-  style: ['normal', 'italic'],
-  variable: '--font-tinos',
 })
 
 export const viewport: Viewport = {
@@ -90,7 +76,7 @@ export default async function RootLayout({
       <head>
         <meta name="base:app_id" content={BASE_APP_ID} />
       </head>
-      <body className={`${figtree.className} ${funnelDisplay.variable} ${outfit.variable} ${tinos.variable}`}>
+      <body className={`${figtree.className} ${funnelDisplay.variable}`}>
           <Providers initialState={initialState}>
               <PriceProvider>
                 <AppLayout>{children}</AppLayout>

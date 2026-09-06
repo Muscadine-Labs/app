@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import dynamic from 'next/dynamic';
 import { useRouter, useParams } from 'next/navigation';
 import { useAccount } from 'wagmi';
 import {
@@ -19,14 +20,34 @@ import { useVaultDataFetch } from '@/hooks/useVaultDataFetch';
 import { useUnderlyingDepositAccess } from '@/hooks/useUnderlyingDepositAccess';
 import { useWallet } from '@/contexts/WalletContext';
 import VaultHero from '@/components/features/vault/VaultHero';
-import VaultOverview from '@/components/features/vault/VaultOverview';
 import VaultTabs from '@/components/features/vault/VaultTabs';
-import VaultPosition from '@/components/features/vault/VaultPosition';
 import VaultHistory from '@/components/features/vault/VaultHistory';
 import { Button } from '@/components/ui';
 import { Skeleton } from '@/components/ui/Skeleton';
 import type { VaultTransactionTab } from '@/hooks/useScopedVaultTransaction';
 import { useTransactionState } from '@/contexts/TransactionContext';
+
+function VaultTabSkeleton() {
+  return (
+    <div className="space-y-5">
+      <Skeleton width="100%" height="12rem" />
+      <div className="space-y-3">
+        <Skeleton width="100%" height="3.5rem" />
+        <Skeleton width="100%" height="3.5rem" />
+      </div>
+    </div>
+  );
+}
+
+const VaultOverview = dynamic(
+  () => import('@/components/features/vault/VaultOverview'),
+  { loading: () => <VaultTabSkeleton /> }
+);
+
+const VaultPosition = dynamic(
+  () => import('@/components/features/vault/VaultPosition'),
+  { loading: () => <VaultTabSkeleton /> }
+);
 
 function VaultPageSkeleton({ className }: { className: string }) {
   return (
