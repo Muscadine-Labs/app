@@ -7,9 +7,9 @@ import { cookieToInitialState } from 'wagmi'
 import { Providers } from './Providers'
 import { config } from '@/config/wagmi'
 import { PriceProvider } from '@/contexts/PriceContext'
-import { Analytics } from '@vercel/analytics/react'
 import { getAppUrl } from '@/lib/app-url'
 import { APP_NAME, BASE_APP_ID } from '@/lib/base-app'
+import DeferredAnalytics from '@/components/DeferredAnalytics'
 
 const appUrl = getAppUrl()
 
@@ -82,7 +82,7 @@ export default async function RootLayout({
                 <AppLayout>{children}</AppLayout>
               </PriceProvider>
           </Providers>
-          <Analytics />
+          <DeferredAnalytics />
       </body>
     </html>
   )

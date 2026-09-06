@@ -21,6 +21,8 @@ const nextConfig: NextConfig = {
       ...config.resolve.alias,
       'wagmi': path.join(process.cwd(), 'node_modules/wagmi'),
       '@tanstack/react-query': path.join(process.cwd(), 'node_modules/@tanstack/react-query'),
+      '../build/polyfills/polyfill-module': false,
+      'next/dist/build/polyfills/polyfill-module': false,
     };
 
     // Exclude system directories from watching
@@ -44,6 +46,8 @@ const nextConfig: NextConfig = {
     resolveAlias: {
       'wagmi': './node_modules/wagmi',
       '@tanstack/react-query': './node_modules/@tanstack/react-query',
+      '../build/polyfills/polyfill-module': './src/lib/modern-polyfill.js',
+      'next/dist/build/polyfills/polyfill-module': './src/lib/modern-polyfill.js',
     },
     // Turbopack configuration to prevent scanning system directories
     resolveExtensions: [
@@ -57,6 +61,7 @@ const nextConfig: NextConfig = {
     ],
   },
   images: {
+    formats: ['image/avif', 'image/webp'],
     remotePatterns: [
       {
         protocol: "https",
