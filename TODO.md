@@ -51,6 +51,7 @@ MarketParams = (address loanToken, address collateralToken, address oracle, addr
 prepend the permit or approve call itself (spender is your bundler) and to wrap the output array in your Bundler3 multicall 
 
 -on liquidity, add the ability to force deallocate from a underlying vault to fee wrapper for fee wrapper liquidity so it correclt states it liquidity.
+-on a wallet that has the ability to depsoit into fee wrapper and underlying, have it store in catch the filter if its all, wrapper or underlying if i change it. 
 
 **Future (optional):**
 - Have multichain for viewing such as with stocks, vaults like robinhood chain. With the actual functions on settings be able to switch the chain. 
