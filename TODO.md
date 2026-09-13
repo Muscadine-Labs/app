@@ -50,6 +50,8 @@ Morpho:
 MarketParams = (address loanToken, address collateralToken, address oracle, address irm, uint256 lltv)
 prepend the permit or approve call itself (spender is your bundler) and to wrap the output array in your Bundler3 multicall 
 
+-on liquidity, add the ability to force deallocate from a underlying vault to fee wrapper for fee wrapper liquidity so it correclt states it liquidity.
+
 **Future (optional):**
 - Have multichain for viewing such as with stocks, vaults like robinhood chain. With the actual functions on settings be able to switch the chain. 
 - Smart wallet (AA) deposit issue when USDC is used for gas — investigate before changing tx code.
