@@ -4,6 +4,7 @@
 - **Deposit gate — use on-chain RPC whitelist (optional):** Today the app uses a config-only depositor allowlist (gate UI always active) and never calls `sendAssetsGate` / `canSendAssets` over RPC. Lets have it so it fast loads with our config, while chekcing onchain so it than checks if the current address is onchain, than if it is it uses it. So, there is less time between loading. 
 - use morpho sdks or onchain for forced deallocation for both the underlying vaults and wrapper vaults. So users on the fee wrapper can withdraw if not enough idle liquidity
 Context
+0make sure no sdks or grapghql queries are becoming depericated that we use.
 
 Morpho Vault V2 fee wrapper W wrapping a child Vault V2 C through a single MorphoVaultV1Adapter (legacy name — the child is V2). W.liquidityAdapter is set to that adapter with empty data. W's forceDeallocate penalty is 2%. All of C's adapters have their forceDeallocate penalty set to 0. Stack is viem.
 
