@@ -549,7 +549,7 @@ Optional later: [Base Notifications API](https://docs.base.org/apps/technical-gu
 
 ### Deposit gates (underlying-only)
 
-The explorer uses the config allowlist immediately, then replaces it with `canSendAssets` on `WhitelistSendAssetsGate` when that read returns. A failed read keeps the config result. Do not read `isWhitelisted` or `sendAssetsGate` on the vault.
+The explorer uses the config allowlist on the first paint, then reads `canSendAssets` on `WhitelistSendAssetsGate`. A true result can add a wallet that is not in the config. A false or failed read does not remove a config allowlist, so a listed wallet does not change on screen while the read is in flight. Do not read `isWhitelisted` or `sendAssetsGate` on the vault.
 
 | Piece | Location |
 |-------|----------|

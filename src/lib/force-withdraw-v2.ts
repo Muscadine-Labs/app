@@ -266,16 +266,6 @@ const VAULT_ERC4626_ADAPTER_ABI = [
   },
 ] as const;
 
-const INNER_VAULT_LIQUIDITY_ABI = [
-  {
-    name: 'maxWithdraw',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [{ name: 'owner', type: 'address' }],
-    outputs: [{ name: '', type: 'uint256' }],
-  },
-] as const;
-
 const MORPHO_BLUE_ABI = [
   {
     name: 'idToMarketParams',
@@ -362,46 +352,18 @@ type AdapterLiquiditySlot = {
 
 async function loadVaultErc4626AdapterSlot(
   publicClient: PublicClient,
-  adapter: Address,
-  penaltyWad: bigint
+  adapter: Address
 ): Promise<AdapterLiquiditySlot | null> {
   try {
-    const innerVault = getAddress(
-      await publicClient.readContract({
-        address: adapter,
-        abi: VAULT_ERC4626_ADAPTER_ABI,
-        functionName: 'morphoVaultV1',
-      })
-    );
-    const realAssets = (await publicClient.readContract({
+    await publicClient.readContract({
       address: adapter,
       abi: VAULT_ERC4626_ADAPTER_ABI,
-      functionName: 'realAssets',
-    })) as bigint;
-    if (realAssets <= BigInt(0)) return null;
-
-    let withdrawable = BigInt(0);
-    try {
-      withdrawable = (await publicClient.readContract({
-        address: innerVault,
-        abi: INNER_VAULT_LIQUIDITY_ABI,
-        functionName: 'maxWithdraw',
-        args: [adapter],
-      })) as bigint;
-    } catch {
-      withdrawable = BigInt(0);
-    }
-
-    if (withdrawable <= BigInt(0)) {
-      // realAssets can exceed what the inner vault will release to the adapter today.
-      // forceDeallocate on a fee wrapper calls adapter.deallocate → inner ERC-4626 withdraw.
-      return null;
-    }
-
-    const available = minBigInt(realAssets, withdrawable);
-    if (available <= BigInt(0)) return null;
-
-    return { adapter, data: '0x', available, penaltyWad };
+      functionName: 'morphoVaultV1',
+    });
+    // Vault V2 maxWithdraw always returns 0. Wrapper exits are planned in
+    // planWrapperForceWithdraw, which reads the child markets directly.
+    logger.warn('Skipping vault adapter in same-vault force plan', { adapter });
+    return null;
   } catch {
     return null;
   }
@@ -456,7 +418,7 @@ async function loadAdapterLiquiditySlots(
         functionName: 'marketIdsLength',
       });
     } catch {
-      const vaultSlot = await loadVaultErc4626AdapterSlot(publicClient, adapter, penaltyWad);
+      const vaultSlot = await loadVaultErc4626AdapterSlot(publicClient, adapter);
       if (vaultSlot) {
         slots.push(vaultSlot);
       } else {

@@ -13,8 +13,10 @@ import { BASE_CHAIN_ID } from '@/lib/constants';
 /**
  * Underlying deposit eligibility for the connected wallet.
  *
- * The config allowlist is used immediately. When `canSendAssets` returns, that
- * on-chain result replaces it. A failed read keeps the config result.
+ * The config allowlist is used on the first paint. `canSendAssets` runs after
+ * that. A true on-chain result can add a wallet that is not in the config.
+ * A false or failed read does not remove a config allowlist, so an already
+ * listed wallet does not change on screen while the read is in flight.
  */
 export function useUnderlyingDepositAccess() {
   const { address } = useAccount();
@@ -34,9 +36,7 @@ export function useUnderlyingDepositAccess() {
   const eligibleUnderlyingAddresses = useMemo(() => {
     const eligible = new Set<string>();
     const allowed =
-      typeof onChainAllowed === 'boolean'
-        ? onChainAllowed
-        : isDepositorAllowlistAddress(address);
+      isDepositorAllowlistAddress(address) || onChainAllowed === true;
     if (!address || !allowed) return eligible;
 
     for (const vault of underlyings) {
