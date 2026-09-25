@@ -325,10 +325,16 @@ export async function fetchVaultV2ActivityData(
 
   let historicalLookup: Awaited<ReturnType<typeof fetchHistoricalVaultRatios>> = null;
   if (transferTimestamps.length > 0) {
+    const earliestTransfer = Math.min(...transferTimestamps);
+    // Morpho buckets are labeled at the end of the hour or day. A query that
+    // starts at the transfer time returns only the next bucket, which is after
+    // the transfer. Pricing those shares with that later rate, or with today's
+    // spot rate, counts later interest as principal. The chart then shows 0
+    // earned interest until the position grows past that inflated deposit.
     historicalLookup = await fetchHistoricalVaultRatios({
       vaultAddress,
       chainId,
-      startTimestamp: Math.min(...transferTimestamps),
+      startTimestamp: earliestTransfer - 24 * 60 * 60,
       endTimestamp: Math.max(...transferTimestamps),
     });
   }

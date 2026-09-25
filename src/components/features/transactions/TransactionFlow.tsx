@@ -23,6 +23,7 @@ import {
 } from '@/lib/force-withdraw-v2';
 import { formatAssetAmount, formatBigIntForInput } from '@/lib/formatter';
 import { BASE_CHAIN_ID, POST_TX_BALANCE_REFRESH_DELAY_MS } from '@/lib/constants';
+import { getRegistryVaultList } from '@/lib/vaults';
 import {
   depositToVaultV2,
   withdrawFromVaultV2,
@@ -108,7 +109,7 @@ export function TransactionFlow({
   const [partialFailure, setPartialFailure] = useState(false);
   const [liquidityWarningOpen, setLiquidityWarningOpen] = useState(false);
   const [liquidityWarningContext, setLiquidityWarningContext] = useState<{
-    morphoVaultUrl: string;
+    morphoVaultUrl: string | null;
     requestedAmountLabel: string;
     instantLiquidityLabel: string;
     estimatedPenaltyLabel: string | null;
@@ -702,7 +703,14 @@ export function TransactionFlow({
                 })();
 
               setLiquidityWarningContext({
-                morphoVaultUrl: getMorphoVaultUrl(BASE_CHAIN_ID, vaultAccount.address),
+                morphoVaultUrl: (() => {
+                  const registryVault = getRegistryVaultList().find(
+                    (vault) =>
+                      vault.address.toLowerCase() === vaultAccount.address.toLowerCase()
+                  );
+                  if (registryVault?.kind === 'wrapper') return null;
+                  return getMorphoVaultUrl(BASE_CHAIN_ID, vaultAccount.address);
+                })(),
                 requestedAmountLabel: formatAssetAmount(
                   requested,
                   assetToUse.decimals,

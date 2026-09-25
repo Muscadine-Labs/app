@@ -9,7 +9,8 @@ interface WithdrawLiquidityWarningModalProps {
   onClose: () => void;
   /** Run in-app force withdraw (forceDeallocate + withdraw). */
   onForceWithdraw?: () => void;
-  morphoVaultUrl: string;
+  /** Morpho app vault URL — omit for fee wrappers (not listed on Morpho). */
+  morphoVaultUrl?: string | null;
   requestedAmountLabel: string;
   instantLiquidityLabel: string;
   /** Simulated penalty burned from shares (asset units), e.g. "0.00000037 cbBTC". */
@@ -88,8 +89,8 @@ export function WithdrawLiquidityWarningModal({
           </div>
         ) : (
           <p className="text-sm text-[var(--foreground-secondary)] leading-relaxed">
-            In-app force withdraw isn&apos;t available right now. Open Morpho to exit, or go back and
-            try a smaller amount.
+            In-app force withdraw isn&apos;t available right now.
+            {morphoVaultUrl ? ' Open Morpho to exit, or go back and try a smaller amount.' : ' Go back and try a smaller amount.'}
           </p>
         )}
 
@@ -123,16 +124,24 @@ export function WithdrawLiquidityWarningModal({
               {isPreparingForce ? 'Preparing…' : 'Force withdraw'}
             </Button>
           ) : null}
+          {morphoVaultUrl ? (
+            <Button
+              variant={forceWithdrawAvailable ? 'secondary' : 'primary'}
+              size="lg"
+              fullWidth
+              disabled={isPreparingForce}
+              onClick={() => window.open(morphoVaultUrl, '_blank', 'noopener,noreferrer')}
+            >
+              Open vault on Morpho
+            </Button>
+          ) : null}
           <Button
-            variant={forceWithdrawAvailable ? 'secondary' : 'primary'}
+            variant={forceWithdrawAvailable || morphoVaultUrl ? 'secondary' : 'primary'}
             size="lg"
             fullWidth
             disabled={isPreparingForce}
-            onClick={() => window.open(morphoVaultUrl, '_blank', 'noopener,noreferrer')}
+            onClick={onClose}
           >
-            Open vault on Morpho
-          </Button>
-          <Button variant="secondary" size="lg" fullWidth disabled={isPreparingForce} onClick={onClose}>
             Go back
           </Button>
         </div>
