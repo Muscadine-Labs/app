@@ -22,6 +22,8 @@ interface WithdrawLiquidityWarningModalProps {
   forceWithdrawAvailable?: boolean;
   /** True when MAX force exit falls back to withdraw (not redeem) and may leave share dust. */
   mayLeaveShareDust?: boolean;
+  /** Fee-wrapper exit: child vault force-deallocates at no share penalty, then the wrapper is withdrawn. */
+  isWrapperExit?: boolean;
   isPreparingForce?: boolean;
 }
 
@@ -37,6 +39,7 @@ export function WithdrawLiquidityWarningModal({
   expectedOutLabel,
   forceWithdrawAvailable = false,
   mayLeaveShareDust = false,
+  isWrapperExit = false,
   isPreparingForce = false,
 }: WithdrawLiquidityWarningModalProps) {
   return (
@@ -94,7 +97,7 @@ export function WithdrawLiquidityWarningModal({
           <p className="text-xs font-medium text-[var(--foreground)]">Risks</p>
           <ul className="text-xs text-[var(--foreground-secondary)] leading-relaxed list-disc pl-4 space-y-1">
             <li>
-              {penaltyRateLabel === '0%'
+              {isWrapperExit
                 ? 'Underlying markets are force-deallocated at no share penalty, then the wrapper is withdrawn.'
                 : 'Penalty is burned from your shares; the estimate can change if share price moves.'}
             </li>

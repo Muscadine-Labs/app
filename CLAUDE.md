@@ -4,7 +4,7 @@ Comprehensive context for AI assistants and developers. This is the canonical �
 
 **Product:** **Muscadine Vaults** — web app for curated Morpho vaults on **Base (chain id 8453)** — deposit, withdraw, portfolio view, vault analytics. **v2 Prime and Frontier** vaults for USDC, cbBTC, and WETH. **v1 MetaMorpho removed** from registry and codebase (v2-only writes).
 
-**Version:** `package.json` → `1.4.0`
+**Version:** `package.json` → `1.4.3`
 
 ---
 
@@ -175,7 +175,7 @@ Direct ERC-4626 for deposit, plain withdraw, and redeem. Morpho Bundler3 for ETH
 | `depositToVaultV2` | Direct ERC-4626 deposit; WETH vault + ETH wrap uses Bundler3 (`fund adapter` → `wrapNative` → optional WETH `transferFrom` → `erc4626Deposit`) |
 | `withdrawFromVaultV2` | Direct `withdraw`; → ETH uses Bundler3 (`erc4626Withdraw` to adapter → `unwrapNative`) |
 | `redeemFromVaultV2` | Direct `redeem`; → ETH uses Bundler3 (`erc4626Redeem` to adapter → `unwrapNative`) |
-| `forceWithdrawFromVaultV2` | Underlying: vault `multicall` force-deallocate + withdraw/redeem. Wrapper: Bundler3 bundle (child `forceDeallocate`, then GeneralAdapter1 exit). Optional Bundler3 unwrap follow-up. Replanned immediately before send. |
+| `forceWithdrawFromVaultV2` | Underlying: vault `multicall` force-deallocate + withdraw/redeem. Wrapper: Bundler3 bundle (child `forceDeallocate`, then GeneralAdapter1 exit). Optional Bundler3 unwrap follow-up. Replanned from on-chain reads immediately before send; falls back to plain withdraw/redeem when instant liquidity now covers the amount. |
 | `resumeUnwrapWalletWethV2` | Resume Bundler3 unwrap after force→ETH unwrap failure (amount from prior exit receipt logs only) |
 
 **ABIs (in-file):**
@@ -197,7 +197,7 @@ Base Bundler3 + GeneralAdapter1. Used for ETH wrap deposits, WETH→ETH unwrap, 
 - ETH fund step must be **empty calldata + value** (adapter `receive()`). `wrapNative` is **non-payable** — never attach value to the wrap call.
 - Deposit with wrap: `fund → wrapNative → optional erc20TransferFrom(WETH) → erc4626Deposit`.
 - Withdraw/redeem → ETH: approve vault **shares** to GeneralAdapter → `erc4626Withdraw|Redeem` (receiver=adapter) → `unwrapNative(max, user)`.
-- Resume unwrap: only when the failed step label includes `unwrap`; never fall back to full wallet WETH `balanceOf`.
+- Resume unwrap: only after the force exit tx was sent (`TransactionFlow` tracks its hash by the **Force withdraw** label, not step index — share approvals can come first) and the failure is on a later step (WETH approval / unwrap). Never re-run the force exit then. Never fall back to full wallet WETH `balanceOf`.
 
 **WETH vaults and WETH wrappers** (vault `asset()` is `BASE_WETH_ADDRESS`):
 
@@ -205,9 +205,9 @@ Base Bundler3 + GeneralAdapter1. Used for ETH wrap deposits, WETH→ETH unwrap, 
 - Withdraw `preferredAsset`: `'ETH' | 'WETH'` (not `'ALL'`) — Bundler3 unwrap when ETH selected.
 - USDC / cbBTC deposits and plain withdraws stay direct ERC-4626. Wrapper force withdraws use Bundler3.
 
-**Force withdraw** (`src/lib/force-withdraw-v2.ts`): when requested assets exceed instant liquidity, plan a cash exit. Warning modal shows estimated penalty, risks, **Force withdraw**, and **Open vault on Morpho**. ETH unwrap (if selected) is a **second** Bundler3 tx after the vault exit. If markets cannot cover the shortfall, the input is capped at the reachable amount. The plan is rebuilt from fresh on-chain reads immediately before it is sent.
+**Force withdraw** (`src/lib/force-withdraw-v2.ts`): when requested assets exceed instant liquidity, plan a cash exit. Warning modal shows estimated penalty, risks, **Force withdraw**, and **Open vault on Morpho**. ETH unwrap (if selected) is a **second** Bundler3 tx after the vault exit. If markets cannot cover the shortfall, the input is capped at the reachable amount. The plan is rebuilt from fresh on-chain reads immediately before it is sent. Instant liquidity for planning is always read on-chain (idle + what the liquidity adapter's route market can pay), never taken from the API.
 
-- **Underlying vaults** (mpUSDC, etc.): vault `multicall` of `forceDeallocate` × N + `withdraw` or **`redeem` (MAX)** from Morpho Blue market adapters (`abi.encode(marketParams)`). Planner reads on-chain market cash. Vault V2 `maxWithdraw` is never used.
+- **Underlying vaults** (mpUSDC, etc.): vault `multicall` of `forceDeallocate` × N + `withdraw` or **`redeem` (MAX)** from Morpho Blue market adapters (`abi.encode(marketParams)`). Planner reads on-chain market cash. The liquidity route market (`liquidityAdapter` + `liquidityData`) is never force-deallocated: it is already counted as instant liquidity, and draining it first makes the final withdraw revert. Vault V2 `maxWithdraw` is never used.
 - **Fee wrappers** (wmpUSDC, etc.): one Bundler3 bundle. `C.forceDeallocate` on the child vault’s other markets (0% penalty, `onBehalf` is the user), then GeneralAdapter1 `erc4626Withdraw` / `erc4626Redeem` on the wrapper. Shares are approved to **GeneralAdapter1**, not Bundler3. Instant liquidity is wrapper idle plus what a plain withdraw can pull from the child. Displayed deallocatable liquidity is the rest of the wrapper’s child position that those child force-deallocates can free.
 
 This is **not** in-kind redemption. In-kind (`vault.inKindRedeem` → VaultExitBundlesV1 `vaultExitBundlesV1InKindRedemptionVaultV2`) burns shares and transfers Morpho Blue supply positions to the user. Not implemented. Do not swap force withdraw for `vaultExitBundlesV1ForceWithdrawVaultV2` (bundle helper with referral fee / minSharePrice). Underlying cash exits stay vault `multicall`. Wrapper cash exits stay the Bundler3 bundle above.
@@ -216,7 +216,7 @@ This is **not** in-kind redemption. In-kind (`vault.inKindRedeem` → VaultExitB
 
 - Direct deposit: spender is the **vault**.
 - Bundler3 wrap deposit with wallet WETH, withdraw→ETH, or wrapper force withdraw: spender is **GeneralAdapter1** (WETH or vault shares). ETH-only wrap needs no ERC-20 approval. Never approve vault shares to Bundler3.
-- USDC-style reset-to-zero may run before a new approval when needed.
+- USDC-style reset-to-zero may run before a new ERC-20 asset approval when needed. Vault V2 share approvals never reset first (`ensureApproval(..., resetFirst = false)`).
 
 **Progress:** `TransactionProgressCallback` — `approving` for approvals, `confirming` for main/Bundler3 tx (do not treat approval hash as final success).
 
@@ -233,7 +233,7 @@ v2-only: `depositToVaultV2` / `withdrawFromVaultV2` / `redeemFromVaultV2` / `for
 
 **Max withdraw detection:** Compares entered amount to `convertToAssets(fullShares)` via **bigint** `parseUnits` with a tight tolerance (~1 unit at ≤8 dp, or 0.001% of max) → uses redeem path / force redeem.
 
-**Liquidity warning:** Before withdraw, if amount > instant liquidity, show `WithdrawLiquidityWarningModal` (force path or Morpho link).
+**Liquidity warning:** Before every withdraw, simulate the plain withdraw/redeem (API instant liquidity can be CDN-stale). If it fails, run the force planner on fresh on-chain state: a plan → `WithdrawLiquidityWarningModal` (force path or Morpho link); shortfall → cap the input; planner says instant covers it → send the plain exit so the wallet shows the real error. The modal's no-penalty wrapper copy keys off the plan being a wrapper bundle, not a 0% penalty (underlying adapters are 0% too).
 
 ---
 

@@ -6,6 +6,8 @@
 - **Wrapper liquidity:** the displayed total includes what a child force-deallocate can free, capped by the wrapper's position in the child.
 - **Vault filter:** All / Underlying / Wrappers is stored per wallet and restored on the next visit.
 - **Morpho SDK / GraphQL:** the app does not depend on `@morpho-org/morpho-sdk`. Vault reads stay on `vaultV2ByAddress`.
+- **Force withdraw review fixes:** retry after a force exit to ETH resumes the unwrap from the force tx hash (not step 0), so it no longer reads the share approval or re-runs the exit. Underlying force plans no longer drain the liquidity route market (plans on mpUSDC used to fail simulation). Withdraws always simulate first; instant liquidity for planning is read on-chain. Share approvals skip the reset-to-0 tx. Wrapper liquidity reads in `/complete` are batched and time-limited.
+- **Manual check still to do:** a small wmpWETH force withdraw to ETH on Base where the share approval comes first, including cancelling the unwrap and using Try again.
 
 **To work on another day:**
 - Update dependencies with npm. A full `npm update` pulled wallet packages that this Next build cannot resolve (`@wagmi/core/tempo` and `@x402`). Direct dependencies stay on the lockfile versions that build.

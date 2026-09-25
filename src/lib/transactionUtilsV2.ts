@@ -50,6 +50,13 @@ const ERC20_ABI = [
     inputs: [{ name: 'account', type: 'address' }],
     outputs: [{ name: '', type: 'uint256' }],
   },
+  {
+    name: 'decimals',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint8' }],
+  },
 ] as const;
 
 // ERC4626 ABI for vault operations
@@ -138,6 +145,23 @@ async function readWethBalance(
     functionName: 'balanceOf',
     args: [ownerAddress],
   }) as Promise<bigint>;
+}
+
+async function readVaultAssetDecimals(
+  publicClient: PublicClient,
+  vaultAddress: Address
+): Promise<number> {
+  const assetAddress = (await publicClient.readContract({
+    address: vaultAddress,
+    abi: ERC4626_ABI,
+    functionName: 'asset',
+  })) as Address;
+  const decimals = await publicClient.readContract({
+    address: assetAddress,
+    abi: ERC20_ABI,
+    functionName: 'decimals',
+  });
+  return Number(decimals);
 }
 
 /** Sum WETH Transfer logs to the user in a vault withdraw/redeem receipt. */
@@ -266,7 +290,9 @@ async function ensureApproval(
   onProgress?: TransactionProgressCallback,
   stepIndex: number = 0,
   totalSteps: number = 1,
-  labels?: { reset?: string; approve?: string }
+  labels?: { reset?: string; approve?: string },
+  /** USDC-style tokens need a reset to 0 first. Vault V2 shares do not. */
+  resetFirst: boolean = true
 ): Promise<boolean> {
   // Early return if amount is zero (no approval needed)
   if (amount === BigInt(0)) {
@@ -295,7 +321,7 @@ async function ensureApproval(
 
   let needsReset = false;
   // Handle USDC-style ERC20s: if allowance > 0 && allowance < amount, reset to 0 first
-  if (allowance > BigInt(0) && allowance < amount) {
+  if (resetFirst && allowance > BigInt(0) && allowance < amount) {
     needsReset = true;
     onProgress?.({
       type: 'approving',
@@ -398,13 +424,11 @@ async function executeVaultWithdrawThenUnwrap(
     args: [userAddress, GENERAL_ADAPTER_ADDRESS],
   })) as bigint;
 
+  // Vault V2 shares approve directly (no USDC-style reset to 0).
   const needsShareApproval = shareAllowance < sharesForApproval;
-  const needsReset =
-    needsShareApproval && shareAllowance > BigInt(0) && shareAllowance < sharesForApproval;
 
   const planLabels: string[] = [];
-  if (needsReset) planLabels.push('Reset share approval', 'Approve shares');
-  else if (needsShareApproval) planLabels.push('Approve shares');
+  if (needsShareApproval) planLabels.push('Approve shares');
   planLabels.push(mode === 'withdraw' ? 'Withdraw to ETH' : 'Redeem to ETH');
   emitTransactionPlan(onProgress, planLabels);
 
@@ -412,7 +436,7 @@ async function executeVaultWithdrawThenUnwrap(
   const totalSteps = planLabels.length;
 
   if (needsShareApproval) {
-    const didReset = await ensureApproval(
+    await ensureApproval(
       publicClient,
       walletClient,
       normalizedVault,
@@ -421,9 +445,11 @@ async function executeVaultWithdrawThenUnwrap(
       userAddress,
       onProgress,
       step,
-      totalSteps
+      totalSteps,
+      { approve: 'Approve shares' },
+      false
     );
-    step += didReset ? 2 : 1;
+    step += 1;
   }
 
   const calls = buildWethVaultWithdrawToEthBundle({
@@ -1006,12 +1032,31 @@ export async function forceWithdrawFromVaultV2(
     publicClient,
     plan.vaultAddress,
     plan.requestedAssets,
-    plan.instantLiquidityAssets,
     userAddress,
     { useRedeemExit: plan.exitMode === 'redeem' }
   );
   if (!freshPlan) {
-    throw new Error('Liquidity changed before the transaction was built. Review the amount and try again.');
+    // Instant liquidity now covers the exit: a plain withdraw/redeem is enough.
+    if (plan.exitMode === 'redeem') {
+      return redeemFromVaultV2(
+        publicClient,
+        walletClient,
+        plan.vaultAddress,
+        0,
+        preferredAsset,
+        onProgress
+      );
+    }
+    const assetDecimals = await readVaultAssetDecimals(publicClient, plan.vaultAddress);
+    return withdrawFromVaultV2(
+      publicClient,
+      walletClient,
+      plan.vaultAddress,
+      formatUnits(plan.requestedAssets, assetDecimals),
+      assetDecimals,
+      preferredAsset,
+      onProgress
+    );
   }
   plan = freshPlan;
 
@@ -1046,8 +1091,8 @@ export async function forceWithdrawFromVaultV2(
       needsWethApproval && allowance > BigInt(0) && allowance < plan.expectedAssetsOut;
   }
 
+  // Vault V2 shares approve directly (no USDC-style reset to 0).
   let needsShareApproval = false;
-  let needsShareReset = false;
   const sharesToApprove = plan.sharesToApprove ?? BigInt(0);
   if (useBundler && sharesToApprove > BigInt(0)) {
     const shareAllowance = (await publicClient.readContract({
@@ -1057,13 +1102,10 @@ export async function forceWithdrawFromVaultV2(
       args: [userAddress, GENERAL_ADAPTER_ADDRESS],
     })) as bigint;
     needsShareApproval = shareAllowance < sharesToApprove;
-    needsShareReset =
-      needsShareApproval && shareAllowance > BigInt(0) && shareAllowance < sharesToApprove;
   }
 
   const planLabels: string[] = [];
-  if (needsShareReset) planLabels.push('Reset share approval', 'Approve shares');
-  else if (needsShareApproval) planLabels.push('Approve shares');
+  if (needsShareApproval) planLabels.push('Approve shares');
   planLabels.push('Force withdraw');
   if (unwrapToEth) {
     if (needsWethReset) planLabels.push('Reset WETH approval', 'Approve WETH');
@@ -1075,7 +1117,7 @@ export async function forceWithdrawFromVaultV2(
 
   let forceStep = 0;
   if (needsShareApproval) {
-    const didReset = await ensureApproval(
+    await ensureApproval(
       publicClient,
       walletClient,
       plan.vaultAddress,
@@ -1085,9 +1127,10 @@ export async function forceWithdrawFromVaultV2(
       onProgress,
       0,
       totalSteps,
-      { reset: 'Reset share approval', approve: 'Approve shares' }
+      { approve: 'Approve shares' },
+      false
     );
-    forceStep = didReset ? 2 : 1;
+    forceStep = 1;
   }
 
   onProgress?.({

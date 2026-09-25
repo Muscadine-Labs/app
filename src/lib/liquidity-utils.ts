@@ -14,9 +14,6 @@ const CHAIN_SLUG: Record<number, string> = {
   1: 'ethereum',
 };
 
-/** 0.5% slack on instant liquidity comparisons (staleness + rounding). */
-const INSTANT_LIQUIDITY_TOLERANCE_BPS = BigInt(50);
-
 export function getMorphoVaultUrl(chainId: number, vaultAddress: string): string {
   const network = CHAIN_SLUG[chainId] ?? 'base';
   return `https://app.morpho.org/${network}/vault/${vaultAddress}`;
@@ -30,27 +27,6 @@ export function parseTransactionAmount(amount: string, decimals: number): bigint
   } catch {
     return BigInt(0);
   }
-}
-
-export function instantLiquidityTolerance(
-  instantLiquidity: bigint,
-  assetDecimals: number
-): bigint {
-  const bpsTolerance = (instantLiquidity * INSTANT_LIQUIDITY_TOLERANCE_BPS) / BigInt(10000);
-  const minTolerance = BigInt(10) ** BigInt(Math.max(0, assetDecimals - 2));
-  return bpsTolerance > minTolerance ? bpsTolerance : minTolerance;
-}
-
-/** True when requested withdraw exceeds idle + liquidity adapter depth (with tolerance). */
-export function exceedsInstantLiquidity(
-  requestedAssets: bigint,
-  instantLiquidityAssets: bigint,
-  assetDecimals: number
-): boolean {
-  if (requestedAssets <= BigInt(0)) return false;
-  if (instantLiquidityAssets <= BigInt(0)) return true;
-  const tolerance = instantLiquidityTolerance(instantLiquidityAssets, assetDecimals);
-  return requestedAssets > instantLiquidityAssets + tolerance;
 }
 
 /** Display liquidity on explorer / vault detail (idle + adapter + force-deallocatable). */

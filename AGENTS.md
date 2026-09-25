@@ -43,7 +43,7 @@ Instructions for AI agents working in this repo. Full architecture docs live in 
 - Withdraw → ETH: approve **shares** to GeneralAdapter, then one Bundler3 multicall (exit to adapter → `unwrapNative`).
 - Bundler wrap/unwrap share-price bounds: **0.03%** from on-chain quotes (`BUNDLER_SLIPPAGE_BPS`, Morpho SDK default). Wrap deposits refuse a zero `convertToShares` quote before approve, then re-quote after approvals for `maxSharePrice`. Direct ERC-4626 deposits skip that read.
 - Approval and main txs: `waitForSuccessfulReceipt` — a reverted receipt must not continue to the next step.
-- Resume unwrap only for unwrap-only steps, or after force exit progressed past step 0; never re-force on unwrap failure.
+- Resume unwrap only after the force exit tx was sent (hash tracked by the **Force withdraw** label, not step 0 — share approvals can come first) and a later step failed; never re-force on WETH approval / unwrap failure. Withdraws always simulate the plain exit first; the force planner reads instant liquidity on-chain and never force-deallocates the liquidity route market. Vault share approvals never reset to 0 first.
 - Force withdraw: **underlying vaults** use vault `multicall` (`forceDeallocate` + withdraw/redeem) on Blue markets. **Fee wrappers** use one Bundler3 bundle: child `forceDeallocate` (0% penalty), then GeneralAdapter1 `erc4626Withdraw`/`erc4626Redeem`. Approve wrapper shares to GeneralAdapter1, never Bundler3. Do not use Vault V2 `maxWithdraw`. ETH unwrap after force is a second Bundler3 tx and only when the vault asset is WETH.
 
 ## Known gotchas

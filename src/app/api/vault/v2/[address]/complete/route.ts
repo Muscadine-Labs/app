@@ -8,12 +8,28 @@ import { BASE_CHAIN_ID, MORPHO_GRAPHQL_REVALIDATE_SECONDS } from '@/lib/constant
 import { readWrapperExitLiquidity } from '@/lib/force-withdraw-v2';
 import { getRegistryVaultList } from '@/lib/vaults';
 
+/** Wrapper liquidity is optional; never let a slow RPC hold up vault metadata. */
+const WRAPPER_LIQUIDITY_TIMEOUT_MS = 4_000;
+
 function getBasePublicClient() {
   const key = process.env.NEXT_PUBLIC_ALCHEMY_API_KEY?.trim();
   const url = key
     ? `https://base-mainnet.g.alchemy.com/v2/${key}`
     : 'https://mainnet.base.org';
-  return createPublicClient({ chain: base, transport: http(url) });
+  return createPublicClient({
+    chain: base,
+    // Reads issued in the same tick go out as one Multicall3 eth_call.
+    batch: { multicall: true },
+    transport: http(url, { timeout: WRAPPER_LIQUIDITY_TIMEOUT_MS, retryCount: 1 }),
+  });
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`Timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
 export async function GET(
@@ -252,9 +268,12 @@ export async function GET(
       );
       if (registryVault?.kind === 'wrapper' && chainId === BASE_CHAIN_ID && address) {
         try {
-          const quote = await readWrapperExitLiquidity(
-            getBasePublicClient() as unknown as Parameters<typeof readWrapperExitLiquidity>[0],
-            getAddress(address)
+          const quote = await withTimeout(
+            readWrapperExitLiquidity(
+              getBasePublicClient() as unknown as Parameters<typeof readWrapperExitLiquidity>[0],
+              getAddress(address)
+            ),
+            WRAPPER_LIQUIDITY_TIMEOUT_MS
           );
           if (quote) {
             const assetDecimals = Number(vault.asset?.decimals ?? 6);

@@ -8,7 +8,6 @@ import { useTransactionState } from '@/contexts/TransactionContext';
 import type { TransactionProgressStep } from '@/types/transactions';
 import { isCancellationError, formatTransactionError } from '@/lib/transactionUtils';
 import {
-  exceedsInstantLiquidity,
   fetchInstantLiquidityAssets,
   getMorphoVaultUrl,
   parseTransactionAmount,
@@ -58,32 +57,21 @@ function stepTypeForLabel(label: string): 'signing' | 'approving' | 'confirming'
 }
 
 /**
- * Resume only the post-exit unwrap (force→ETH), not the atomic Bundler3 "Withdraw to ETH" step.
- * Match unwrap-only labels, or failures after a force exit already progressed past step 0.
+ * Once the force exit tx was sent, a later failure (WETH approval / unwrap) resumes the unwrap
+ * only — never re-run the force exit. A failure on the force step itself retries the full flow
+ * (the tx may have reverted). Atomic Bundler3 exits ("Withdraw to ETH") have no force hash and
+ * always retry the full flow.
  */
 function shouldResumeUnwrapOnly(
   transactionType: string | null,
   failedStepIndex: number,
-  stepsInfo: Array<{ stepIndex: number; label: string; txHash?: string }>
+  stepsInfo: Array<{ stepIndex: number; label: string; txHash?: string }>,
+  forceExitHash: string | null
 ): boolean {
-  if (transactionType !== 'withdraw') return false;
+  if (transactionType !== 'withdraw' || !forceExitHash) return false;
   const failedStep = stepsInfo.find((s) => s.stepIndex === failedStepIndex);
   const label = failedStep?.label?.toLowerCase() ?? '';
-
-  // Atomic Bundler3 exits ("Withdraw to ETH" / "Redeem to ETH") retry the full flow.
-  const isUnwrapOnlyStep =
-    label.startsWith('unwrap') || label === 'unwrap to eth' || label === 'unwrap weth';
-  if (isUnwrapOnlyStep) return true;
-
-  const priorStep = stepsInfo.find((s) => s.stepIndex === 0);
-  const priorLabel = priorStep?.label?.toLowerCase() ?? '';
-  // Force was broadcast and we failed on a later step (approve / unwrap) — resume unwrap.
-  // Do NOT resume when still on step 0 (force may have reverted; retry the force plan).
-  return (
-    failedStepIndex > 0 &&
-    priorLabel.includes('force') &&
-    Boolean(priorStep?.txHash)
-  );
+  return !label.includes('force');
 }
 
 export function TransactionFlow({
@@ -128,10 +116,13 @@ export function TransactionFlow({
     expectedOutLabel: string | null;
     forceWithdrawAvailable: boolean;
     mayLeaveShareDust: boolean;
+    isWrapperExit: boolean;
   } | null>(null);
   const [isCheckingLiquidity, setIsCheckingLiquidity] = useState(false);
   const currentStepRef = useRef(0);
   const forcePlanRef = useRef<ForceWithdrawPlan | null>(null);
+  /** Hash of the sent force exit tx. Step indexes shift when approvals come first, so track it by label. */
+  const forceExitHashRef = useRef<string | null>(null);
   const executingRef = useRef(false);
   const confirmLockRef = useRef(false);
 
@@ -387,6 +378,7 @@ export function TransactionFlow({
         setTotalSteps(0);
         setCurrentTxHash(null);
         setPartialFailure(false);
+        forceExitHashRef.current = null;
       }
 
       logger.info('Transaction execution started', {
@@ -411,6 +403,14 @@ export function TransactionFlow({
             }))
           );
           return;
+        }
+
+        if (
+          step.type === 'confirming' &&
+          step.txHash &&
+          step.stepLabel?.toLowerCase().includes('force')
+        ) {
+          forceExitHashRef.current = step.txHash;
         }
 
         if (step.type === 'confirming' && step.txHash) {
@@ -467,12 +467,12 @@ export function TransactionFlow({
       const resumeStepIndex = currentStepRef.current;
       const resumeTotalSteps = totalSteps > 0 ? totalSteps : Math.max(stepsInfo.length, 2);
 
+      const priorWithdrawHash = forceExitHashRef.current;
       if (
         isResuming &&
-        shouldResumeUnwrapOnly(transactionType, resumeStepIndex, stepsInfo)
+        shouldResumeUnwrapOnly(transactionType, resumeStepIndex, stepsInfo, priorWithdrawHash)
       ) {
         forcePlanRef.current = null;
-        const priorWithdrawHash = stepsInfo.find((s) => s.stepIndex === 0 && s.txHash)?.txHash;
         if (!priorWithdrawHash) {
           throw new Error(
             'Previous withdrawal transaction not found.\n\n' +
@@ -488,6 +488,7 @@ export function TransactionFlow({
           resumeTotalSteps
         );
       } else if (transactionType === 'deposit') {
+        forceExitHashRef.current = null;
         const vaultAddr = (toAccount as VaultAccount).address as Address;
         txHash = await depositToVaultV2(
           publicClient as PublicClient,
@@ -499,6 +500,8 @@ export function TransactionFlow({
           onProgress
         );
       } else if (transactionType === 'withdraw') {
+        // Full retry: a hash from an earlier (reverted) force attempt must not drive a later resume.
+        forceExitHashRef.current = null;
         const vaultAddr = (fromAccount as VaultAccount).address as Address;
         const withdrawPreferredAsset =
           preferredAsset === 'ALL' ? undefined : (preferredAsset as 'ETH' | 'WETH' | undefined);
@@ -620,72 +623,83 @@ export function TransactionFlow({
         setIsCheckingLiquidity(true);
         try {
           const requested = parseTransactionAmount(amount, assetToUse.decimals);
-          const instant =
-            (await fetchInstantLiquidityAssets(vaultAccount.address, BASE_CHAIN_ID)) ??
-            (() => {
-              const cached = getVaultData(vaultAccount.address);
-              const raw =
-                cached?.liquidityBreakdown?.instantLiquidityAssets ?? cached?.liquidityAssets;
-              return raw ? BigInt(raw) : null;
-            })();
+          fetchVaultData(vaultAccount.address, BASE_CHAIN_ID, true).catch((err) => {
+            logger.warn('Vault data refresh failed before withdraw', {
+              vaultAddress: vaultAccount.address,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          });
 
-          await fetchVaultData(vaultAccount.address, BASE_CHAIN_ID, true);
+          // Always simulate the plain exit. Cached instant liquidity (API / CDN) can be stale,
+          // so it cannot decide on its own whether a plain withdraw will go through.
+          const simulationSucceeded = await simulateVaultWithdraw(
+            publicClient as PublicClient,
+            walletClient as WalletClient,
+            vaultAccount.address as Address,
+            requested,
+            shouldUseWithdrawAll
+          );
 
-          if (instant !== null && exceedsInstantLiquidity(requested, instant, assetToUse.decimals)) {
-            const simulationSucceeded = await simulateVaultWithdraw(
-              publicClient as PublicClient,
-              walletClient as WalletClient,
-              vaultAccount.address as Address,
-              requested,
-              shouldUseWithdrawAll
-            );
+          if (!simulationSucceeded) {
+            const userAddress = walletClient.account?.address as Address | undefined;
+            let forcePlan: ForceWithdrawPlan | null = null;
+            let forceOk = false;
+            // Planner read fresh on-chain liquidity and found it covers the request, so the plain
+            // exit failed for another reason. Send it and let the wallet surface the real error.
+            let instantCoversRequest = false;
 
-            if (!simulationSucceeded) {
-              const userAddress = walletClient.account?.address as Address | undefined;
-              let forcePlan: ForceWithdrawPlan | null = null;
-              let forceOk = false;
-
-              if (userAddress) {
-                try {
-                  forcePlan = await planForceWithdrawV2(
+            if (userAddress) {
+              try {
+                forcePlan = await planForceWithdrawV2(
+                  publicClient as PublicClient,
+                  vaultAccount.address as Address,
+                  requested,
+                  userAddress,
+                  { useRedeemExit: shouldUseWithdrawAll }
+                );
+                instantCoversRequest = forcePlan === null;
+                if (forcePlan) {
+                  forceOk = await simulateForceWithdrawPlan(
                     publicClient as PublicClient,
-                    vaultAccount.address as Address,
-                    requested,
-                    instant,
-                    userAddress,
-                    { useRedeemExit: shouldUseWithdrawAll }
+                    forcePlan,
+                    userAddress
                   );
-                  if (forcePlan) {
-                    forceOk = await simulateForceWithdrawPlan(
-                      publicClient as PublicClient,
-                      forcePlan,
-                      userAddress
-                    );
-                    if (!forceOk) forcePlan = null;
-                  }
-                } catch (planErr) {
-                  if (planErr instanceof ForceWithdrawShortfallError) {
-                    setAmount(formatBigIntForInput(planErr.reachableAssets, assetToUse.decimals));
-                    const capped = formatAssetAmount(
-                      planErr.reachableAssets,
-                      assetToUse.decimals,
-                      assetToUse.symbol
-                    );
-                    const errorMessage = `That amount is above available liquidity. The maximum is ${capped}.`;
-                    setStatus('error', errorMessage);
-                    showErrorToast(errorMessage, 5000);
-                    return;
-                  }
-                  logger.warn('Force withdraw planning failed', {
-                    vaultAddress: vaultAccount.address,
-                    error: planErr instanceof Error ? planErr.message : String(planErr),
-                  });
-                  forcePlan = null;
-                  forceOk = false;
+                  if (!forceOk) forcePlan = null;
                 }
+              } catch (planErr) {
+                if (planErr instanceof ForceWithdrawShortfallError) {
+                  setAmount(formatBigIntForInput(planErr.reachableAssets, assetToUse.decimals));
+                  const capped = formatAssetAmount(
+                    planErr.reachableAssets,
+                    assetToUse.decimals,
+                    assetToUse.symbol
+                  );
+                  const errorMessage = `That amount is above available liquidity. The maximum is ${capped}.`;
+                  setStatus('error', errorMessage);
+                  showErrorToast(errorMessage, 5000);
+                  return;
+                }
+                logger.warn('Force withdraw planning failed', {
+                  vaultAddress: vaultAccount.address,
+                  error: planErr instanceof Error ? planErr.message : String(planErr),
+                });
+                forcePlan = null;
+                forceOk = false;
               }
+            }
 
+            if (!instantCoversRequest) {
               forcePlanRef.current = forceOk && forcePlan ? forcePlan : null;
+
+              const instant =
+                forcePlan?.instantLiquidityAssets ??
+                (await fetchInstantLiquidityAssets(vaultAccount.address, BASE_CHAIN_ID)) ??
+                (() => {
+                  const cached = getVaultData(vaultAccount.address);
+                  const raw =
+                    cached?.liquidityBreakdown?.instantLiquidityAssets ?? cached?.liquidityAssets;
+                  return raw ? BigInt(raw) : null;
+                })();
 
               setLiquidityWarningContext({
                 morphoVaultUrl: getMorphoVaultUrl(BASE_CHAIN_ID, vaultAccount.address),
@@ -694,11 +708,10 @@ export function TransactionFlow({
                   assetToUse.decimals,
                   assetToUse.symbol
                 ),
-                instantLiquidityLabel: formatAssetAmount(
-                  instant,
-                  assetToUse.decimals,
-                  assetToUse.symbol
-                ),
+                instantLiquidityLabel:
+                  instant !== null
+                    ? formatAssetAmount(instant, assetToUse.decimals, assetToUse.symbol)
+                    : 'part of that amount',
                 estimatedPenaltyLabel: forcePlan
                   ? formatForcePenaltyAmount(
                       forcePlan.estimatedPenaltyAssets,
@@ -719,6 +732,7 @@ export function TransactionFlow({
                 forceWithdrawAvailable: Boolean(forceOk && forcePlan),
                 mayLeaveShareDust:
                   shouldUseWithdrawAll && Boolean(forcePlan && forcePlan.exitMode === 'withdraw'),
+                isWrapperExit: Boolean(forcePlan?.bundlerCalls?.length),
               });
               setLiquidityWarningOpen(true);
               return;
@@ -898,6 +912,7 @@ export function TransactionFlow({
           expectedOutLabel={liquidityWarningContext.expectedOutLabel}
           forceWithdrawAvailable={liquidityWarningContext.forceWithdrawAvailable}
           mayLeaveShareDust={liquidityWarningContext.mayLeaveShareDust}
+          isWrapperExit={liquidityWarningContext.isWrapperExit}
           isPreparingForce={isExecuting}
         />
       )}

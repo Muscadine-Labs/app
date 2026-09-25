@@ -8,9 +8,10 @@
  * In-kind (`vault.inKindRedeem` → VaultExitBundlesV1) transfers Morpho Blue
  * supply positions to the user and is a separate path.
  *
- * Used when requested assets exceed instant liquidity (idle + liquidity adapter).
+ * Used when requested assets exceed instant liquidity (idle + liquidity adapter), read on-chain.
  * Underlying vaults: vault.multicall([forceDeallocate × N, withdraw|redeem]) on that vault.
  * Fee wrappers: one Bundler3 bundle of child forceDeallocate (0% penalty) then wrapper withdraw.
+ * The liquidity route market is never force-deallocated: the final withdraw already pulls from it.
  * Do not use Vault V2 maxWithdraw — it always returns 0.
  * Ref: https://docs.morpho.org/developers/sdks/morpho-sdk/vault/#force-withdraw--force-redeem
  */
@@ -19,6 +20,9 @@ import {
   type Address,
   type Hex,
   type PublicClient,
+  BaseError,
+  ContractFunctionRevertedError,
+  ContractFunctionZeroDataError,
   encodeAbiParameters,
   encodeFunctionData,
   formatUnits,
@@ -350,23 +354,129 @@ type AdapterLiquiditySlot = {
   penaltyWad: bigint;
 };
 
-async function loadVaultErc4626AdapterSlot(
+const ERC20_BALANCE_ABI = [
+  {
+    name: 'balanceOf',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [{ name: 'account', type: 'address' }],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+] as const;
+
+/** True for an on-chain revert or empty return data, false for RPC / network failures. */
+function isContractRevert(err: unknown): boolean {
+  return (
+    err instanceof BaseError &&
+    Boolean(
+      err.walk(
+        (cause) =>
+          cause instanceof ContractFunctionRevertedError ||
+          cause instanceof ContractFunctionZeroDataError
+      )
+    )
+  );
+}
+
+function indexRange(length: bigint): bigint[] {
+  return Array.from({ length: Number(length) }, (_, i) => BigInt(i));
+}
+
+/** Blue market slots for one adapter. Adapters without Blue markets (vault adapters) return []. */
+async function loadMarketAdapterSlots(
   publicClient: PublicClient,
+  vaultAddress: Address,
   adapter: Address
-): Promise<AdapterLiquiditySlot | null> {
+): Promise<AdapterLiquiditySlot[]> {
+  let morpho: Address;
+  let marketIdsLength: bigint;
   try {
-    await publicClient.readContract({
-      address: adapter,
-      abi: VAULT_ERC4626_ADAPTER_ABI,
-      functionName: 'morphoVaultV1',
-    });
-    // Vault V2 maxWithdraw always returns 0. Wrapper exits are planned in
-    // planWrapperForceWithdraw, which reads the child markets directly.
-    logger.warn('Skipping vault adapter in same-vault force plan', { adapter });
-    return null;
-  } catch {
-    return null;
+    const [morphoRaw, length] = await Promise.all([
+      publicClient.readContract({
+        address: adapter,
+        abi: ADAPTER_ABI,
+        functionName: 'morpho',
+      }),
+      publicClient.readContract({
+        address: adapter,
+        abi: ADAPTER_ABI,
+        functionName: 'marketIdsLength',
+      }),
+    ]);
+    morpho = getAddress(morphoRaw);
+    marketIdsLength = length;
+  } catch (err) {
+    // A vault adapter reverts here. Any other failure must not look like "no liquidity".
+    if (!isContractRevert(err)) throw err;
+    logger.warn('Skipping adapter with no Morpho Blue markets', { vaultAddress, adapter });
+    return [];
   }
+
+  const [penaltyWad, marketIds] = await Promise.all([
+    publicClient.readContract({
+      address: vaultAddress,
+      abi: VAULT_V2_FORCE_ABI,
+      functionName: 'forceDeallocatePenalty',
+      args: [adapter],
+    }),
+    Promise.all(
+      indexRange(marketIdsLength).map((j) =>
+        publicClient.readContract({
+          address: adapter,
+          abi: ADAPTER_ABI,
+          functionName: 'marketIds',
+          args: [j],
+        })
+      )
+    ),
+  ]);
+
+  const slots = await Promise.all(
+    marketIds.map(async (marketId): Promise<AdapterLiquiditySlot | null> => {
+      const [expected, paramsTuple, market] = await Promise.all([
+        publicClient.readContract({
+          address: adapter,
+          abi: ADAPTER_ABI,
+          functionName: 'expectedSupplyAssets',
+          args: [marketId],
+        }),
+        publicClient.readContract({
+          address: morpho,
+          abi: MORPHO_BLUE_ABI,
+          functionName: 'idToMarketParams',
+          args: [marketId],
+        }),
+        publicClient.readContract({
+          address: morpho,
+          abi: MORPHO_BLUE_ABI,
+          functionName: 'market',
+          args: [marketId],
+        }),
+      ]);
+
+      const totalSupplyAssets = BigInt(market[0]);
+      const totalBorrowAssets = BigInt(market[2]);
+      const cash =
+        totalSupplyAssets > totalBorrowAssets ? totalSupplyAssets - totalBorrowAssets : BigInt(0);
+      const available = minBigInt(expected, cash);
+      if (available === BigInt(0)) return null;
+
+      return {
+        adapter,
+        data: encodeMarketParamsData({
+          loanToken: getAddress(paramsTuple[0]),
+          collateralToken: getAddress(paramsTuple[1]),
+          oracle: getAddress(paramsTuple[2]),
+          irm: getAddress(paramsTuple[3]),
+          lltv: paramsTuple[4],
+        }),
+        available,
+        penaltyWad,
+      };
+    })
+  );
+
+  return slots.filter((slot): slot is AdapterLiquiditySlot => slot !== null);
 }
 
 async function loadAdapterLiquiditySlots(
@@ -379,109 +489,24 @@ async function loadAdapterLiquiditySlots(
     functionName: 'adaptersLength',
   });
 
-  if (adaptersLength === BigInt(0)) {
-    throw new Error('This vault has no adapters to force-deallocate from.');
-  }
-
-  const slots: AdapterLiquiditySlot[] = [];
-
-  for (let i = BigInt(0); i < adaptersLength; i = i + BigInt(1)) {
-    const adapter = getAddress(
-      await publicClient.readContract({
-        address: vaultAddress,
-        abi: VAULT_V2_FORCE_ABI,
-        functionName: 'adapters',
-        args: [i],
-      })
-    );
-
-    const penaltyWad = await publicClient.readContract({
-      address: vaultAddress,
-      abi: VAULT_V2_FORCE_ABI,
-      functionName: 'forceDeallocatePenalty',
-      args: [adapter],
-    });
-
-    let morpho: Address;
-    let marketIdsLength: bigint;
-    try {
-      morpho = getAddress(
+  const adapters = await Promise.all(
+    indexRange(adaptersLength).map(async (i) =>
+      getAddress(
         await publicClient.readContract({
-          address: adapter,
-          abi: ADAPTER_ABI,
-          functionName: 'morpho',
+          address: vaultAddress,
+          abi: VAULT_V2_FORCE_ABI,
+          functionName: 'adapters',
+          args: [i],
         })
-      );
-      marketIdsLength = await publicClient.readContract({
-        address: adapter,
-        abi: ADAPTER_ABI,
-        functionName: 'marketIdsLength',
-      });
-    } catch {
-      const vaultSlot = await loadVaultErc4626AdapterSlot(publicClient, adapter);
-      if (vaultSlot) {
-        slots.push(vaultSlot);
-      } else {
-        logger.warn('Skipping adapter with no force-withdraw liquidity path', {
-          vaultAddress,
-          adapter,
-        });
-      }
-      continue;
-    }
+      )
+    )
+  );
 
-    for (let j = BigInt(0); j < marketIdsLength; j = j + BigInt(1)) {
-      const marketId = await publicClient.readContract({
-        address: adapter,
-        abi: ADAPTER_ABI,
-        functionName: 'marketIds',
-        args: [j],
-      });
-
-      const expected = await publicClient.readContract({
-        address: adapter,
-        abi: ADAPTER_ABI,
-        functionName: 'expectedSupplyAssets',
-        args: [marketId],
-      });
-
-      if (expected === BigInt(0)) continue;
-
-      const paramsTuple = await publicClient.readContract({
-        address: morpho,
-        abi: MORPHO_BLUE_ABI,
-        functionName: 'idToMarketParams',
-        args: [marketId],
-      });
-
-      const market = await publicClient.readContract({
-        address: morpho,
-        abi: MORPHO_BLUE_ABI,
-        functionName: 'market',
-        args: [marketId],
-      });
-
-      const totalSupplyAssets = BigInt(market[0]);
-      const totalBorrowAssets = BigInt(market[2]);
-      const cash =
-        totalSupplyAssets > totalBorrowAssets ? totalSupplyAssets - totalBorrowAssets : BigInt(0);
-      const available = minBigInt(expected, cash);
-      if (available === BigInt(0)) continue;
-
-      slots.push({
-        adapter,
-        data: encodeMarketParamsData({
-          loanToken: getAddress(paramsTuple[0]),
-          collateralToken: getAddress(paramsTuple[1]),
-          oracle: getAddress(paramsTuple[2]),
-          irm: getAddress(paramsTuple[3]),
-          lltv: paramsTuple[4],
-        }),
-        available,
-        penaltyWad,
-      });
-    }
-  }
+  const slots = (
+    await Promise.all(
+      adapters.map((adapter) => loadMarketAdapterSlots(publicClient, vaultAddress, adapter))
+    )
+  ).flat();
 
   // Prefer lower penalty first, then deepest liquidity.
   slots.sort((a, b) => {
@@ -491,6 +516,60 @@ async function loadAdapterLiquiditySlots(
     return a.available === b.available ? 0 : a.available > b.available ? -1 : 1;
   });
   return slots;
+}
+
+type VaultCashLiquidity = {
+  idleAssets: bigint;
+  /** What a plain withdraw pulls through the liquidity adapter (vault supply capped by market cash). */
+  routeAssets: bigint;
+  /**
+   * Force-deallocatable slots, sorted. The liquidity route market is excluded: its cash is
+   * already counted in `routeAssets`, and draining it first would make the final withdraw revert.
+   */
+  slots: AdapterLiquiditySlot[];
+};
+
+/** On-chain cash a Vault V2 with Blue market adapters can pay out. */
+async function readVaultCashLiquidity(
+  publicClient: PublicClient,
+  vaultAddress: Address
+): Promise<VaultCashLiquidity> {
+  const [asset, liquidityAdapter, liquidityData, allSlots] = await Promise.all([
+    publicClient.readContract({
+      address: vaultAddress,
+      abi: VAULT_V2_FORCE_ABI,
+      functionName: 'asset',
+    }),
+    publicClient.readContract({
+      address: vaultAddress,
+      abi: VAULT_V2_FORCE_ABI,
+      functionName: 'liquidityAdapter',
+    }),
+    publicClient.readContract({
+      address: vaultAddress,
+      abi: VAULT_V2_FORCE_ABI,
+      functionName: 'liquidityData',
+    }),
+    loadAdapterLiquiditySlots(publicClient, vaultAddress),
+  ]);
+
+  const idleAssets = await publicClient.readContract({
+    address: getAddress(asset),
+    abi: ERC20_BALANCE_ABI,
+    functionName: 'balanceOf',
+    args: [vaultAddress],
+  });
+
+  const routeAdapter = getAddress(liquidityAdapter);
+  const routeData = liquidityData.toLowerCase();
+  const isRoute = (slot: AdapterLiquiditySlot) =>
+    slot.adapter === routeAdapter && slot.data.toLowerCase() === routeData;
+
+  return {
+    idleAssets,
+    routeAssets: allSlots.find(isRoute)?.available ?? BigInt(0),
+    slots: allSlots.filter((slot) => !isRoute(slot)),
+  };
 }
 
 function buildMulticallArgs(
@@ -534,16 +613,6 @@ function buildMulticallArgs(
   return calls;
 }
 
-const ERC20_BALANCE_ABI = [
-  {
-    name: 'balanceOf',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [{ name: 'account', type: 'address' }],
-    outputs: [{ name: '', type: 'uint256' }],
-  },
-] as const;
-
 const BUNDLER3_SIM_ABI = [
   {
     name: 'multicall',
@@ -578,6 +647,13 @@ export type WrapperExitLiquidity = {
   totalAssets: bigint;
 };
 
+type WrapperChildLink = { adapter: Address; child: Address };
+
+type WrapperExitState = WrapperExitLiquidity & {
+  /** Zero-penalty child slots outside the child's liquidity route. */
+  childSlots: AdapterLiquiditySlot[];
+};
+
 function allowanceStorageSlot(owner: Address, spender: Address): Hex {
   const inner = keccak256(
     encodeAbiParameters(
@@ -593,25 +669,29 @@ function allowanceStorageSlot(owner: Address, spender: Address): Hex {
   );
 }
 
+/**
+ * Fee wrapper link: exactly one adapter that points at a child vault (`morphoVaultV1`).
+ * Returns null for other vaults. RPC failures throw so a wrapper is never planned as an underlying vault.
+ */
 async function readWrapperChild(
   publicClient: PublicClient,
   vaultAddress: Address
-): Promise<{ adapter: Address; child: Address } | null> {
-  try {
-    const adaptersLength = await publicClient.readContract({
+): Promise<WrapperChildLink | null> {
+  const adaptersLength = await publicClient.readContract({
+    address: vaultAddress,
+    abi: VAULT_V2_FORCE_ABI,
+    functionName: 'adaptersLength',
+  });
+  if (adaptersLength !== BigInt(1)) return null;
+  const adapter = getAddress(
+    await publicClient.readContract({
       address: vaultAddress,
       abi: VAULT_V2_FORCE_ABI,
-      functionName: 'adaptersLength',
-    });
-    if (adaptersLength !== BigInt(1)) return null;
-    const adapter = getAddress(
-      await publicClient.readContract({
-        address: vaultAddress,
-        abi: VAULT_V2_FORCE_ABI,
-        functionName: 'adapters',
-        args: [BigInt(0)],
-      })
-    );
+      functionName: 'adapters',
+      args: [BigInt(0)],
+    })
+  );
+  try {
     const child = getAddress(
       await publicClient.readContract({
         address: adapter,
@@ -620,15 +700,58 @@ async function readWrapperChild(
       })
     );
     return { adapter, child };
-  } catch {
-    return null;
+  } catch (err) {
+    if (isContractRevert(err)) return null;
+    throw err;
   }
+}
+
+async function readWrapperExitState(
+  publicClient: PublicClient,
+  wrapper: Address,
+  childLink: WrapperChildLink
+): Promise<WrapperExitState> {
+  const [asset, realAssets, child] = await Promise.all([
+    publicClient.readContract({
+      address: wrapper,
+      abi: VAULT_V2_FORCE_ABI,
+      functionName: 'asset',
+    }),
+    publicClient.readContract({
+      address: childLink.adapter,
+      abi: VAULT_ERC4626_ADAPTER_ABI,
+      functionName: 'realAssets',
+    }),
+    readVaultCashLiquidity(publicClient, childLink.child),
+  ]);
+  const idleW = await publicClient.readContract({
+    address: getAddress(asset),
+    abi: ERC20_BALANCE_ABI,
+    functionName: 'balanceOf',
+    args: [wrapper],
+  });
+
+  const childInstant = minBigInt(realAssets, child.idleAssets + child.routeAssets);
+  const instantAssets = idleW + childInstant;
+  const headroom = realAssets > childInstant ? realAssets - childInstant : BigInt(0);
+
+  const childSlots = child.slots.filter((slot) => slot.penaltyWad === BigInt(0));
+  const otherCash = childSlots.reduce((sum, slot) => sum + slot.available, BigInt(0));
+  const deallocatableAssets = minBigInt(headroom, otherCash);
+
+  return {
+    idleAssets: idleW,
+    instantAssets,
+    deallocatableAssets,
+    totalAssets: instantAssets + deallocatableAssets,
+    childSlots,
+  };
 }
 
 /**
  * On-chain exit liquidity for a fee wrapper. Instant is what `W.withdraw` can take
  * with no penalty. Deallocatable is the rest of the wrapper's child position that
- * `C.forceDeallocate` can move to idle first.
+ * `C.forceDeallocate` can move to idle first. Returns null when the vault is not a wrapper.
  */
 export async function readWrapperExitLiquidity(
   publicClient: PublicClient,
@@ -638,82 +761,12 @@ export async function readWrapperExitLiquidity(
   const childLink = await readWrapperChild(publicClient, wrapper);
   if (!childLink) return null;
 
-  await Promise.all([
-    publicClient.readContract({
-      address: wrapper,
-      abi: VAULT_V2_FORCE_ABI,
-      functionName: 'accrueInterestView',
-    }),
-    publicClient.readContract({
-      address: childLink.child,
-      abi: VAULT_V2_FORCE_ABI,
-      functionName: 'accrueInterestView',
-    }),
-  ]).catch(() => undefined);
-
-  const asset = getAddress(
-    await publicClient.readContract({
-      address: wrapper,
-      abi: VAULT_V2_FORCE_ABI,
-      functionName: 'asset',
-    })
-  );
-  const [idleW, idleC, realAssets, liquidityData] = await Promise.all([
-    publicClient.readContract({
-      address: asset,
-      abi: ERC20_BALANCE_ABI,
-      functionName: 'balanceOf',
-      args: [wrapper],
-    }),
-    publicClient.readContract({
-      address: asset,
-      abi: ERC20_BALANCE_ABI,
-      functionName: 'balanceOf',
-      args: [childLink.child],
-    }),
-    publicClient.readContract({
-      address: childLink.adapter,
-      abi: VAULT_ERC4626_ADAPTER_ABI,
-      functionName: 'realAssets',
-    }),
-    publicClient.readContract({
-      address: childLink.child,
-      abi: VAULT_V2_FORCE_ABI,
-      functionName: 'liquidityData',
-    }),
-  ]);
-
-  let slots: AdapterLiquiditySlot[] = [];
-  try {
-    slots = await loadAdapterLiquiditySlots(publicClient, childLink.child);
-  } catch {
-    slots = [];
-  }
-
-  const routeData = (liquidityData as Hex).toLowerCase();
-  const route =
-    routeData !== '0x'
-      ? slots.find((slot) => slot.data.toLowerCase() === routeData)
-      : undefined;
-  const routeAssets = route?.available ?? BigInt(0);
-  const childInstant = minBigInt(realAssets as bigint, (idleC as bigint) + routeAssets);
-  const instantAssets = (idleW as bigint) + childInstant;
-  const headroom =
-    (realAssets as bigint) > childInstant ? (realAssets as bigint) - childInstant : BigInt(0);
-
-  let otherCash = BigInt(0);
-  for (const slot of slots) {
-    if (route && slot.data.toLowerCase() === route.data.toLowerCase()) continue;
-    if (slot.penaltyWad > BigInt(0)) continue;
-    otherCash += slot.available;
-  }
-  const deallocatableAssets = minBigInt(headroom, otherCash);
-
+  const state = await readWrapperExitState(publicClient, wrapper, childLink);
   return {
-    idleAssets: idleW as bigint,
-    instantAssets,
-    deallocatableAssets,
-    totalAssets: instantAssets + deallocatableAssets,
+    idleAssets: state.idleAssets,
+    instantAssets: state.instantAssets,
+    deallocatableAssets: state.deallocatableAssets,
+    totalAssets: state.totalAssets,
   };
 }
 
@@ -734,20 +787,17 @@ function wrapperExitCall(
 
 /**
  * Fee wrapper: move the shortfall to idle on the child (0% penalty), then withdraw the wrapper.
- * Returns null when the vault is not a single-adapter wrapper, or when child markets cannot cover.
+ * Returns null when instant liquidity already covers the exit.
  */
 async function planWrapperForceWithdraw(
   publicClient: PublicClient,
   wrapper: Address,
+  childLink: WrapperChildLink,
   requestedAssets: bigint,
   onBehalf: Address,
   useRedeemExit: boolean
 ): Promise<ForceWithdrawPlan | null> {
-  const childLink = await readWrapperChild(publicClient, wrapper);
-  if (!childLink) return null;
-
-  const liquidity = await readWrapperExitLiquidity(publicClient, wrapper);
-  if (!liquidity) return null;
+  const liquidity = await readWrapperExitState(publicClient, wrapper, childLink);
 
   let assetsOut = requestedAssets;
   let userShares = BigInt(0);
@@ -758,7 +808,7 @@ async function planWrapperForceWithdraw(
       functionName: 'balanceOf',
       args: [onBehalf],
     })) as bigint;
-    if (userShares === BigInt(0)) return null;
+    if (userShares === BigInt(0)) throw new Error('No vault shares to redeem.');
     assetsOut = (await publicClient.readContract({
       address: wrapper,
       abi: VAULT_V2_FORCE_ABI,
@@ -773,21 +823,10 @@ async function planWrapperForceWithdraw(
   }
 
   const shortfall = assetsOut - liquidity.instantAssets;
-  const slots = (await loadAdapterLiquiditySlots(publicClient, childLink.child)).filter(
-    (slot) => slot.penaltyWad === BigInt(0)
-  );
-  const liquidityData = (await publicClient.readContract({
-    address: childLink.child,
-    abi: VAULT_V2_FORCE_ABI,
-    functionName: 'liquidityData',
-  })) as Hex;
-  const routeData = liquidityData.toLowerCase();
-
   let remaining = shortfall;
   const deallocations: ForceDeallocationStep[] = [];
-  for (const slot of slots) {
+  for (const slot of liquidity.childSlots) {
     if (remaining === BigInt(0)) break;
-    if (routeData !== '0x' && slot.data.toLowerCase() === routeData) continue;
     const amount = minBigInt(remaining, slot.available);
     if (amount === BigInt(0)) continue;
     deallocations.push({
@@ -871,8 +910,11 @@ async function planWrapperForceWithdraw(
 
 /**
  * Plan a force withdraw: deallocate the illiquid shortfall into idle, then withdraw or redeem.
- * Penalty burns shares (does not reduce withdrawn assets). Prefers lower-penalty markets first.
- * Returns null when force exit cannot cover the shortfall from liquid markets.
+ * Instant liquidity is read on-chain (idle + liquidity route). Penalty burns shares (does not
+ * reduce withdrawn assets). Prefers lower-penalty markets first.
+ *
+ * Returns null only when instant liquidity already covers the request, so a plain withdraw works.
+ * Throws `ForceWithdrawShortfallError` when markets cannot cover the shortfall.
  *
  * @param options.useRedeemExit — MAX exits: redeem remaining shares after forceDeallocate (avoids dust).
  */
@@ -880,7 +922,6 @@ export async function planForceWithdrawV2(
   publicClient: PublicClient,
   vaultAddress: Address,
   requestedAssets: bigint,
-  instantLiquidityAssets: bigint,
   onBehalf: Address,
   options?: { useRedeemExit?: boolean }
 ): Promise<ForceWithdrawPlan | null> {
@@ -890,28 +931,24 @@ export async function planForceWithdrawV2(
   const user = getAddress(onBehalf);
   const useRedeemExit = options?.useRedeemExit === true;
 
-  if (await readWrapperChild(publicClient, normalizedVault)) {
+  const childLink = await readWrapperChild(publicClient, normalizedVault);
+  if (childLink) {
     return planWrapperForceWithdraw(
       publicClient,
       normalizedVault,
+      childLink,
       requestedAssets,
       user,
       useRedeemExit
     );
   }
 
-  const instantPart = minBigInt(requestedAssets, instantLiquidityAssets);
-  const shortfall = requestedAssets - instantPart;
-
-  if (shortfall === BigInt(0)) {
+  const cash = await readVaultCashLiquidity(publicClient, normalizedVault);
+  const instantLiquidityAssets = cash.idleAssets + cash.routeAssets;
+  if (requestedAssets <= instantLiquidityAssets) {
     return null;
   }
-
-  const slots = await loadAdapterLiquiditySlots(publicClient, normalizedVault);
-  if (slots.length === 0) {
-    logger.warn('No force-deallocatable adapter liquidity found', { vaultAddress: normalizedVault });
-    return null;
-  }
+  const shortfall = requestedAssets - instantLiquidityAssets;
 
   // Free the full illiquid shortfall into idle. Penalty burns shares (not withdraw assets);
   // size liquidity 1:1 with shortfall. Prefer low-penalty slots (already sorted).
@@ -921,7 +958,7 @@ export async function planForceWithdrawV2(
   let estimatedPenaltyAssets = BigInt(0);
   let maxPenaltyWad = BigInt(0);
 
-  for (const slot of slots) {
+  for (const slot of cash.slots) {
     if (remaining === BigInt(0)) break;
     const amount = minBigInt(remaining, slot.available);
     if (amount === BigInt(0)) continue;
