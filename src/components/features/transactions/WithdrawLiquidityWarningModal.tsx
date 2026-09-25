@@ -9,7 +9,8 @@ interface WithdrawLiquidityWarningModalProps {
   onClose: () => void;
   /** Run in-app force withdraw (forceDeallocate + withdraw). */
   onForceWithdraw?: () => void;
-  morphoVaultUrl: string;
+  /** Morpho app vault URL — omit for fee wrappers (not listed on Morpho). */
+  morphoVaultUrl?: string | null;
   requestedAmountLabel: string;
   instantLiquidityLabel: string;
   /** Simulated penalty burned from shares (asset units), e.g. "0.00000037 cbBTC". */
@@ -22,6 +23,8 @@ interface WithdrawLiquidityWarningModalProps {
   forceWithdrawAvailable?: boolean;
   /** True when MAX force exit falls back to withdraw (not redeem) and may leave share dust. */
   mayLeaveShareDust?: boolean;
+  /** Fee-wrapper exit: child vault force-deallocates at no share penalty, then the wrapper is withdrawn. */
+  isWrapperExit?: boolean;
   isPreparingForce?: boolean;
 }
 
@@ -37,6 +40,7 @@ export function WithdrawLiquidityWarningModal({
   expectedOutLabel,
   forceWithdrawAvailable = false,
   mayLeaveShareDust = false,
+  isWrapperExit = false,
   isPreparingForce = false,
 }: WithdrawLiquidityWarningModalProps) {
   return (
@@ -85,15 +89,19 @@ export function WithdrawLiquidityWarningModal({
           </div>
         ) : (
           <p className="text-sm text-[var(--foreground-secondary)] leading-relaxed">
-            In-app force withdraw isn&apos;t available right now. Open Morpho to exit, or go back and
-            try a smaller amount.
+            In-app force withdraw isn&apos;t available right now.
+            {morphoVaultUrl ? ' Open Morpho to exit, or go back and try a smaller amount.' : ' Go back and try a smaller amount.'}
           </p>
         )}
 
         <div className="rounded-lg border border-[var(--warning)]/50 bg-[var(--warning-subtle)] p-3 space-y-2">
           <p className="text-xs font-medium text-[var(--foreground)]">Risks</p>
           <ul className="text-xs text-[var(--foreground-secondary)] leading-relaxed list-disc pl-4 space-y-1">
-            <li>Penalty is burned from your shares; the estimate can change if share price moves.</li>
+            <li>
+              {isWrapperExit
+                ? 'Underlying markets are force-deallocated at no share penalty, then the wrapper is withdrawn.'
+                : 'Penalty is burned from your shares; the estimate can change if share price moves.'}
+            </li>
             <li>If markets lack free liquidity, the transaction reverts.</li>
             {mayLeaveShareDust ? (
               <li>
@@ -116,16 +124,24 @@ export function WithdrawLiquidityWarningModal({
               {isPreparingForce ? 'Preparing…' : 'Force withdraw'}
             </Button>
           ) : null}
+          {morphoVaultUrl ? (
+            <Button
+              variant={forceWithdrawAvailable ? 'secondary' : 'primary'}
+              size="lg"
+              fullWidth
+              disabled={isPreparingForce}
+              onClick={() => window.open(morphoVaultUrl, '_blank', 'noopener,noreferrer')}
+            >
+              Open vault on Morpho
+            </Button>
+          ) : null}
           <Button
-            variant={forceWithdrawAvailable ? 'secondary' : 'primary'}
+            variant={forceWithdrawAvailable || morphoVaultUrl ? 'secondary' : 'primary'}
             size="lg"
             fullWidth
             disabled={isPreparingForce}
-            onClick={() => window.open(morphoVaultUrl, '_blank', 'noopener,noreferrer')}
+            onClick={onClose}
           >
-            Open vault on Morpho
-          </Button>
-          <Button variant="secondary" size="lg" fullWidth disabled={isPreparingForce} onClick={onClose}>
             Go back
           </Button>
         </div>
