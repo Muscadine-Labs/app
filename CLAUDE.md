@@ -109,7 +109,7 @@ Never commit real keys. `.env.example` documents placeholders.
 
 **Reads:** Morpho GraphQL (server routes via `fetchMorphoGraphQL()`).
 
-**Writes:** User wallet signs transactions built in-app — **not** via GraphQL. Deposits/withdraws are direct ERC-4626 except WETH wrap/unwrap via Bundler3.
+**Writes:** User wallet signs transactions built in-app — **not** via GraphQL. Deposits and plain withdraws are direct ERC-4626. Bundler3 is used for WETH wrap/unwrap and for fee-wrapper force withdraws.
 
 ---
 
@@ -119,7 +119,7 @@ Single source of truth: `src/lib/vaults.ts` → `VAULTS` record.
 
 Always resolve version with `getVaultVersion(address)` / `findVaultByAddress()` from `src/lib/vault-utils.ts`. Do not infer v1/v2 from asset symbol alone.
 
-**Default product surface is Morpho fee wrappers** (`kind: 'wrapper'`). They are Vault V2 (`type: FeeWrapper` in GraphQL) immutably allocated to one underlying Morpho Vault V2 via `MorphoVaultV2Adapter`. Query them with `vaultV2ByAddress` like any v2 vault — deposits/withdraws are the same ERC-4626 path.
+**Default product surface is Morpho fee wrappers** (`kind: 'wrapper'`). They are Vault V2 (`type: FeeWrapper` in GraphQL) immutably allocated to one underlying Morpho Vault V2 via `MorphoVaultV2Adapter`. Query them with `vaultV2ByAddress` like any v2 vault. Deposits and plain withdraws are the same ERC-4626 path. A withdraw larger than instant liquidity force-deallocates the underlying vault, then withdraws the wrapper, in one Bundler3 bundle.
 
 | Asset | Wrapper (default) | Underlying V2 Prime | Wrapper Frontier | Underlying Frontier |
 |-------|-------------------|---------------------|------------------|---------------------|
@@ -142,7 +142,7 @@ Explorer filters default to **All** (network, strategy, asset). **No v1/v2 versi
 
 ## V2 transactions (only write path)
 
-All vault writes go through **`src/lib/transactionUtilsV2.ts`**. Simple ERC-4626 ops are direct viem calls. Multi-step WETH↔ETH flows use Morpho **Bundler3** + **GeneralAdapter1** (`src/lib/bundler3.ts`).
+All vault writes go through **`src/lib/transactionUtilsV2.ts`**. Simple ERC-4626 ops are direct viem calls. WETH↔ETH flows and fee-wrapper force withdraws use Morpho **Bundler3** + **GeneralAdapter1** (`src/lib/bundler3.ts`).
 
 **Routing:** `TransactionFlow.tsx` → `depositToVaultV2` / `withdrawFromVaultV2` / `redeemFromVaultV2` / `forceWithdrawFromVaultV2` (when amount > instant liquidity).
 
@@ -166,7 +166,7 @@ Share tokens use **18 decimals**; underlying assets use registry decimals (USDC 
 
 ### `src/lib/transactionUtilsV2.ts`
 
-Direct ERC-4626 for deposit/withdraw/redeem; Morpho Bundler3 only when wrapping or unwrapping ETH.
+Direct ERC-4626 for deposit, plain withdraw, and redeem. Morpho Bundler3 for ETH wrap/unwrap and for fee-wrapper force withdraws.
 
 **Exports:**
 
@@ -175,7 +175,7 @@ Direct ERC-4626 for deposit/withdraw/redeem; Morpho Bundler3 only when wrapping 
 | `depositToVaultV2` | Direct ERC-4626 deposit; WETH vault + ETH wrap uses Bundler3 (`fund adapter` → `wrapNative` → optional WETH `transferFrom` → `erc4626Deposit`) |
 | `withdrawFromVaultV2` | Direct `withdraw`; → ETH uses Bundler3 (`erc4626Withdraw` to adapter → `unwrapNative`) |
 | `redeemFromVaultV2` | Direct `redeem`; → ETH uses Bundler3 (`erc4626Redeem` to adapter → `unwrapNative`) |
-| `forceWithdrawFromVaultV2` | Vault `multicall` force-deallocate + withdraw; optional Bundler3 unwrap follow-up |
+| `forceWithdrawFromVaultV2` | Underlying: vault `multicall` force-deallocate + withdraw/redeem. Wrapper: Bundler3 bundle (child `forceDeallocate`, then GeneralAdapter1 exit). Optional Bundler3 unwrap follow-up. Replanned immediately before send. |
 | `resumeUnwrapWalletWethV2` | Resume Bundler3 unwrap after force→ETH unwrap failure (amount from prior exit receipt logs only) |
 
 **ABIs (in-file):**
@@ -185,7 +185,7 @@ Direct ERC-4626 for deposit/withdraw/redeem; Morpho Bundler3 only when wrapping 
 
 ### Morpho Bundler3 (`src/lib/bundler3.ts`)
 
-Base Bundler3 + GeneralAdapter1. Used for ETH wrap deposits and WETH→ETH unwrap. Adapter ERC-4626 calls use share-price bounds from on-chain quotes with **0.03%** slippage (`BUNDLER_SLIPPAGE_BPS`). Plain USDC/cbBTC/WETH deposits call the vault directly — no extra adapter approval.
+Base Bundler3 + GeneralAdapter1. Used for ETH wrap deposits, WETH→ETH unwrap, and fee-wrapper force withdraws. Adapter ERC-4626 calls use share-price bounds from on-chain quotes with **0.03%** slippage (`BUNDLER_SLIPPAGE_BPS`). Plain USDC/cbBTC/WETH deposits call the vault directly — no extra adapter approval. Never approve vault shares to Bundler3.
 
 | Constant | Address (Base) |
 |----------|----------------|
@@ -203,19 +203,19 @@ Base Bundler3 + GeneralAdapter1. Used for ETH wrap deposits and WETH→ETH unwra
 
 - Deposit `preferredAsset`: `'ETH' | 'WETH' | 'ALL'` (wrap ETH, use WETH only, or combine). **Default is WETH.** Gas reserve `ETH_GAS_RESERVE` (`0.0001 ETH`) left in wallet when wrapping.
 - Withdraw `preferredAsset`: `'ETH' | 'WETH'` (not `'ALL'`) — Bundler3 unwrap when ETH selected.
-- USDC / cbBTC vaults never use Bundler3.
+- USDC / cbBTC deposits and plain withdraws stay direct ERC-4626. Wrapper force withdraws use Bundler3.
 
-**Force withdraw** (`src/lib/force-withdraw-v2.ts`): when requested assets exceed instant liquidity, plan `forceDeallocate` × N + `withdraw` or **`redeem` (MAX)** in vault `multicall` — same route as Morpho SDK `forceWithdraw` / `forceRedeem`. Warning modal shows estimated penalty, risks, **Force withdraw**, and **Open vault on Morpho**. ETH unwrap (if selected) is a **second** Bundler3 tx after the vault exit. If adapters lack free cash, force plan is unavailable — user must reduce amount to instant liquidity, wait, or use Morpho.
+**Force withdraw** (`src/lib/force-withdraw-v2.ts`): when requested assets exceed instant liquidity, plan a cash exit. Warning modal shows estimated penalty, risks, **Force withdraw**, and **Open vault on Morpho**. ETH unwrap (if selected) is a **second** Bundler3 tx after the vault exit. If markets cannot cover the shortfall, the input is capped at the reachable amount. The plan is rebuilt from fresh on-chain reads immediately before it is sent.
 
-- **Underlying vaults** (mpUSDC, etc.): force-deallocate from **Morpho Blue market adapters** (`abi.encode(marketParams)`). Planner reads on-chain market cash; Morpho `forceDeallocatableLiquidity` is non-zero when markets have exit capacity.
-- **Fee wrappers** (wmpUSDC, etc.): one **MorphoVaultV2Adapter** only (`data = 0x`). `forceDeallocate` calls `adapter.deallocate` → **inner vault ERC-4626 withdraw to the adapter**, not Blue markets on the underlying vault. Planner caps adapter liquidity at `min(realAssets, innerVault.maxWithdraw(adapter))`; when inner `maxWithdraw(adapter)` is 0, no in-app force plan is offered (Morpho `forceDeallocatableLiquidity` on the wrapper is also 0). Liquidity sitting in the underlying vault’s Blue markets is **not** reachable from a wrapper force exit — user exits via instant liquidity on the wrapper, waits, or uses Morpho on the **underlying** vault.
+- **Underlying vaults** (mpUSDC, etc.): vault `multicall` of `forceDeallocate` × N + `withdraw` or **`redeem` (MAX)** from Morpho Blue market adapters (`abi.encode(marketParams)`). Planner reads on-chain market cash. Vault V2 `maxWithdraw` is never used.
+- **Fee wrappers** (wmpUSDC, etc.): one Bundler3 bundle. `C.forceDeallocate` on the child vault’s other markets (0% penalty, `onBehalf` is the user), then GeneralAdapter1 `erc4626Withdraw` / `erc4626Redeem` on the wrapper. Shares are approved to **GeneralAdapter1**, not Bundler3. Instant liquidity is wrapper idle plus what a plain withdraw can pull from the child. Displayed deallocatable liquidity is the rest of the wrapper’s child position that those child force-deallocates can free.
 
-This is **not** in-kind redemption. In-kind (`vault.inKindRedeem` → VaultExitBundlesV1 `vaultExitBundlesV1InKindRedemptionVaultV2`) burns shares and transfers Morpho Blue supply positions to the user. Not implemented. Do not swap force withdraw for `vaultExitBundlesV1ForceWithdrawVaultV2` (bundle helper with referral fee / minSharePrice); Morpho’s documented cash path remains vault `multicall`.
+This is **not** in-kind redemption. In-kind (`vault.inKindRedeem` → VaultExitBundlesV1 `vaultExitBundlesV1InKindRedemptionVaultV2`) burns shares and transfers Morpho Blue supply positions to the user. Not implemented. Do not swap force withdraw for `vaultExitBundlesV1ForceWithdrawVaultV2` (bundle helper with referral fee / minSharePrice). Underlying cash exits stay vault `multicall`. Wrapper cash exits stay the Bundler3 bundle above.
 
 **Approvals:**
 
 - Direct deposit: spender is the **vault**.
-- Bundler3 wrap deposit with wallet WETH, or withdraw→ETH: spender is **GeneralAdapter1** (WETH or vault shares). ETH-only wrap needs no ERC-20 approval.
+- Bundler3 wrap deposit with wallet WETH, withdraw→ETH, or wrapper force withdraw: spender is **GeneralAdapter1** (WETH or vault shares). ETH-only wrap needs no ERC-20 approval. Never approve vault shares to Bundler3.
 - USDC-style reset-to-zero may run before a new approval when needed.
 
 **Progress:** `TransactionProgressCallback` — `approving` for approvals, `confirming` for main/Bundler3 tx (do not treat approval hash as final success).
@@ -462,8 +462,8 @@ src/
     base-app.ts           # APP_NAME, BASE_APP_ID, Base App WebView detect
     portfolio-utils.ts    # ★ aggregatePortfolioHistory (dashboard)
     api-utils.ts          # Period/interval helpers; strip incomplete Morpho timeseries tails
-    transactionUtilsV2.ts # ★ V2 on-chain (ERC-4626 + Bundler3 for WETH/ETH)
-    bundler3.ts # Morpho Bundler3 helpers (ETH wrap/unwrap + ERC-4626)
+    transactionUtilsV2.ts # ★ V2 on-chain (ERC-4626 + Bundler3 for WETH/ETH and wrapper force withdraw)
+    bundler3.ts # Morpho Bundler3 helpers (ETH wrap/unwrap, wrapper exit, ERC-4626)
     transactionUtils.ts   # Errors, shared tx helpers
     vaults.ts             # ★ Vault registry (wrappers + underlying v2 Prime/Frontier)
     vault-utils.ts        # Routes, sortVaultsForDisplay, resolvePositionAssetsUsd, isCuratedVaultAddress
@@ -549,14 +549,16 @@ Optional later: [Base Notifications API](https://docs.base.org/apps/technical-gu
 
 ### Deposit gates (underlying-only)
 
-**No gate RPC in the app** — do not add `sendAssetsGate`, `canSendAssets`, or gate `isWhitelisted` reads to client hooks.
+The explorer uses the config allowlist immediately, then replaces it with `canSendAssets` on `WhitelistSendAssetsGate` when that read returns. A failed read keeps the config result. Do not read `isWhitelisted` or `sendAssetsGate` on the vault.
 
 | Piece | Location |
 |-------|----------|
-| Depositor allowlist (5 EOAs) | `src/lib/deposit-gate-config.ts` — keep in sync with curator `lib/config/deposit-gates.ts` |
-| Eligibility hook | `src/hooks/useUnderlyingDepositAccess.ts` — config only; gate UI always active |
+| Depositor allowlist (5 EOAs) + gate ABI | `src/lib/deposit-gate-config.ts` — keep the allowlist in sync with curator `lib/config/deposit-gates.ts` |
+| Eligibility hook | `src/hooks/useUnderlyingDepositAccess.ts` — config first, then `canSendAssets` |
 
-**Ops loop (every allowlist change):** edit curator + app config → **`npm run gates:verify`** in curator (RPC) → redeploy app. See `curator/docs/brain/deposit-gates.md`. Optional revert to live RPC whitelist: `TODO.md`.
+**Ops loop (every allowlist change):** edit curator + app config → **`npm run gates:verify`** in curator (RPC) → redeploy app. See `curator/docs/brain/deposit-gates.md`. The live `canSendAssets` read picks up on-chain whitelist changes without a redeploy.
+
+**Explorer kind filter:** when a wallet can see wrappers and underlyings, the All / Underlying / Wrappers choice is stored in `localStorage` under `vault-explorer-kind-filter`, keyed by address.
 
 ---
 
@@ -590,7 +592,7 @@ rm -rf .next .turbo && npm run dev
 
 ### Changing v2 transaction behavior
 
-Edit **`src/lib/transactionUtilsV2.ts`** and/or **`src/lib/bundler3.ts`**. Plain deposits are direct ERC-4626; Bundler3 is wrap/unwrap only. Test approve → deposit and withdraw/redeem on Base with small amounts; for ETH paths confirm Bundler3 multicall.
+Edit **`src/lib/transactionUtilsV2.ts`**, **`src/lib/force-withdraw-v2.ts`**, and/or **`src/lib/bundler3.ts`**. Plain deposits are direct ERC-4626. Bundler3 is wrap/unwrap and fee-wrapper force withdraw. Test approve → deposit and withdraw/redeem on Base with small amounts; for ETH paths and wrapper force exits confirm the Bundler3 multicall.
 
 ---
 

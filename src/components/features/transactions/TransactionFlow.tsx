@@ -17,11 +17,12 @@ import {
 import {
   formatForcePenaltyAmount,
   formatPenaltyRatePercent,
+  ForceWithdrawShortfallError,
   planForceWithdrawV2,
   simulateForceWithdrawPlan,
   type ForceWithdrawPlan,
 } from '@/lib/force-withdraw-v2';
-import { formatAssetAmount } from '@/lib/formatter';
+import { formatAssetAmount, formatBigIntForInput } from '@/lib/formatter';
 import { BASE_CHAIN_ID, POST_TX_BALANCE_REFRESH_DELAY_MS } from '@/lib/constants';
 import {
   depositToVaultV2,
@@ -101,6 +102,7 @@ export function TransactionFlow({
     transactionType,
     derivedAsset,
     preferredAsset,
+    setAmount,
     setStatus,
   } = useTransactionState();
   const { success, error: showErrorToast } = useToast();
@@ -662,6 +664,18 @@ export function TransactionFlow({
                     if (!forceOk) forcePlan = null;
                   }
                 } catch (planErr) {
+                  if (planErr instanceof ForceWithdrawShortfallError) {
+                    setAmount(formatBigIntForInput(planErr.reachableAssets, assetToUse.decimals));
+                    const capped = formatAssetAmount(
+                      planErr.reachableAssets,
+                      assetToUse.decimals,
+                      assetToUse.symbol
+                    );
+                    const errorMessage = `That amount is above available liquidity. The maximum is ${capped}.`;
+                    setStatus('error', errorMessage);
+                    showErrorToast(errorMessage, 5000);
+                    return;
+                  }
                   logger.warn('Force withdraw planning failed', {
                     vaultAddress: vaultAccount.address,
                     error: planErr instanceof Error ? planErr.message : String(planErr),

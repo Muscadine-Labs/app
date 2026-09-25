@@ -166,6 +166,17 @@ const GENERAL_ADAPTER_ABI = [
 const ZERO_HASH =
   '0x0000000000000000000000000000000000000000000000000000000000000000' as Hex;
 
+/** Call a contract directly from Bundler3 (msg.sender is the bundler). */
+export function buildBundlerDirectCall(to: Address, data: Hex): Bundler3Call {
+  return {
+    to,
+    data,
+    value: BigInt(0),
+    skipRevert: false,
+    callbackHash: ZERO_HASH,
+  };
+}
+
 function adapterCall(data: Hex, value: bigint = BigInt(0)): Bundler3Call {
   return {
     to: GENERAL_ADAPTER_ADDRESS,
@@ -240,7 +251,7 @@ function buildErc4626DepositCall(
   );
 }
 
-function buildErc4626WithdrawCall(
+export function buildErc4626WithdrawCall(
   vault: Address,
   assets: bigint,
   receiver: Address,
@@ -256,7 +267,7 @@ function buildErc4626WithdrawCall(
   );
 }
 
-function buildErc4626RedeemCall(
+export function buildErc4626RedeemCall(
   vault: Address,
   shares: bigint,
   receiver: Address,
@@ -362,7 +373,7 @@ export async function executeBundler3Multicall(
     totalSteps?: number;
     stepLabel?: string;
   }
-): Promise<string> {
+): Promise<Hex> {
   if (!walletClient.account) {
     throw new Error('Wallet not connected');
   }

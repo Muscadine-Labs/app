@@ -18,7 +18,7 @@ import {
 import { BASE_WETH_ADDRESS, ETH_GAS_RESERVE_WEI, GENERAL_ADAPTER_ADDRESS } from './constants';
 import { allowsNativeEthVaultDeposit } from './vault-access';
 import type { ForceWithdrawPlan } from './force-withdraw-v2';
-import { VAULT_V2_FORCE_ABI } from './force-withdraw-v2';
+import { planForceWithdrawV2, VAULT_V2_FORCE_ABI } from './force-withdraw-v2';
 import type { TransactionProgressCallback } from '../types/transactions';
 
 // ERC20 ABI for approvals and balance checks
@@ -1001,11 +1001,28 @@ export async function forceWithdrawFromVaultV2(
     throw new Error('Wallet not connected');
   }
 
-  if (plan.multicallArgs.length === 0 || plan.expectedAssetsOut <= BigInt(0)) {
+  const userAddress = getAddress(walletClient.account.address);
+  const freshPlan = await planForceWithdrawV2(
+    publicClient,
+    plan.vaultAddress,
+    plan.requestedAssets,
+    plan.instantLiquidityAssets,
+    userAddress,
+    { useRedeemExit: plan.exitMode === 'redeem' }
+  );
+  if (!freshPlan) {
+    throw new Error('Liquidity changed before the transaction was built. Review the amount and try again.');
+  }
+  plan = freshPlan;
+
+  const useBundler = Boolean(plan.bundlerCalls && plan.bundlerCalls.length > 0);
+  if (
+    plan.expectedAssetsOut <= BigInt(0) ||
+    (!useBundler && plan.multicallArgs.length === 0)
+  ) {
     throw new Error('Invalid force withdraw plan.');
   }
 
-  const userAddress = walletClient.account.address;
   const assetAddress = (await publicClient.readContract({
     address: plan.vaultAddress,
     abi: ERC4626_ABI,
@@ -1029,7 +1046,25 @@ export async function forceWithdrawFromVaultV2(
       needsWethApproval && allowance > BigInt(0) && allowance < plan.expectedAssetsOut;
   }
 
-  const planLabels: string[] = ['Force withdraw'];
+  let needsShareApproval = false;
+  let needsShareReset = false;
+  const sharesToApprove = plan.sharesToApprove ?? BigInt(0);
+  if (useBundler && sharesToApprove > BigInt(0)) {
+    const shareAllowance = (await publicClient.readContract({
+      address: plan.vaultAddress,
+      abi: ERC20_ABI,
+      functionName: 'allowance',
+      args: [userAddress, GENERAL_ADAPTER_ADDRESS],
+    })) as bigint;
+    needsShareApproval = shareAllowance < sharesToApprove;
+    needsShareReset =
+      needsShareApproval && shareAllowance > BigInt(0) && shareAllowance < sharesToApprove;
+  }
+
+  const planLabels: string[] = [];
+  if (needsShareReset) planLabels.push('Reset share approval', 'Approve shares');
+  else if (needsShareApproval) planLabels.push('Approve shares');
+  planLabels.push('Force withdraw');
   if (unwrapToEth) {
     if (needsWethReset) planLabels.push('Reset WETH approval', 'Approve WETH');
     else if (needsWethApproval) planLabels.push('Approve WETH');
@@ -1038,27 +1073,56 @@ export async function forceWithdrawFromVaultV2(
   const totalSteps = planLabels.length;
   emitTransactionPlan(onProgress, planLabels);
 
+  let forceStep = 0;
+  if (needsShareApproval) {
+    const didReset = await ensureApproval(
+      publicClient,
+      walletClient,
+      plan.vaultAddress,
+      GENERAL_ADAPTER_ADDRESS,
+      sharesToApprove,
+      userAddress,
+      onProgress,
+      0,
+      totalSteps,
+      { reset: 'Reset share approval', approve: 'Approve shares' }
+    );
+    forceStep = didReset ? 2 : 1;
+  }
+
   onProgress?.({
     type: 'confirming',
-    stepIndex: 0,
+    stepIndex: forceStep,
     totalSteps,
     stepLabel: 'Force withdraw',
     txHash: '',
   });
 
-  const forceHash = await walletClient.writeContract({
-    address: plan.vaultAddress,
-    abi: VAULT_V2_FORCE_ABI,
-    functionName: 'multicall',
-    args: [plan.multicallArgs],
-    account: walletClient.account,
-    chain: undefined,
-    ...builderWriteOpts(),
-  });
+  const forceHash = useBundler
+    ? await executeBundler3Multicall(
+        publicClient,
+        walletClient,
+        plan.bundlerCalls ?? [],
+        {
+          onProgress,
+          stepIndex: forceStep,
+          totalSteps,
+          stepLabel: 'Force withdraw',
+        }
+      )
+    : await walletClient.writeContract({
+        address: plan.vaultAddress,
+        abi: VAULT_V2_FORCE_ABI,
+        functionName: 'multicall',
+        args: [plan.multicallArgs],
+        account: walletClient.account,
+        chain: undefined,
+        ...builderWriteOpts(),
+      });
 
   onProgress?.({
     type: 'confirming',
-    stepIndex: 0,
+    stepIndex: forceStep,
     totalSteps,
     stepLabel: 'Force withdraw',
     txHash: forceHash,
@@ -1078,7 +1142,7 @@ export async function forceWithdrawFromVaultV2(
     );
   }
 
-  let step = 1;
+  let step = forceStep + 1;
   const allowanceAfterExit = (await publicClient.readContract({
     address: BASE_WETH_ADDRESS,
     abi: ERC20_ABI,

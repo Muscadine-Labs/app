@@ -12,6 +12,7 @@ import {
   getDepositedVaultAddressSet,
   selectRegistryVaultsForExplorer,
   sortVaultsForDisplay,
+  type VaultKindFilter,
 } from '@/lib/vault-utils';
 import { useWallet } from '@/contexts/WalletContext';
 import { useVaultData } from '@/contexts/VaultDataContext';
@@ -24,6 +25,32 @@ import VaultExplorerFilters, {
   getDefaultExplorerFilters,
 } from '@/components/features/vault/VaultExplorerFilters';
 import VaultExplorerTable from '@/components/features/vault/VaultExplorerTable';
+
+const KIND_FILTER_STORAGE_KEY = 'vault-explorer-kind-filter';
+
+function readCachedKindFilter(address: string): VaultKindFilter | null {
+  try {
+    const raw = localStorage.getItem(KIND_FILTER_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const value = parsed[address.toLowerCase()];
+    if (value === 'all' || value === 'underlying' || value === 'wrappers') return value;
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function writeCachedKindFilter(address: string, kindFilter: VaultKindFilter) {
+  try {
+    const raw = localStorage.getItem(KIND_FILTER_STORAGE_KEY);
+    const parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+    parsed[address.toLowerCase()] = kindFilter;
+    localStorage.setItem(KIND_FILTER_STORAGE_KEY, JSON.stringify(parsed));
+  } catch {
+    // Ignore private-mode or full storage.
+  }
+}
 
 interface VaultExplorerProps {
   initialFilters?: Partial<VaultExplorerFilterState>;
@@ -65,19 +92,23 @@ function VaultExplorerContent({
     [eligibleUnderlyingAddresses, depositedAddresses, preferUnderlyingTab]
   );
 
+  const cachedKindFilter = isMounted && address ? readCachedKindFilter(address) : null;
   const kindFilterManual = Boolean(address && manualKindAddress === address);
 
   const activeFilters = useMemo(
     () => ({
       ...filters,
-      kindFilter: kindFilterManual ? filters.kindFilter : defaultKindFilter,
+      kindFilter: kindFilterManual
+        ? filters.kindFilter
+        : (cachedKindFilter ?? defaultKindFilter),
     }),
-    [filters, kindFilterManual, defaultKindFilter]
+    [filters, kindFilterManual, cachedKindFilter, defaultKindFilter]
   );
 
   const handleFiltersChange = (next: VaultExplorerFilterState) => {
     if (next.kindFilter !== activeFilters.kindFilter) {
       setManualKindAddress(address ?? null);
+      if (address) writeCachedKindFilter(address, next.kindFilter);
     }
     setFilters(next);
   };

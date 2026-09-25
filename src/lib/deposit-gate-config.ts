@@ -12,7 +12,7 @@ export const SEND_ASSETS_GATE_ADDRESS = getAddress(
  * Source of truth for ops: `curator/lib/config/deposit-gates.ts` →
  * `DEPOSIT_GATE_DEPOSITOR_ALLOWLIST`. After any allowlist change:
  * 1. Update both files.
- * 2. Run `npm run gates:verify` in curator (RPC read — not used by this app).
+ * 2. Run `npm run gates:verify` in curator (RPC read). The app also reads `canSendAssets` after first paint.
  * 3. Redeploy app when config changes.
  */
 export const DEPOSIT_GATE_DEPOSITOR_ADDRESSES: readonly Address[] = [
@@ -26,6 +26,17 @@ export const DEPOSIT_GATE_DEPOSITOR_ADDRESSES: readonly Address[] = [
 const DEPOSITOR_KEYS = new Set<string>(
   DEPOSIT_GATE_DEPOSITOR_ADDRESSES.map((row) => row.toLowerCase())
 );
+
+/** WhitelistSendAssetsGate.canSendAssets — used after the config allowlist for a live check. */
+export const SEND_ASSETS_GATE_ABI = [
+  {
+    type: 'function',
+    name: 'canSendAssets',
+    stateMutability: 'view',
+    inputs: [{ name: 'account', type: 'address' }],
+    outputs: [{ name: '', type: 'bool' }],
+  },
+] as const;
 
 export function isDepositorAllowlistAddress(address: string | null | undefined): boolean {
   if (!address) return false;
