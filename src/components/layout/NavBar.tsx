@@ -8,6 +8,7 @@ import { ConnectButton } from "../features/wallet";
 import { Icon } from "../ui/Icon";
 import { Button } from "../ui/Button";
 import { useTheme } from "@/contexts/ThemeContext";
+import { useVaultKind } from "@/contexts/VaultKindContext";
 import { MORPHO_DISCLAIMER_URL } from '@/lib/constants';
 
 interface NavBarProps {
@@ -28,6 +29,7 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
     
     // Settings state with defaults
     const { theme, setTheme } = useTheme();
+    const { kindFilter, setKindFilter, canSelectUnderlying, canSwitchToWrappers } = useVaultKind();
 
     const isActive = useCallback((item: NavItem): boolean => {
         if (item.id === 'vaults') {
@@ -356,6 +358,25 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                             </button>
                                         </div>
                                     </div>
+                                    {canSelectUnderlying && canSwitchToWrappers ? (
+                                        <div className="mt-3 border-t border-[var(--border)] px-4 pt-3">
+                                            <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setKindFilter(
+                                                        kindFilter === 'underlying' ? 'wrappers' : 'underlying'
+                                                    );
+                                                    setIsSettingsOpen(false);
+                                                }}
+                                                className="w-full text-left text-xs text-[var(--foreground-muted)] hover:text-[var(--foreground)] transition-colors cursor-pointer"
+                                            >
+                                                {kindFilter === 'underlying'
+                                                    ? 'Switch to wrapper vaults'
+                                                    : 'Switch to underlying vaults'}
+                                            </button>
+                                        </div>
+                                    ) : null}
                                     </div>
                                 </>
                             )}

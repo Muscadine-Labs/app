@@ -20,7 +20,10 @@ export function canDepositToVault(options: {
   vaultKind: VaultKind | undefined;
   vaultAddress: string;
   eligibleUnderlyingAddresses: ReadonlySet<string>;
+  /** Wrapper adapter lost `canSendAssets` on the underlying gate. Withdraw stays open. */
+  wrapperDepositBlocked?: boolean;
 }): boolean {
+  if (options.vaultKind === 'wrapper') return !options.wrapperDepositBlocked;
   if (options.vaultKind !== 'underlying') return true;
   return options.eligibleUnderlyingAddresses.has(
     options.vaultAddress.toLowerCase()
@@ -30,30 +33,6 @@ export function canDepositToVault(options: {
 /** Native ETH wrap-and-deposit (Bundler3) is wrapper-only. */
 export function allowsNativeEthVaultDeposit(vaultAddress: string): boolean {
   return !isUnderlyingVaultAddress(vaultAddress);
-}
-
-export function hasVisibleUnderlyingVaults(options: {
-  eligibleUnderlyingAddresses: ReadonlySet<string>;
-  depositedAddresses: ReadonlySet<string>;
-}): boolean {
-  if (options.eligibleUnderlyingAddresses.size > 0) return true;
-  for (const address of options.depositedAddresses) {
-    if (isUnderlyingVaultAddress(address)) return true;
-  }
-  return false;
-}
-
-/** Explorer kind tab default: underlying when gated in; wrappers when exit-only or public. */
-export function getDefaultVaultKindFilter(options: {
-  eligibleUnderlyingAddresses: ReadonlySet<string>;
-  depositedAddresses: ReadonlySet<string>;
-  /** Allowlisted depositor — avoids tab flash on refresh. */
-  preferUnderlying?: boolean;
-}): 'underlying' | 'wrappers' {
-  if (options.preferUnderlying || options.eligibleUnderlyingAddresses.size > 0) {
-    return 'underlying';
-  }
-  return 'wrappers';
 }
 
 export type UnderlyingVaultPageAccess = 'allowed' | 'pending' | 'denied';

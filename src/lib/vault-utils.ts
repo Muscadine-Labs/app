@@ -237,7 +237,7 @@ export function createExternalVaultStub(
 
 export type VaultWalletFilterMode = 'all' | 'inWallet' | 'inWalletAndWhitelisted';
 
-export type VaultKindFilter = 'all' | 'underlying' | 'wrappers';
+export type VaultKindFilter = 'underlying' | 'wrappers';
 
 export function getDepositedVaultAddressSet(
   positions: WalletMorphoPosition[]
@@ -274,53 +274,24 @@ export function filterDashboardDepositedVaults(
   return vaults.filter((vault) => !drop.has(vault.address.toLowerCase()));
 }
 
-/** Dashboard kind pill — only when the wallet holds wrapper and underlying for the pair. */
-export function userHoldsBothVaultPairSides(
+function holdsWrapperOfPair(
   vault: Vault,
   depositedAddresses: ReadonlySet<string>
 ): boolean {
-  if (vault.kind === 'wrapper' && vault.underlyingAddress) {
-    return (
-      depositedAddresses.has(vault.address.toLowerCase()) &&
-      depositedAddresses.has(vault.underlyingAddress.toLowerCase())
-    );
+  if (vault.kind === 'wrapper') {
+    return depositedAddresses.has(vault.address.toLowerCase());
   }
-  if (vault.kind === 'underlying') {
-    const wrapper = findWrapperForUnderlying(vault.address);
-    if (!wrapper) return false;
-    return (
-      depositedAddresses.has(wrapper.address.toLowerCase()) &&
-      depositedAddresses.has(vault.address.toLowerCase())
-    );
-  }
-  return false;
+  const wrapper = findWrapperForUnderlying(vault.address);
+  return wrapper ? depositedAddresses.has(wrapper.address.toLowerCase()) : false;
 }
 
-/**
- * /vaults explorer: gate-eligible underlyings stay visible (even with no shares).
- * Otherwise hide the unheld sibling — wrapper-only drops underlying, not vice versa.
- */
-export function collapseExplorerRegistryVaultPairs(
-  vaults: Vault[],
-  depositedAddresses: ReadonlySet<string>,
-  eligibleUnderlyingAddresses: ReadonlySet<string>
-): Vault[] {
-  const drop = new Set<string>();
-
-  for (const def of getRegistryVaultList()) {
-    if (def.kind !== 'wrapper' || !def.underlyingAddress) continue;
-    const wrapperKey = def.address.toLowerCase();
-    const underlyingKey = def.underlyingAddress.toLowerCase();
-
-    if (eligibleUnderlyingAddresses.has(underlyingKey)) continue;
-
-    const hasWrapper = depositedAddresses.has(wrapperKey);
-    const hasUnderlying = depositedAddresses.has(underlyingKey);
-    if (hasWrapper && hasUnderlying) continue;
-    if (hasWrapper && !hasUnderlying) drop.add(underlyingKey);
-  }
-
-  return vaults.filter((vault) => !drop.has(vault.address.toLowerCase()));
+/** Kind pill when the wallet holds this vault, or holds the wrapper of this underlying. */
+export function shouldShowVaultKindMark(
+  vault: Vault,
+  depositedAddresses: ReadonlySet<string>
+): boolean {
+  if (depositedAddresses.has(vault.address.toLowerCase())) return true;
+  return vault.kind === 'underlying' && holdsWrapperOfPair(vault, depositedAddresses);
 }
 
 /** Registry vaults for the explorer: wrappers always; underlyings by live gate or shares. */
@@ -341,20 +312,14 @@ export function selectRegistryVaultsForExplorer(options: {
   if (options.kindFilter === 'wrappers') {
     return accessible.filter((vault) => {
       if (vault.kind === 'wrapper') return true;
-      return options.depositedAddresses.has(vault.address.toLowerCase());
+      if (options.depositedAddresses.has(vault.address.toLowerCase())) return true;
+      return holdsWrapperOfPair(vault, options.depositedAddresses);
     });
   }
-  if (options.kindFilter === 'underlying') {
-    return accessible.filter((vault) => {
-      if (vault.kind === 'underlying') return true;
-      return options.depositedAddresses.has(vault.address.toLowerCase());
-    });
-  }
-  return collapseExplorerRegistryVaultPairs(
-    accessible,
-    options.depositedAddresses,
-    options.eligibleUnderlyingAddresses
-  );
+  return accessible.filter((vault) => {
+    if (vault.kind === 'underlying') return true;
+    return options.depositedAddresses.has(vault.address.toLowerCase());
+  });
 }
 
 export function dedupeVaultsByAddress(vaults: Vault[]): Vault[] {

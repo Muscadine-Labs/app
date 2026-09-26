@@ -243,8 +243,8 @@ export async function GET(
       })
       .filter(item => item.timestamp >= MIN_VALID_TIMESTAMP);
 
-    // Strip incomplete trailing buckets while the position is open; once fully
-    // withdrawn, ensure the series actually ends at zero (see finalizePositionHistory).
+    // Keep real empty days on an open position; only the current interval's
+    // zero bucket is dropped. A closed position ends at zero (see finalizePositionHistory).
     const history = finalizePositionHistory(
       rawHistory,
       currentPosition,

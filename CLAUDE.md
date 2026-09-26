@@ -130,9 +130,9 @@ Always resolve version with `getVaultVersion(address)` / `findVaultByAddress()` 
 **Routes:** `/vault/v2/{address}` only (wrappers and underlying are both curated).  
 **API:** `/api/vault/v2/{address}/{complete|history|activity|position-history|earned-interest}`
 
-**Vault registry fields:** `symbol` (underlying asset), `vaultSymbol` (share token label), `strategy` (`prime` | `frontier`), `kind` (`wrapper` | `underlying`), `underlyingAddress` (underlying vault on wrappers). Wrapper and underlying of the same product share the display name (e.g. **Muscadine USDC Prime**). **wrapper** / **underlying** pills: explorer + vault hero when both product types are visible; dashboard Your Vaults only when the wallet holds **both** sides of a pair.
+**Vault registry fields:** `symbol` (underlying asset), `vaultSymbol` (share token label), `strategy` (`prime` | `frontier`), `kind` (`wrapper` | `underlying`), `underlyingAddress` (underlying vault on wrappers). Wrapper and underlying of the same product share the display name (e.g. **Muscadine USDC Prime**). A held vault is labeled **wrapper** or **underlying**. An underlying is also labeled when the wallet holds that pair's wrapper.
 
-**Explorer visibility** is gate-driven (`deposit-gate-config.ts`, `useUnderlyingDepositAccess`). Public default is fee wrappers. Allowlisted depositors (and wallets holding underlying shares) see a Vaults filter (All / Underlying / Wrappers); allowlisted default tab is **Underlying**. There is no NavBar wrappers toggle (`VaultSettingsContext` removed).
+**Explorer visibility** is gate-driven (`deposit-gate-config.ts`, `useUnderlyingDepositAccess`). Settings offers one switch action (`VaultKindContext`) only when that wallet can deposit into underlying vaults and wrapper adapters can still deposit. Public default is fee wrappers. Allowlisted wallets default to **Underlying**. Holding underlying shares does not unlock the switch. When every wrapper adapter is blocked, allowlisted wallets stay on underlying and the switch is hidden.
 
 Explorer filters default to **All** (network, strategy, asset). **No v1/v2 version filter** (v1 removed). There is no developer/over-balance bypass mode.
 
@@ -269,8 +269,8 @@ Brand-new vaults (fee wrappers) often have TVL/share-price points before Morpho 
 
 **`finalizePositionHistory` (position-history only):** uses the live `currentPosition` to disambiguate trailing zeros:
 
-- **Position open** (shares/assets > 0): trailing zero buckets are the in-progress interval → stripped (`stripIncompletePositionHistoryBuckets`). If Morpho has not indexed any history yet, seed a short flat line from the live position so Your Position is not blank.
-- **Position closed** (fully withdrawn): trailing zeros are real → kept. If Morpho's stale v1 history still ends at a **pre-withdrawal value**, a **zero point** is appended one bucket after the last point, so the dashboard's forward-fill aggregation drops to zero instead of being stuck at the last held amount (the "portfolio stuck at old v1 balance" bug).
+- **Position open** (shares/assets > 0): only zero buckets inside the current interval are stripped (`stripOpenIntervalPositionBuckets`). Earlier zeros stay, so dashboard forward-fill does not carry an old balance across days the wallet was empty. If Morpho has not indexed any history yet, seed a short flat line from the live position. If the indexed series ends at zero while the live position is open, append that live value at now.
+- **Position closed** (fully withdrawn): trailing zeros are real → kept. If the series still ends at a **pre-withdrawal value**, a **zero point** is appended one bucket after the last point, so the dashboard's forward-fill aggregation drops to zero instead of being stuck at the last held amount.
 
 ### Morpho GraphQL schema changes (2025–2026)
 
@@ -341,7 +341,7 @@ Adaptive layout (content-sized panels; empty sections omitted):
 
 **Important:** Portfolio chart includes **v2** positions from the API; **Your Vaults** is **v2-only**.
 
-- **Your Vaults** lists v2 deposits only (`position.version === 'v2'`), sorted by USD. External (non-curated) vaults are shown but **not clickable** (no `/vault/v2/...` detail page). Hidden when empty. **wrapper** / **underlying** pills appear only when the wallet holds **both** sides of a pair.
+- **Your Vaults** lists v2 deposits only (`position.version === 'v2'`), sorted by USD. External (non-curated) vaults are shown but **not clickable** (no `/vault/v2/...` detail page). Hidden when empty. A held vault is labeled **wrapper** or **underlying**. The dashboard list does not follow the explorer kind switch.
 - **Layout:** Desktop uses two independent columns. Your Vaults sits beside the chart. Wide wallet still uses `wallet|wallet / chart|side`. Below 1000px stacks wallet → chart → Vaults.
 - **Portfolio chart** (`PortfolioPositionChart.tsx`):
   1. Discovers vaults via `/api/user/morpho-positions?includeEmpty=true`.
@@ -361,7 +361,7 @@ Adaptive layout (content-sized panels; empty sections omitted):
 | Network | All, Base | Default **All**; `base` filters `chainId === 8453` |
 | Strategy | All, Prime, Frontier | Default **All** (shows Prime + Frontier) |
 | Asset | All, USDC, cbBTC, WETH | Local filter state. |
-| Vaults | All, Underlying, Wrappers | Shown when the wallet is allowlisted or holds underlying shares. Default **Underlying** for allowlisted depositors; **Wrappers** otherwise. Kind pills on explorer/hero when both product types are visible. |
+| Vaults | Underlying, Wrappers | Settings switch only when the wallet can deposit into underlying vaults and wrapper adapters can still deposit. Default **Underlying** for those wallets; **Wrappers** otherwise. Holding shares does not unlock the switch. If every wrapper adapter is blocked, allowlisted wallets stay on underlying with no switch. A held wrapper is labeled wrapper; its underlying stays visible and is labeled underlying. |
 | Scope | Deposits + whitelisted, In wallet, **Whitelisted** | Default **Deposits + whitelisted**. Wallet modes can list external deposits as **External** (not clickable). |
 
 **Table columns** (`VaultExplorerTable.tsx`): Vault, **Your Position**, **Earned Interest**, **APY / TVL** (compact layout). **Whitelisted** rows navigate to `/vault/v2/{address}`; external rows are display-only.
@@ -549,16 +549,18 @@ Optional later: [Base Notifications API](https://docs.base.org/apps/technical-gu
 
 ### Deposit gates (underlying-only)
 
-The explorer uses the config allowlist on the first paint, then reads `canSendAssets` on `WhitelistSendAssetsGate`. A true result can add a wallet that is not in the config. A false or failed read does not remove a config allowlist, so a listed wallet does not change on screen while the read is in flight. Do not read `isWhitelisted` or `sendAssetsGate` on the vault.
+The explorer uses the config allowlist on the first paint, then reads `canSendAssets` on `WhitelistSendAssetsGate`. A true result can add a wallet that is not in the config. A false or failed read does not remove a config allowlist, so a listed wallet does not change on screen while the read is in flight. Do not read `isWhitelisted` or `sendAssetsGate` on the vault. A non-allowlisted wallet can still open an underlying vault it holds shares in, but **deposit is disabled** and withdraw stays open. Wrapper deposits stay enabled until a successful read shows that wrapper's vault adapter cannot `canSendAssets` into its underlying (`useWrapperAdapterDepositAccess`). A failed adapter read does not disable wrapper deposits. Withdraw is unchanged. When every wrapper adapter is blocked, allowlisted wallets stay on underlying and the settings switch is hidden. Wrapper positions they hold remain on that list for withdraw.
 
 | Piece | Location |
 |-------|----------|
-| Depositor allowlist (5 EOAs) + gate ABI | `src/lib/deposit-gate-config.ts` — keep the allowlist in sync with curator `lib/config/deposit-gates.ts` |
+| Depositor allowlist (10 EOAs) + gate ABI | `src/lib/deposit-gate-config.ts` — keep the allowlist in sync with curator `lib/config/deposit-gates.ts` and with `isWhitelisted` on `WhitelistSendAssetsGate` |
 | Eligibility hook | `src/hooks/useUnderlyingDepositAccess.ts` — config first, then `canSendAssets` |
 
 **Ops loop (every allowlist change):** edit curator + app config → **`npm run gates:verify`** in curator (RPC) → redeploy app. See `curator/docs/brain/deposit-gates.md`. The live `canSendAssets` read picks up on-chain whitelist changes without a redeploy.
 
-**Explorer kind filter:** when a wallet can see wrappers and underlyings, the All / Underlying / Wrappers choice is stored in `localStorage` under `vault-explorer-kind-filter`, keyed by address.
+**Periodic review:** compare `DEPOSIT_GATE_DEPOSITOR_ADDRESSES` with `isWhitelisted` on `WhitelistSendAssetsGate` (`SetIsWhitelisted` logs). Update the constants when an address is added or removed so the list matches the gate, then redeploy.
+
+**Explorer kind toggle:** the settings switch lasts for the current visit only. It is not stored. Allowlisted wallets open on **Underlying** every time they connect. Everyone else stays on **Wrappers**.
 
 ---
 
@@ -655,7 +657,7 @@ Do not bump without checking compatibility:
 |------|----------------|
 | Dashboard layout | `src/app/page.tsx` |
 | Portfolio history chart | `PortfolioPositionChart.tsx`, `portfolio-utils.ts` (`aggregatePortfolioHistory`) |
-| Morpho timeseries tail fix | `api-utils.ts` (`stripIncomplete*`, `finalizePositionHistory`), used in vault `history` + `position-history` routes |
+| Morpho timeseries tail fix | `api-utils.ts` (`stripIncompleteVaultHistoryBuckets`, `stripOpenIntervalPositionBuckets`, `finalizePositionHistory`), used in vault `history` + `position-history` routes |
 | Position table formatting | `formatter.ts` (`formatPositionUsd`, `formatPositionTokenAmount`) |
 | Vault explorer page | `src/app/vaults/page.tsx`, `VaultExplorer*.tsx` |
 | V2 deposit/withdraw/redeem | `src/lib/transactionUtilsV2.ts` |

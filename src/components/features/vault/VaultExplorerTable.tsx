@@ -15,7 +15,7 @@ import {
   hasOnChainVaultShares,
   isCuratedVaultAddress,
   resolvePositionAssetsUsd,
-  userHoldsBothVaultPairSides,
+  shouldShowVaultKindMark,
 } from '@/lib/vault-utils';
 import {
   formatNumber,
@@ -251,7 +251,7 @@ function VaultExplorerMobileCard({ vault, showYourPosition }: VaultExplorerRowPr
         <VaultLogo vault={vault} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap min-w-0">
-            <VaultNameWithWrapper name={vault.name} kind={vault.kind} />
+            <VaultNameWithWrapper name={vault.name} kind={vault.kind} address={vault.address} />
             <span className="inline-flex rounded-md bg-[var(--surface-elevated)] px-2 py-0.5 text-[10px] font-medium text-[var(--foreground-secondary)]">
               Base
             </span>
@@ -345,22 +345,23 @@ function DashboardVaultMobileCard({
         onClick: openVault,
         onKeyDown: (event: KeyboardEvent) => handleRowKeyDown(event, openVault),
         className:
-          'w-full text-left px-4 py-4 border-b border-[var(--border)] hover:bg-[var(--surface-hover)] active:bg-[var(--surface-hover)] transition-colors touch-manipulation cursor-pointer',
+          'w-full text-left px-3 py-3 border-b border-[var(--border)] hover:bg-[var(--surface-hover)] active:bg-[var(--surface-hover)] transition-colors touch-manipulation cursor-pointer',
       }
     : {
         className:
-          'w-full text-left px-4 py-4 border-b border-[var(--border)]',
+          'w-full text-left px-3 py-3 border-b border-[var(--border)]',
       };
 
   return (
     <div {...wrapperProps}>
-      <div className="flex items-center gap-3 mb-3">
+      <div className="flex items-start gap-2.5 mb-2">
         <VaultLogo vault={vault} />
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <VaultNameWithWrapper
             name={vault.name}
             kind={vault.kind}
             showKindMark={showKindMark}
+            lines={2}
           />
           <VaultShareLabel vault={vault} />
           <span className="text-[10px] text-[var(--foreground-muted)] block">
@@ -369,7 +370,7 @@ function DashboardVaultMobileCard({
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-3 gap-2">
         <MobileStatBlock label="Your Position">
           {!address || morphoHoldings.isLoading ? (
             <Skeleton width="5rem" height="1rem" />
@@ -558,7 +559,7 @@ function VaultExplorerRow({ vault, showYourPosition }: VaultExplorerRowProps) {
           <VaultLogo vault={vault} />
           <div className="min-w-0">
             <div className="flex items-center gap-2 min-w-0">
-              <VaultNameWithWrapper name={vault.name} kind={vault.kind} />
+              <VaultNameWithWrapper name={vault.name} kind={vault.kind} address={vault.address} />
               {!isCurated ? (
                 <span className="shrink-0 text-[10px] text-[var(--foreground-muted)]">
                   External
@@ -697,14 +698,14 @@ function DashboardVaultTableHead() {
   return (
     <thead>
       <tr className="border-b border-[var(--border)] text-left">
-        <th className="px-2 py-2.5 text-xs font-medium text-[var(--foreground-secondary)]">Vault</th>
-        <th className="px-2 py-2.5 text-xs font-medium text-[var(--foreground-secondary)] text-right">
+        <th className="px-2 py-2 text-xs font-medium text-[var(--foreground-secondary)]">Vault</th>
+        <th className="px-1 py-2 text-xs font-medium leading-tight text-[var(--foreground-secondary)] text-right">
           Your Position
         </th>
-        <th className="px-2 py-2.5 text-xs font-medium text-[var(--foreground-secondary)] text-right">
+        <th className="px-1 py-2 text-xs font-medium leading-tight text-[var(--foreground-secondary)] text-right">
           Earned Interest
         </th>
-        <th className="px-2 py-2.5 text-xs font-medium text-[var(--foreground-secondary)] text-right">
+        <th className="px-1 py-2 text-xs font-medium leading-tight text-[var(--foreground-secondary)] text-right">
           APY / TVL
         </th>
       </tr>
@@ -724,10 +725,10 @@ function DashboardVaultEmptyState({
       <div className="hidden @min-[640px]:block min-w-0">
         <table className="w-full table-fixed">
           <colgroup>
-            <col className="w-[28%]" />
-            <col className="w-[24%]" />
-            <col className="w-[24%]" />
-            <col className="w-[24%]" />
+            <col className="w-[46%]" />
+            <col className="w-[18%]" />
+            <col className="w-[18%]" />
+            <col className="w-[18%]" />
           </colgroup>
           <DashboardVaultTableHead />
           <tbody>
@@ -795,10 +796,10 @@ export function DashboardVaultTable({
           <div className="hidden @min-[640px]:block min-w-0">
             <table className="w-full table-fixed">
               <colgroup>
-                <col className="w-[28%]" />
-                <col className="w-[24%]" />
-                <col className="w-[24%]" />
-                <col className="w-[24%]" />
+                <col className="w-[46%]" />
+                <col className="w-[18%]" />
+                <col className="w-[18%]" />
+                <col className="w-[18%]" />
               </colgroup>
               <DashboardVaultTableHead />
               <tbody>
@@ -850,7 +851,7 @@ export function DashboardVaultTable({
               positionUsd={positionUsd}
               loading={loading}
               vaultData={vaultData}
-              showKindMark={userHoldsBothVaultPairSides(vault, depositedAddresses)}
+              showKindMark={shouldShowVaultKindMark(vault, depositedAddresses)}
             />
           );
         })}
@@ -859,10 +860,10 @@ export function DashboardVaultTable({
       <div className="hidden @min-[640px]:block min-w-0">
       <table className="w-full table-fixed">
         <colgroup>
-          <col className="w-[28%]" />
-          <col className="w-[24%]" />
-          <col className="w-[24%]" />
-          <col className="w-[24%]" />
+          <col className="w-[46%]" />
+          <col className="w-[18%]" />
+          <col className="w-[18%]" />
+          <col className="w-[18%]" />
         </colgroup>
         <DashboardVaultTableHead />
         <tbody>
@@ -904,20 +905,21 @@ export function DashboardVaultTable({
                     : 'cursor-default'
                 }`}
               >
-                <td className="px-2 py-3 align-middle">
-                  <div className="flex items-center gap-2 min-w-0">
+                <td className="px-2 py-2.5 align-middle">
+                  <div className="flex items-start gap-2 min-w-0">
                     <VaultLogo vault={vault} size={28} />
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       <VaultNameWithWrapper
                         name={vault.name}
                         kind={vault.kind}
-                        showKindMark={userHoldsBothVaultPairSides(vault, depositedAddresses)}
+                        showKindMark={shouldShowVaultKindMark(vault, depositedAddresses)}
+                        lines={2}
                       />
                       <VaultShareLabel vault={vault} />
                     </div>
                   </div>
                 </td>
-                <td className="px-2 py-3 align-middle text-right">
+                <td className="px-1 py-2.5 align-middle text-right">
                   {!address || morphoHoldings.isLoading ? (
                     <Skeleton width="4.5rem" height="1rem" className="ml-auto" />
                   ) : hasOnChainVaultShares(position) ? (
@@ -931,10 +933,10 @@ export function DashboardVaultTable({
                     <span className="text-sm text-[var(--foreground-muted)]">-</span>
                   )}
                 </td>
-                <td className="px-2 py-3 align-middle text-right">
+                <td className="px-1 py-2.5 align-middle text-right">
                   <EarnedInterestCell vault={vault} decimals={decimals} />
                 </td>
-                <td className="px-2 py-3 align-middle text-right">
+                <td className="px-1 py-2.5 align-middle text-right">
                   {loading || !vaultData ? (
                     <Skeleton width="4rem" height="1rem" className="ml-auto" />
                   ) : (
