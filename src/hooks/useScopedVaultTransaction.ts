@@ -16,7 +16,7 @@ import {
   getTokenBalanceRaw,
   isWethVault,
 } from '@/lib/transaction-form-utils';
-import { allowsNativeEthVaultDeposit } from '@/lib/vault-access';
+import { useVaultDepositGates } from '@/hooks/useVaultDepositGates';
 import type { VaultAccount, WalletAccount } from '@/types/vault';
 
 export type VaultTransactionTab = 'deposit' | 'withdraw';
@@ -75,6 +75,8 @@ export function useScopedVaultTransaction({
   const { isConnected } = useAccount();
   const { tokenBalances, morphoHoldings, refreshBalances } = useWallet();
   const { fetchVaultData } = useVaultData();
+  const { allowsNativeEthDeposit } = useVaultDepositGates();
+  const nativeEthAllowed = allowsNativeEthDeposit(vaultAddress);
   const {
     fromAccount,
     toAccount,
@@ -165,7 +167,7 @@ export function useScopedVaultTransaction({
   useEffect(() => {
     if (effectiveActiveTab !== 'deposit') return;
     if (!isWethVault(vaultAddress, vaultSymbol)) return;
-    if (allowsNativeEthVaultDeposit(vaultAddress)) return;
+    if (nativeEthAllowed) return;
     if (preferredAsset === 'ETH' || preferredAsset === 'ALL') {
       setPreferredAsset('WETH');
     }
@@ -173,6 +175,7 @@ export function useScopedVaultTransaction({
     effectiveActiveTab,
     vaultAddress,
     vaultSymbol,
+    nativeEthAllowed,
     preferredAsset,
     setPreferredAsset,
   ]);
@@ -295,13 +298,13 @@ export function useScopedVaultTransaction({
 
   const isWethVaultEthDeposit = useMemo(() => {
     if (effectiveActiveTab !== 'deposit') return false;
-    if (!allowsNativeEthVaultDeposit(vaultAddress)) return false;
+    if (!nativeEthAllowed) return false;
     const assetPreference = preferredAsset || 'WETH';
     return (
       isWethVault(vaultAddress, vaultSymbol) &&
       (assetPreference === 'ETH' || assetPreference === 'ALL')
     );
-  }, [effectiveActiveTab, vaultAddress, vaultSymbol, preferredAsset]);
+  }, [effectiveActiveTab, nativeEthAllowed, vaultAddress, vaultSymbol, preferredAsset]);
 
   const maxAmountRaw = useMemo((): bigint | null => {
     if (!derivedAsset) return null;

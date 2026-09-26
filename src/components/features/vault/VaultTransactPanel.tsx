@@ -19,7 +19,7 @@ import {
 import { usePrices } from '@/contexts/PriceContext';
 import { ConnectButton } from '@/components/features/wallet';
 import { isWethVault } from '@/lib/transaction-form-utils';
-import { allowsNativeEthVaultDeposit } from '@/lib/vault-access';
+import { useVaultDepositGates } from '@/hooks/useVaultDepositGates';
 import { parseTransactionAmount } from '@/lib/liquidity-utils';
 import {
   buildPastEarningsRows,
@@ -102,6 +102,7 @@ export function VaultTransactPanel({
   canDeposit,
 }: VaultTransactPanelProps) {
   const { btc: btcPrice, eth: ethPrice } = usePrices();
+  const { allowsNativeEthDeposit } = useVaultDepositGates();
   const [rewardsModeOverride, setRewardsModeOverride] = useState<RewardsMode | null>(
     null
   );
@@ -143,7 +144,7 @@ export function VaultTransactPanel({
     !canDeposit ||
     vaultData.status === 'paused' ||
     vaultData.status === 'deprecated';
-  const allowEthDeposit = allowsNativeEthVaultDeposit(vaultData.address);
+  const allowEthDeposit = allowsNativeEthDeposit(vaultData.address);
 
   const inputUsd = amountUsdValue(
     tx.amount,

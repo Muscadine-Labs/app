@@ -8,6 +8,7 @@ import { useAppKitTheme } from '@reown/appkit/react'
 import { ensureAppKitInit } from '@/lib/appkit-init'
 import { VaultDataProvider } from '../contexts/VaultDataContext'
 import { WalletProvider } from '../contexts/WalletContext'
+import { VaultKindProvider } from '../contexts/VaultKindContext'
 import { TransactionProvider } from '../contexts/TransactionContext'
 import { ToastProvider } from '../contexts/ToastContext'
 import { ThemeProvider, useTheme } from '../contexts/ThemeContext'
@@ -76,12 +77,14 @@ export function Providers({ children, initialState }: Props) {
             <AdvisoryAgreementProvider>
                 <ToastProvider>
                   <WalletProvider>
+                    <VaultKindProvider>
                     <VaultDataProvider>
                       <TransactionProvider>
                         <AdvisoryAgreementModal />
                         {children}
                       </TransactionProvider>
                     </VaultDataProvider>
+                    </VaultKindProvider>
                   </WalletProvider>
                 </ToastProvider>
               </AdvisoryAgreementProvider>

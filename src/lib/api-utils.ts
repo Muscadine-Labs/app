@@ -294,16 +294,27 @@ export function stripIncompleteVaultHistoryBuckets<
   return history.slice(0, end);
 }
 
-export function stripIncompletePositionHistoryBuckets<
-  T extends { assets: number; assetsUsd: number; shares?: number },
->(history: T[]): T[] {
+function isZeroPositionBucket(point: {
+  assets: number;
+  assetsUsd: number;
+  shares?: number;
+}): boolean {
+  return (point.assets ?? 0) === 0 && (point.assetsUsd ?? 0) === 0;
+}
+
+/**
+ * Drop only zero buckets inside the still-open interval.
+ * Earlier zeros are a real empty position. Stripping those lets portfolio
+ * forward-fill paint the previous balance across the gap.
+ */
+export function stripOpenIntervalPositionBuckets<
+  T extends { timestamp: number; assets: number; assetsUsd: number; shares?: number },
+>(history: T[], now: number, intervalSeconds: number): T[] {
   let end = history.length;
+  const openAfter = now - intervalSeconds;
   while (end > 0) {
     const point = history[end - 1];
-    // Trailing buckets may still report shares while assets/assetsUsd are zero.
-    const isIncomplete =
-      (point.assets ?? 0) === 0 && (point.assetsUsd ?? 0) === 0;
-    if (!isIncomplete) break;
+    if (point.timestamp <= openAfter || !isZeroPositionBucket(point)) break;
     end--;
   }
   return end === history.length ? history : history.slice(0, end);
@@ -359,18 +370,45 @@ function seedLivePositionSeries(
   ];
 }
 
+function hasLivePositionValue(point: PositionHistoryItem): boolean {
+  return point.assets > 0 || point.assetsUsd > 0 || point.shares > 0;
+}
+
+/**
+ * Put the live balance at the end of an open series without replacing the
+ * zeros that sit between the last indexed balance and now.
+ */
+function appendLivePositionTip(
+  history: PositionHistoryItem[],
+  livePoint: PositionHistoryItem,
+  now: number
+): PositionHistoryItem[] {
+  const endTs = livePoint.timestamp > 0 ? livePoint.timestamp : now;
+  const last = history[history.length - 1];
+  if (!last || last.timestamp >= endTs) return history;
+  const sameValue =
+    last.assetsUsd === livePoint.assetsUsd &&
+    last.assets === livePoint.assets &&
+    last.shares === livePoint.shares;
+  if (sameValue && endTs - last.timestamp < INTERVAL_SECONDS.DAY) return history;
+  return [
+    ...history,
+    { ...livePoint, timestamp: endTs, date: toHistoryDate(endTs) },
+  ];
+}
+
 /**
  * Finalize a position history series using the live `currentPosition`:
  *
- * - Position still OPEN (shares/assets > 0): trailing zero buckets are Morpho's
- *   incomplete in-progress interval — strip them (avoids charts dipping to zero).
- *   If Morpho has not indexed any history yet (new vault / first deposit), seed a
- *   short flat line from `livePoint` so Your Position is not a blank chart.
- * - Position CLOSED (fully withdrawn): trailing zeros are REAL — keep them. If the
- *   series still ends at a pre-withdrawal value (a known Morpho v1 quirk), append a
- *   zero point one bucket after the last point so charts and the dashboard's
- *   forward-fill aggregation drop to zero instead of being stuck at the last
- *   held amount.
+ * - Position still OPEN (shares/assets > 0): drop zero buckets only inside the
+ *   current interval. Zeros before that stay, so forward-fill does not carry an
+ *   old balance across days the wallet was empty. If Morpho has not indexed any
+ *   history yet, seed a short flat line from `livePoint`. If the indexed series
+ *   ends at zero while the live position is open, append that live value at now.
+ * - Position CLOSED (fully withdrawn): trailing zeros are real — keep them. If the
+ *   series still ends at a pre-withdrawal value, append a zero point one bucket
+ *   after the last point so charts and the dashboard's forward-fill aggregation
+ *   drop to zero instead of being stuck at the last held amount.
  */
 export function finalizePositionHistory(
   rawHistory: PositionHistoryItem[],
@@ -386,13 +424,19 @@ export function finalizePositionHistory(
       toFiniteNumber(currentPosition.assetsUsd) > 0);
 
   if (positionOpen) {
-    const stripped = stripIncompletePositionHistoryBuckets(rawHistory);
-    if (stripped.length > 0) return stripped;
+    const stripped = stripOpenIntervalPositionBuckets(
+      rawHistory,
+      now,
+      intervalSeconds
+    );
     if (
       livePoint &&
-      (livePoint.assets > 0 || livePoint.assetsUsd > 0 || livePoint.shares > 0)
+      hasLivePositionValue(livePoint)
     ) {
-      return seedLivePositionSeries(livePoint, now, intervalSeconds);
+      if (stripped.length === 0) {
+        return seedLivePositionSeries(livePoint, now, intervalSeconds);
+      }
+      return appendLivePositionTip(stripped, livePoint, now);
     }
     return stripped;
   }

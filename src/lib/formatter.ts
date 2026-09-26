@@ -199,6 +199,36 @@ export function formatPositionTokenAmount(
   }
 }
 
+/**
+ * Dashboard Your Vaults cells: similar width for every asset. 1,000+ is compact
+ * (85.85K); 1+ keeps 2 decimals for stablecoins and 4 otherwise; below 1 keeps
+ * 2 (stablecoins) or 4 significant digits. Pair with `formatPositionTokenAmount` in a title.
+ */
+export function formatDashboardTokenAmount(
+  rawValue: string | undefined,
+  decimals: number,
+  symbol: string
+): string {
+  let value = 0;
+  try {
+    value = rawValue ? Number(formatUnits(BigInt(rawValue), decimals)) : 0;
+  } catch {
+    value = 0;
+  }
+  if (!Number.isFinite(value) || value === 0) return `0 ${symbol}`;
+
+  const isStable = ['USDC', 'USD'].includes(symbol.toUpperCase());
+  const abs = Math.abs(value);
+  const options: Intl.NumberFormatOptions =
+    abs >= 1_000
+      ? { notation: 'compact', maximumFractionDigits: 2 }
+      : abs >= 1
+        ? { maximumFractionDigits: isStable ? 2 : 4 }
+        : { maximumSignificantDigits: isStable ? 2 : 4 };
+
+  return `${formatNumber(value, options)} ${symbol}`;
+}
+
 /** Chart token toggles / axes — compact (not full 18) for readable ticks. */
 export function getVaultChartTokenFractionDigits(symbol: string): number {
   const normalized = symbol.toUpperCase();

@@ -8,6 +8,7 @@ import { ConnectButton } from "../features/wallet";
 import { Icon } from "../ui/Icon";
 import { Button } from "../ui/Button";
 import { useTheme } from "@/contexts/ThemeContext";
+import { useVaultKind } from "@/contexts/VaultKindContext";
 import { MORPHO_DISCLAIMER_URL } from '@/lib/constants';
 
 interface NavBarProps {
@@ -28,6 +29,7 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
     
     // Settings state with defaults
     const { theme, setTheme } = useTheme();
+    const { kindFilter, setKindFilter, canSwitchKinds } = useVaultKind();
 
     const isActive = useCallback((item: NavItem): boolean => {
         if (item.id === 'vaults') {
@@ -356,6 +358,44 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                             </button>
                                         </div>
                                     </div>
+                                    {canSwitchKinds ? (
+                                        <div className="mt-3 border-t border-[var(--border)] px-4 pt-3">
+                                            <div className="flex items-center justify-between gap-3">
+                                                <span
+                                                    id="wrapper-vaults-switch-label"
+                                                    className="text-sm text-[var(--foreground)]"
+                                                >
+                                                    Wrapper vaults
+                                                </span>
+                                                <button
+                                                    type="button"
+                                                    role="switch"
+                                                    aria-checked={kindFilter === 'wrappers'}
+                                                    aria-labelledby="wrapper-vaults-switch-label"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setKindFilter(
+                                                            kindFilter === 'underlying' ? 'wrappers' : 'underlying'
+                                                        );
+                                                    }}
+                                                    className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary)] ${
+                                                        kindFilter === 'wrappers'
+                                                            ? 'bg-[var(--primary)]'
+                                                            : 'bg-[var(--border-strong)]'
+                                                    }`}
+                                                >
+                                                    <span
+                                                        aria-hidden="true"
+                                                        className={`inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
+                                                            kindFilter === 'wrappers'
+                                                                ? 'translate-x-[18px]'
+                                                                : 'translate-x-0.5'
+                                                        }`}
+                                                    />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ) : null}
                                     </div>
                                 </>
                             )}
