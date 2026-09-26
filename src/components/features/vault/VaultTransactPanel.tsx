@@ -11,6 +11,7 @@ import {
 } from '@/hooks/useScopedVaultTransaction';
 import { ETH_GAS_RESERVE } from '@/lib/constants';
 import {
+  formatAssetAmount,
   formatAssetBalance,
   formatCurrency,
   formatPercentage,
@@ -213,10 +214,13 @@ export function VaultTransactPanel({
   const includesTypedAmount = futureProjection.typedRaw > BigInt(0);
 
   const logo = getVaultLogo(vaultData.symbol);
-  const actionLabel = tx.effectiveActiveTab === 'deposit' ? 'Deposit' : 'Withdraw';
+  const isDepositTab = tx.effectiveActiveTab === 'deposit';
+  const actionLabel = isDepositTab ? 'Deposit' : 'Withdraw';
   const actionDisabled =
     reviewOpen ||
-    (depositsDisabled && tx.effectiveActiveTab === 'deposit') ||
+    (depositsDisabled && isDepositTab) ||
+    tx.depositCapFull ||
+    tx.isCheckingDepositCap ||
     !tx.fromAccount ||
     !tx.toAccount ||
     !tx.derivedAsset ||
@@ -224,9 +228,20 @@ export function VaultTransactPanel({
     tx.blockContinueForBalance;
 
   const ctaLabel =
-    depositsDisabled && tx.effectiveActiveTab === 'deposit'
+    depositsDisabled && isDepositTab
       ? 'Deposits are disabled'
-      : actionLabel;
+      : tx.depositCapFull
+        ? 'Deposit cap reached'
+        : tx.isCheckingDepositCap
+          ? 'Checking…'
+          : actionLabel;
+
+  const formatDepositCap = (raw: bigint) =>
+    formatAssetAmount(
+      raw,
+      tx.derivedAsset?.decimals ?? positionDecimals,
+      tx.derivedAsset?.symbol || vaultData.symbol
+    );
 
   const tabClass = (active: boolean) =>
     `px-3 py-1.5 rounded-md text-sm font-medium transition-colors cursor-pointer ${
@@ -335,6 +350,24 @@ export function VaultTransactPanel({
             {tx.exceedsBalance && (
               <p className="mt-2 text-xs text-[var(--warning)]">
                 Amount exceeds available balance.
+              </p>
+            )}
+            {tx.depositCapFull && !depositsDisabled && (
+              <p className="mt-2 text-xs text-[var(--warning)]">
+                This vault is at its deposit cap right now. Try again later, or contact muscadinelabs@gmail.com.
+              </p>
+            )}
+            {tx.exceedsDepositCap && tx.depositCapRaw !== null && !tx.depositCapFull && (
+              <p className="mt-2 text-xs text-[var(--warning)]">
+                This is above the vault&apos;s current deposit cap. The most it can accept right
+                now is {formatDepositCap(tx.depositCapRaw)}. Pressing Deposit lowers your amount to
+                that.
+              </p>
+            )}
+            {tx.depositCapAppliedRaw !== null && (
+              <p className="mt-2 text-xs text-[var(--warning)]">
+                Lowered to {formatDepositCap(tx.depositCapAppliedRaw)}, the most this vault can
+                accept right now because of its deposit caps. Contact muscadinelabs@gmail.com for more information.
               </p>
             )}
           </div>

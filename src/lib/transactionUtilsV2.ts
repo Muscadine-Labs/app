@@ -21,6 +21,7 @@ import {
   readBundlerCanDeposit,
   readVaultDepositBlocker,
 } from './vault-gates';
+import { assertDepositWithinCapacity } from './deposit-capacity';
 import type { ForceWithdrawPlan } from './force-withdraw-v2';
 import { planForceWithdrawV2, VAULT_V2_FORCE_ABI } from './force-withdraw-v2';
 import type { TransactionProgressCallback } from '../types/transactions';
@@ -511,10 +512,16 @@ export async function depositToVaultV2(
   const userAddress = walletClient.account.address;
   const normalizedVault = getAddress(vaultAddress);
 
+  const amountBigInt = parseAmount(amount, assetDecimals);
+
   const wantsNativeEth = preferredAsset === 'ETH' || preferredAsset === 'ALL';
-  const [depositBlocker, nativeEthAllowed] = await Promise.all([
+  const [depositBlocker, nativeEthAllowed, capError] = await Promise.all([
     readVaultDepositBlocker(publicClient, normalizedVault, userAddress),
     wantsNativeEth ? readBundlerCanDeposit(publicClient, normalizedVault) : false,
+    assertDepositWithinCapacity(publicClient, normalizedVault, amountBigInt).then(
+      () => null,
+      (err: unknown) => err
+    ),
   ]);
   if (depositBlocker) throw new VaultDepositBlockedError(depositBlocker);
   if (wantsNativeEth && !nativeEthAllowed) {
@@ -522,6 +529,7 @@ export async function depositToVaultV2(
       'Deposit WETH. Native ETH deposits are not available for this vault.'
     );
   }
+  if (capError) throw capError;
 
   // Get vault asset address
   const assetAddress = await publicClient.readContract({
@@ -531,9 +539,6 @@ export async function depositToVaultV2(
   }) as Address;
 
   const isWethVault = assetAddress.toLowerCase() === BASE_WETH_ADDRESS.toLowerCase();
-
-  // Parse amount using centralized function
-  const amountBigInt = parseAmount(amount, assetDecimals);
 
   // Determine if wrapping is needed (read-only operations first)
   let ethToWrap: bigint = BigInt(0);

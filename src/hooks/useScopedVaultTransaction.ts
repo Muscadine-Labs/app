@@ -17,6 +17,7 @@ import {
   isWethVault,
 } from '@/lib/transaction-form-utils';
 import { useVaultDepositGates } from '@/hooks/useVaultDepositGates';
+import { useVaultDepositCapacity } from '@/hooks/useVaultDepositCapacity';
 import type { VaultAccount, WalletAccount } from '@/types/vault';
 
 export type VaultTransactionTab = 'deposit' | 'withdraw';
@@ -93,6 +94,9 @@ export function useScopedVaultTransaction({
   } = useTransactionState();
 
   const [activeTab, setActiveTab] = useState<VaultTransactionTab>(initialTab);
+  /** Amount the Deposit click lowered to the cap. Cleared once the user edits the amount. */
+  const [depositCapAppliedRaw, setDepositCapAppliedRaw] = useState<bigint | null>(null);
+  const [isCheckingDepositCap, setIsCheckingDepositCap] = useState(false);
   const initializedRef = useRef(false);
   const vaultKeyRef = useRef(vaultAddress);
 
@@ -132,6 +136,11 @@ export function useScopedVaultTransaction({
     }
     return activeTab;
   }, [status, fromAccount, toAccount, activeTab]);
+
+  const { capRaw: depositCapRaw, readCapForSubmit } = useVaultDepositCapacity(
+    vaultAddress,
+    isOpen && effectiveActiveTab === 'deposit'
+  );
 
   const applyTabAccounts = useCallback(
     (tab: VaultTransactionTab) => {
@@ -245,6 +254,7 @@ export function useScopedVaultTransaction({
       }
       setActiveTab(tab);
       setAmount('');
+      setDepositCapAppliedRaw(null);
       applyTabAccounts(tab);
     },
     [
@@ -356,12 +366,20 @@ export function useScopedVaultTransaction({
     return parseFloat(formatUnits(maxAmountRaw, decimals));
   }, [maxAmountRaw, derivedAsset, effectiveActiveTab, vaultSymbol]);
 
+  /** MAX fills the wallet balance, or the vault's deposit cap when that is lower. */
+  const maxInputRaw = useMemo((): bigint | null => {
+    if (maxAmountRaw === null) return null;
+    if (effectiveActiveTab !== 'deposit' || depositCapRaw === null) return maxAmountRaw;
+    return depositCapRaw < maxAmountRaw ? depositCapRaw : maxAmountRaw;
+  }, [maxAmountRaw, effectiveActiveTab, depositCapRaw]);
+
   const calculateMaxAmount = useCallback(() => {
-    if (maxAmountRaw === null) {
+    setDepositCapAppliedRaw(null);
+    if (maxInputRaw === null) {
       setAmount('0');
       return;
     }
-    if (maxAmountRaw === BigInt(0)) {
+    if (maxInputRaw === BigInt(0)) {
       setAmount('0');
       return;
     }
@@ -372,9 +390,9 @@ export function useScopedVaultTransaction({
         ? getAssetDecimalsForSymbol(vaultSymbol)
         : getAssetDecimalsForSymbol(symbol);
 
-    setAmount(formatBigIntForInput(maxAmountRaw, decimals));
+    setAmount(formatBigIntForInput(maxInputRaw, decimals));
   }, [
-    maxAmountRaw,
+    maxInputRaw,
     effectiveActiveTab,
     derivedAsset,
     vaultSymbol,
@@ -384,10 +402,12 @@ export function useScopedVaultTransaction({
   const handleAmountChange = useCallback(
     (value: string) => {
       if (value === '') {
+        setDepositCapAppliedRaw(null);
         setAmount('');
         return;
       }
       if (!/^\d*\.?\d*$/.test(value)) return;
+      setDepositCapAppliedRaw(null);
       const decimals = derivedAsset?.decimals ?? getAssetDecimalsForSymbol(vaultSymbol);
       const dot = value.indexOf('.');
       if (dot >= 0 && value.length - dot - 1 > decimals) {
@@ -411,17 +431,65 @@ export function useScopedVaultTransaction({
     return Number.isFinite(parsed) && parsed > 0;
   }, [amount]);
 
+  const isDepositTab = effectiveActiveTab === 'deposit';
+  const depositCapFull = isDepositTab && depositCapRaw === BigInt(0);
+
+  const exceedsDepositCap = useMemo(() => {
+    if (!isDepositTab || depositCapRaw === null || exceedsBalance) return false;
+    if (!amount || !derivedAsset) return false;
+    const entered = parseTransactionAmount(amount.replace(/\.$/, ''), derivedAsset.decimals);
+    return entered > depositCapRaw;
+  }, [isDepositTab, depositCapRaw, exceedsBalance, amount, derivedAsset]);
+
+  const depositCapApplied = useMemo(() => {
+    if (!isDepositTab || depositCapAppliedRaw === null || !derivedAsset) return null;
+    const entered = parseTransactionAmount(amount.replace(/\.$/, ''), derivedAsset.decimals);
+    return entered === depositCapAppliedRaw ? depositCapAppliedRaw : null;
+  }, [isDepositTab, depositCapAppliedRaw, derivedAsset, amount]);
+
   const blockContinueForBalance = exceedsBalance;
 
-  const handleStartTransaction = useCallback(() => {
-    if (fromAccount && toAccount && derivedAsset && hasValidAmount && !exceedsBalance) {
-      setStatus('preview');
+  const handleStartTransaction = useCallback(async () => {
+    if (!fromAccount || !toAccount || !derivedAsset || !hasValidAmount || exceedsBalance) return;
+
+    if (isDepositTab) {
+      setIsCheckingDepositCap(true);
+      let freshCapRaw: bigint | null;
+      try {
+        freshCapRaw = await readCapForSubmit();
+      } finally {
+        setIsCheckingDepositCap(false);
+      }
+
+      if (freshCapRaw !== null) {
+        if (freshCapRaw === BigInt(0)) return;
+        const entered = parseTransactionAmount(amount.replace(/\.$/, ''), derivedAsset.decimals);
+        if (entered > freshCapRaw) {
+          setAmount(formatBigIntForInput(freshCapRaw, derivedAsset.decimals));
+          setDepositCapAppliedRaw(freshCapRaw);
+          return;
+        }
+      }
     }
-  }, [fromAccount, toAccount, derivedAsset, hasValidAmount, exceedsBalance, setStatus]);
+
+    setStatus('preview');
+  }, [
+    fromAccount,
+    toAccount,
+    derivedAsset,
+    hasValidAmount,
+    exceedsBalance,
+    isDepositTab,
+    readCapForSubmit,
+    amount,
+    setAmount,
+    setStatus,
+  ]);
 
   const handleResetToIdle = useCallback(() => {
     reset();
     setAmount('');
+    setDepositCapAppliedRaw(null);
     applyTabAccounts(activeTab);
   }, [reset, setAmount, activeTab, applyTabAccounts]);
 
@@ -472,6 +540,11 @@ export function useScopedVaultTransaction({
     hasValidAmount,
     exceedsBalance,
     blockContinueForBalance,
+    depositCapRaw: isDepositTab ? depositCapRaw : null,
+    depositCapFull,
+    exceedsDepositCap,
+    depositCapAppliedRaw: depositCapApplied,
+    isCheckingDepositCap,
     preferredAsset,
     setPreferredAsset,
     isWethVaultEthDeposit,

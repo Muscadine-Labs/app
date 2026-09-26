@@ -25,6 +25,16 @@ export function isCancellationError(error: unknown): boolean {
   );
 }
 
+/** Vault V2 cap errors: AbsoluteCapExceeded, RelativeCapExceeded, ZeroAbsoluteCap. */
+const VAULT_CAP_ERROR_MARKERS = [
+  '0x4616e4af',
+  '0x44e1772c',
+  '0xbb1a23b9',
+  'absolutecapexceeded',
+  'relativecapexceeded',
+  'zeroabsolutecap',
+];
+
 // Helper function to convert technical errors into user-friendly messages
 export function formatTransactionError(error: unknown): string {
   if (!error) {
@@ -36,6 +46,10 @@ export function formatTransactionError(error: unknown): string {
 
   if (isCancellationError(error)) {
     return 'Transaction cancelled.';
+  }
+
+  if (VAULT_CAP_ERROR_MARKERS.some((marker) => errorLower.includes(marker))) {
+    return 'The vault reached its deposit cap before this deposit went through. Try a smaller amount.';
   }
 
   if (

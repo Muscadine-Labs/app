@@ -567,6 +567,21 @@ There is no allowlist in the app. `useVaultDepositGates` reads every registry va
 
 Curator still manages who is whitelisted on `WhitelistSendAssetsGate` (`npm run gates:verify`, `curator/docs/brain/deposit-gates.md`). The app picks up changes on its next read.
 
+### Deposit caps (read from each vault)
+
+Vault V2 `maxDeposit` always returns 0, so the app computes capacity itself (`src/lib/deposit-capacity.ts`). A deposit allocates through the vault's `liquidityAdapter`, and every id the adapter returns must stay within its caps: `absoluteCap > 0`, `allocation <= absoluteCap`, and, unless `relativeCap == WAD`, `allocation <= firstTotalAssets * relativeCap / WAD`. `firstTotalAssets` is the accrued total *before* the deposit (`accrueInterestView`), so a deposit does not raise its own relative limit.
+
+- **Market adapter** (underlying vaults): ids are adapter, collateral token and market (`ids(marketParams)`). The allocation change is the deposit plus interest not yet booked (`expectedSupplyAssets − allocation(marketParams)`).
+- **Vault adapter** (fee wrappers): the id is the adapter only. The deposit then enters the child vault, so the child's own liquidity-adapter caps apply as well. Capacity is the smaller of the two. In practice the child's market cap is the binding one.
+- **No liquidity adapter:** deposits stay idle and no cap applies (`null`).
+
+UI and send path:
+
+- `useVaultDepositCapacity` reads as soon as the deposit tab is open (15s stale, refetch every 30s), so the cap is usually known before the user finishes typing. The input cap is 99.9% of headroom (`DEPOSIT_CAP_BUFFER_BPS = 10`) so interest accrued before the tx lands still fits. A wrapper read is 5 sequential RPC rounds (multicalls), a market-adapter vault 3.
+- **MAX** fills the lower of the wallet balance and the buffered cap. Typing above the cap shows a warning. Pressing **Deposit** uses the cached cap if it is under 15s old, otherwise re-reads it; if the amount is still above it, the amount is lowered to the buffered cap and the form stays open with a note. At 0 headroom the button reads **Deposit cap reached**.
+- `depositToVaultV2` re-reads raw headroom before any approval. An amount above it throws `DepositCapExceededError` (after the gate checks, so a blocked wallet sees the gate message). `TransactionFlow` lowers the amount, shows the error, and **Retry** returns to review with the new amount.
+- A failed capacity read never blocks a deposit; the chain still enforces the caps. `formatTransactionError` maps `AbsoluteCapExceeded`, `RelativeCapExceeded` and `ZeroAbsoluteCap` (also when a wrapper bubbles the child's revert) to a readable message.
+
 **Explorer kind toggle:** the settings switch lasts for the current visit only. It is not stored. Wallets that can deposit into every underlying vault open on **Underlying** every time. Everyone else, including holders who can switch, opens on **Wrappers**.
 
 ---

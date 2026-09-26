@@ -8,6 +8,7 @@
 - **Vault filter:** settings toggles Wrappers / Underlying for the current visit only. Wallets that can deposit into every underlying vault open on Underlying every time; everyone else opens on Wrappers.
 - **Morpho SDK / GraphQL:** the app does not depend on `@morpho-org/morpho-sdk`. Vault reads stay on `vaultV2ByAddress`.
 - **Force withdraw review fixes:** retry after a force exit to ETH resumes the unwrap from the force tx hash (not step 0), so it no longer reads the share approval or re-runs the exit. Underlying force plans no longer drain the liquidity route market (plans on mpUSDC used to fail simulation). Withdraws always simulate first; instant liquidity for planning is read on-chain. Share approvals skip the reset-to-0 tx. Wrapper liquidity reads in `/complete` are batched and time-limited.
+- **Deposit caps:** deposits are checked against the vault's on-chain caps (adapter, collateral token, market; for wrappers the child vault's caps too). MAX and the Deposit button cap the amount at 99.9% of headroom, and the deposit re-checks before any approval. Simulated on Base for all four wrappers: a deposit of the headroom minus 1 wei goes through, 100.5% reverts. Clicked through in the browser with a read-only test wallet that rejects signing (cbBTC, WETH, ETH, USDC Frontier); no deposit sent with a real wallet yet.
 - **Manual check still to do:** a small wmpWETH force withdraw to ETH on Base where the share approval comes first, including cancelling the unwrap and using Try again.
 
 **To work on another day:**
