@@ -17,7 +17,7 @@ export function VaultNameWithWrapper({
   kind?: VaultKind;
   address?: string;
   nameClassName?: string;
-  /** Dashboard passes this. Vault lists omit it and mark only when both sides are held. */
+  /** Overrides the mixed-kind label from `useVaultKind().kindMarkAddresses`. */
   showKindMark?: boolean;
   /** Dashboard uses two lines so the full vault name stays readable. */
   lines?: 1 | 2;

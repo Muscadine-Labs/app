@@ -1,7 +1,7 @@
 /**
  * Transaction utilities for V2 vaults.
- * Deposits: direct ERC-4626, except wrapper WETH vault + ETH wrap (Bundler3).
- * Underlying WETH vaults are WETH-only on deposit. Withdraw/redeem: direct ERC-4626,
+ * Deposits: direct ERC-4626, except WETH vault + ETH wrap (Bundler3) when the
+ * vault gate lets GeneralAdapter1 send assets. Withdraw/redeem: direct ERC-4626,
  * except WETH→ETH which uses Bundler3 unwrap (wrappers and underlyings).
  */
 
@@ -16,7 +16,11 @@ import {
   minSharePriceE27FromQuote,
 } from './bundler3';
 import { BASE_WETH_ADDRESS, ETH_GAS_RESERVE_WEI, GENERAL_ADAPTER_ADDRESS } from './constants';
-import { allowsNativeEthVaultDeposit } from './vault-access';
+import {
+  VaultDepositBlockedError,
+  readBundlerCanDeposit,
+  readVaultDepositBlocker,
+} from './vault-gates';
 import type { ForceWithdrawPlan } from './force-withdraw-v2';
 import { planForceWithdrawV2, VAULT_V2_FORCE_ABI } from './force-withdraw-v2';
 import type { TransactionProgressCallback } from '../types/transactions';
@@ -507,10 +511,13 @@ export async function depositToVaultV2(
   const userAddress = walletClient.account.address;
   const normalizedVault = getAddress(vaultAddress);
 
-  if (
-    !allowsNativeEthVaultDeposit(normalizedVault) &&
-    (preferredAsset === 'ETH' || preferredAsset === 'ALL')
-  ) {
+  const wantsNativeEth = preferredAsset === 'ETH' || preferredAsset === 'ALL';
+  const [depositBlocker, nativeEthAllowed] = await Promise.all([
+    readVaultDepositBlocker(publicClient, normalizedVault, userAddress),
+    wantsNativeEth ? readBundlerCanDeposit(publicClient, normalizedVault) : false,
+  ]);
+  if (depositBlocker) throw new VaultDepositBlockedError(depositBlocker);
+  if (wantsNativeEth && !nativeEthAllowed) {
     throw new Error(
       'Deposit WETH. Native ETH deposits are not available for this vault.'
     );
@@ -598,9 +605,8 @@ export async function depositToVaultV2(
         ? amountBigInt - ethToWrap
         : BigInt(0)
       : BigInt(0);
-  const useBundlerDeposit =
-    isWethVault && ethToWrap > BigInt(0) && allowsNativeEthVaultDeposit(normalizedVault);
-  if (isWethVault && ethToWrap > BigInt(0) && !allowsNativeEthVaultDeposit(normalizedVault)) {
+  const useBundlerDeposit = isWethVault && ethToWrap > BigInt(0) && nativeEthAllowed;
+  if (isWethVault && ethToWrap > BigInt(0) && !nativeEthAllowed) {
     throw new Error(
       'Deposit WETH. Native ETH deposits are not available for this vault.'
     );

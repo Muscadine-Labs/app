@@ -3,17 +3,11 @@
 import { useMemo, useState } from 'react';
 import { useAccount } from 'wagmi';
 import { BASE_CHAIN_ID } from '@/lib/constants';
-import {
-  buildExplorerVaultCandidates,
-  getDepositedVaultAddressSet,
-  selectRegistryVaultsForExplorer,
-  sortVaultsForDisplay,
-} from '@/lib/vault-utils';
+import { buildExplorerVaultCandidates, sortVaultsForDisplay } from '@/lib/vault-utils';
 import { useVaultKind } from '@/contexts/VaultKindContext';
 import { useWallet } from '@/contexts/WalletContext';
 import { useVaultData } from '@/contexts/VaultDataContext';
 import { useIsClient } from '@/hooks/useClientOnly';
-import { useUnderlyingDepositAccess } from '@/hooks/useUnderlyingDepositAccess';
 import { useVaultListPreloader } from '@/hooks/useVaultDataFetch';
 import { Skeleton } from '@/components/ui/Skeleton';
 import VaultExplorerFilters, {
@@ -36,30 +30,18 @@ function VaultExplorerContent({
     ...initialFilters,
   }));
   const { isConnected } = useAccount();
-  const { kindFilter } = useVaultKind();
+  const { explorerRegistryVaults, isResolving } = useVaultKind();
   const { morphoHoldings } = useWallet();
   const { getVaultData } = useVaultData();
-  const { eligibleUnderlyingAddresses } = useUnderlyingDepositAccess();
   const isMounted = useIsClient();
 
-  const depositedAddresses = useMemo(
-    () => getDepositedVaultAddressSet(morphoHoldings.positions),
-    [morphoHoldings.positions]
-  );
-
   const filteredVaults = useMemo(() => {
-    const registryVaults = selectRegistryVaultsForExplorer({
-      kindFilter,
-      depositedAddresses,
-      eligibleUnderlyingAddresses,
-    });
-
     if (filters.walletFilter === 'inWallet' && !isConnected) {
       return [];
     }
 
     const candidates = buildExplorerVaultCandidates(
-      registryVaults,
+      explorerRegistryVaults,
       morphoHoldings.positions,
       filters.walletFilter
     );
@@ -88,13 +70,11 @@ function VaultExplorerContent({
     );
   }, [
     filters,
-    kindFilter,
+    explorerRegistryVaults,
     isConnected,
     isMounted,
     getVaultData,
     morphoHoldings.positions,
-    depositedAddresses,
-    eligibleUnderlyingAddresses,
   ]);
 
   useVaultListPreloader(filteredVaults);
@@ -112,8 +92,9 @@ function VaultExplorerContent({
     return 'No vaults match the selected filters.';
   }, [filters.walletFilter, isConnected]);
 
-  const walletFilterLoading =
-    filters.walletFilter === 'inWallet' && isConnected && morphoHoldings.isLoading;
+  const listLoading =
+    isResolving ||
+    (filters.walletFilter === 'inWallet' && isConnected && morphoHoldings.isLoading);
 
   return (
     <div className="flex flex-col h-full w-full min-h-0">
@@ -124,7 +105,7 @@ function VaultExplorerContent({
         />
       )}
       <div className="flex-1 min-h-0 overflow-y-auto">
-        {walletFilterLoading ? (
+        {listLoading ? (
           <div className="px-4 sm:px-6 py-8">
             <Skeleton width="100%" height="12rem" />
           </div>

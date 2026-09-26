@@ -8,16 +8,16 @@ import { Vault, getVaultLogo } from '@/types/vault';
 import type { MorphoVaultData } from '@/types/vault';
 import { useVaultData } from '@/contexts/VaultDataContext';
 import { useWallet } from '@/contexts/WalletContext';
+import { useVaultKind } from '@/contexts/VaultKindContext';
 import { VaultNameWithWrapper } from '@/components/features/vault/VaultNameWithWrapper';
 import {
   getVaultRoute,
-  getDepositedVaultAddressSet,
   hasOnChainVaultShares,
   isCuratedVaultAddress,
   resolvePositionAssetsUsd,
-  shouldShowVaultKindMark,
 } from '@/lib/vault-utils';
 import {
+  formatDashboardTokenAmount,
   formatNumber,
   formatPercentage,
   formatPositionTokenAmount,
@@ -47,6 +47,77 @@ function VaultShareLabel({ vault }: { vault: Vault }) {
     <span className="block text-[10px] text-[var(--foreground-muted)]">
       {vault.vaultSymbol || vault.symbol}
     </span>
+  );
+}
+
+/** Dashboard value cell: one-line amount over one-line USD, same size in every column. */
+function DashboardStackedValue({
+  primary,
+  secondary,
+  title,
+  align = 'end',
+  primaryClassName = 'font-medium text-[var(--foreground)]',
+}: {
+  primary: ReactNode;
+  secondary: ReactNode;
+  title?: string;
+  align?: 'start' | 'end';
+  primaryClassName?: string;
+}) {
+  return (
+    <div
+      title={title}
+      className={`flex min-w-0 flex-col gap-0.5 ${
+        align === 'end' ? 'items-end text-right' : 'items-start text-left'
+      }`}
+    >
+      <span className={`max-w-full truncate whitespace-nowrap text-sm tabular-nums ${primaryClassName}`}>
+        {primary}
+      </span>
+      <span className="max-w-full truncate whitespace-nowrap text-xs tabular-nums text-[var(--foreground-secondary)]">
+        {secondary}
+      </span>
+    </div>
+  );
+}
+
+function DashboardTokenValue({
+  rawValue,
+  decimals,
+  symbol,
+  usd,
+  align,
+}: {
+  rawValue: string | undefined;
+  decimals: number;
+  symbol: string;
+  usd: number;
+  align?: 'start' | 'end';
+}) {
+  return (
+    <DashboardStackedValue
+      align={align}
+      title={formatPositionTokenAmount(rawValue ?? '0', decimals, symbol)}
+      primary={formatDashboardTokenAmount(rawValue, decimals, symbol)}
+      secondary={formatPositionUsd(usd)}
+    />
+  );
+}
+
+function DashboardApyTvlValue({
+  vaultData,
+  align,
+}: {
+  vaultData: MorphoVaultData;
+  align?: 'start' | 'end';
+}) {
+  return (
+    <DashboardStackedValue
+      align={align}
+      primaryClassName="font-semibold text-[var(--primary)]"
+      primary={`${formatPercentage(vaultData.apy)} APY`}
+      secondary={`${formatSmartCurrency(vaultData.totalValueLocked || 0, { alwaysTwoDecimals: true })} TVL`}
+    />
   );
 }
 
@@ -157,25 +228,22 @@ function EarnedInterestCell({
     return <span className="text-sm text-[var(--foreground-muted)]">-</span>;
   }
 
-  const alignClass = align === 'start' ? 'items-start' : 'items-end';
   const skeletonClass = align === 'start' ? '' : 'ml-auto';
+  const zeroValue = (
+    <DashboardTokenValue
+      rawValue="0"
+      decimals={resolvedDecimals}
+      symbol={vault.symbol}
+      usd={0}
+      align={align}
+    />
+  );
 
   if (morphoHoldings.isLoading) {
     return <Skeleton width="4rem" height="1rem" className={skeletonClass} />;
   }
 
-  if (!hasWalletPosition) {
-    return (
-      <div className={`flex flex-col ${alignClass} gap-0.5`}>
-        <span className="text-sm font-medium text-[var(--foreground)] tabular-nums">
-          {formatPositionTokenAmount('0', resolvedDecimals, vault.symbol)}
-        </span>
-        <span className="text-xs text-[var(--foreground-secondary)] tabular-nums">
-          {formatPositionUsd(0)}
-        </span>
-      </div>
-    );
-  }
+  if (!hasWalletPosition) return zeroValue;
 
   const earnedInterestRaw =
     walletPosition.pnlRaw ??
@@ -196,28 +264,16 @@ function EarnedInterestCell({
     }
   })();
 
-  if (earnedRawBigInt <= BigInt(0) && earnedInterestUsd <= 0) {
-    return (
-      <div className={`flex flex-col ${alignClass} gap-0.5`}>
-        <span className="text-sm font-medium text-[var(--foreground)] tabular-nums">
-          {formatPositionTokenAmount('0', resolvedDecimals, vault.symbol)}
-        </span>
-        <span className="text-xs text-[var(--foreground-secondary)] tabular-nums">
-          {formatPositionUsd(0)}
-        </span>
-      </div>
-    );
-  }
+  if (earnedRawBigInt <= BigInt(0) && earnedInterestUsd <= 0) return zeroValue;
 
   return (
-    <div className={`flex flex-col ${alignClass} gap-0.5`}>
-      <span className="text-sm font-medium text-[var(--foreground)] tabular-nums">
-        {formatPositionTokenAmount(earnedInterestRaw, resolvedDecimals, vault.symbol)}
-      </span>
-      <span className="text-xs text-[var(--foreground-secondary)] tabular-nums">
-        {formatPositionUsd(earnedInterestUsd)}
-      </span>
-    </div>
+    <DashboardTokenValue
+      rawValue={earnedInterestRaw}
+      decimals={resolvedDecimals}
+      symbol={vault.symbol}
+      usd={earnedInterestUsd}
+      align={align}
+    />
   );
 }
 
@@ -330,9 +386,6 @@ function DashboardVaultMobileCard({
   const { address } = useAccount();
   const { morphoHoldings } = useWallet();
   const decimals = resolveAssetDecimals(vault.symbol, vaultData?.assetDecimals);
-  const positionRaw = positionAssets
-    ? formatPositionTokenAmount(positionAssets, decimals, vault.symbol)
-    : '-';
   const isCurated = isCuratedVaultAddress(vault.address);
   const openVault = () => {
     if (!isCurated) return;
@@ -379,12 +432,13 @@ function DashboardVaultMobileCard({
                 (item) => item.vault.address.toLowerCase() === vault.address.toLowerCase()
               )
             ) ? (
-            <div className="flex flex-col gap-1">
-              <span className="text-sm font-medium text-[var(--foreground)]">{positionRaw}</span>
-              <span className="text-xs text-[var(--foreground-secondary)]">
-                {formatPositionUsd(positionUsd)}
-              </span>
-            </div>
+            <DashboardTokenValue
+              rawValue={positionAssets}
+              decimals={decimals}
+              symbol={vault.symbol}
+              usd={positionUsd}
+              align="start"
+            />
           ) : (
             <span className="text-sm text-[var(--foreground-muted)]">-</span>
           )}
@@ -396,14 +450,7 @@ function DashboardVaultMobileCard({
           {loading || !vaultData ? (
             <Skeleton width="4rem" height="1rem" />
           ) : (
-            <div className="flex flex-col gap-1">
-              <span className="text-sm font-semibold text-[var(--primary)]">
-                {formatPercentage(vaultData.apy)} APY
-              </span>
-              <span className="text-xs text-[var(--foreground-secondary)]">
-                {formatSmartCurrency(vaultData.totalValueLocked || 0, { alwaysTwoDecimals: true })} TVL
-              </span>
-            </div>
+            <DashboardApyTvlValue vaultData={vaultData} align="start" />
           )}
         </MobileStatBlock>
       </div>
@@ -694,20 +741,29 @@ interface DashboardVaultTableProps {
   emptyMessage?: string;
 }
 
+function DashboardVaultColGroup() {
+  return (
+    <colgroup>
+      <col className="w-[34%]" />
+      <col className="w-[22%]" />
+      <col className="w-[22%]" />
+      <col className="w-[22%]" />
+    </colgroup>
+  );
+}
+
+const DASHBOARD_HEAD_CELL =
+  'px-2 py-2 text-xs font-medium leading-tight whitespace-nowrap text-[var(--foreground-secondary)]';
+const DASHBOARD_VALUE_CELL = 'px-2 py-2.5 align-middle text-right';
+
 function DashboardVaultTableHead() {
   return (
     <thead>
       <tr className="border-b border-[var(--border)] text-left">
-        <th className="px-2 py-2 text-xs font-medium text-[var(--foreground-secondary)]">Vault</th>
-        <th className="px-1 py-2 text-xs font-medium leading-tight text-[var(--foreground-secondary)] text-right">
-          Your Position
-        </th>
-        <th className="px-1 py-2 text-xs font-medium leading-tight text-[var(--foreground-secondary)] text-right">
-          Earned Interest
-        </th>
-        <th className="px-1 py-2 text-xs font-medium leading-tight text-[var(--foreground-secondary)] text-right">
-          APY / TVL
-        </th>
+        <th className={DASHBOARD_HEAD_CELL}>Vault</th>
+        <th className={`${DASHBOARD_HEAD_CELL} text-right`}>Your Position</th>
+        <th className={`${DASHBOARD_HEAD_CELL} text-right`}>Earned Interest</th>
+        <th className={`${DASHBOARD_HEAD_CELL} text-right`}>APY / TVL</th>
       </tr>
     </thead>
   );
@@ -724,12 +780,7 @@ function DashboardVaultEmptyState({
     <>
       <div className="hidden @min-[640px]:block min-w-0">
         <table className="w-full table-fixed">
-          <colgroup>
-            <col className="w-[46%]" />
-            <col className="w-[18%]" />
-            <col className="w-[18%]" />
-            <col className="w-[18%]" />
-          </colgroup>
+          <DashboardVaultColGroup />
           <DashboardVaultTableHead />
           <tbody>
             <tr>
@@ -776,10 +827,7 @@ export function DashboardVaultTable({
   const { morphoHoldings } = useWallet();
   const { getVaultData, isLoading } = useVaultData();
   const { address } = useAccount();
-  const depositedAddresses = useMemo(
-    () => getDepositedVaultAddressSet(morphoHoldings.positions),
-    [morphoHoldings.positions]
-  );
+  const { kindMarkAddresses } = useVaultKind();
 
   if (!isMounted) {
     return (
@@ -795,12 +843,7 @@ export function DashboardVaultTable({
         <div className="@container min-w-0">
           <div className="hidden @min-[640px]:block min-w-0">
             <table className="w-full table-fixed">
-              <colgroup>
-                <col className="w-[46%]" />
-                <col className="w-[18%]" />
-                <col className="w-[18%]" />
-                <col className="w-[18%]" />
-              </colgroup>
+              <DashboardVaultColGroup />
               <DashboardVaultTableHead />
               <tbody>
                 <tr>
@@ -851,7 +894,7 @@ export function DashboardVaultTable({
               positionUsd={positionUsd}
               loading={loading}
               vaultData={vaultData}
-              showKindMark={shouldShowVaultKindMark(vault, depositedAddresses)}
+              showKindMark={kindMarkAddresses.has(vault.address.toLowerCase())}
             />
           );
         })}
@@ -859,12 +902,7 @@ export function DashboardVaultTable({
 
       <div className="hidden @min-[640px]:block min-w-0">
       <table className="w-full table-fixed">
-        <colgroup>
-          <col className="w-[46%]" />
-          <col className="w-[18%]" />
-          <col className="w-[18%]" />
-          <col className="w-[18%]" />
-        </colgroup>
+        <DashboardVaultColGroup />
         <DashboardVaultTableHead />
         <tbody>
           {vaults.map((vault) => {
@@ -877,9 +915,6 @@ export function DashboardVaultTable({
             const positionUsd = position
               ? resolvePositionAssetsUsd(position, { assetDecimals: decimals, symbol: vault.symbol })
               : 0;
-            const positionRaw = position?.assets
-              ? formatPositionTokenAmount(position.assets, decimals, vault.symbol)
-              : '-';
 
             const openVault = () => {
               if (!isCuratedVaultAddress(vault.address)) return;
@@ -912,42 +947,35 @@ export function DashboardVaultTable({
                       <VaultNameWithWrapper
                         name={vault.name}
                         kind={vault.kind}
-                        showKindMark={shouldShowVaultKindMark(vault, depositedAddresses)}
+                        showKindMark={kindMarkAddresses.has(vault.address.toLowerCase())}
                         lines={2}
                       />
                       <VaultShareLabel vault={vault} />
                     </div>
                   </div>
                 </td>
-                <td className="px-1 py-2.5 align-middle text-right">
+                <td className={DASHBOARD_VALUE_CELL}>
                   {!address || morphoHoldings.isLoading ? (
                     <Skeleton width="4.5rem" height="1rem" className="ml-auto" />
                   ) : hasOnChainVaultShares(position) ? (
-                    <div className="flex flex-col items-end gap-0.5">
-                      <span className="text-sm font-medium text-[var(--foreground)] tabular-nums">{positionRaw}</span>
-                      <span className="text-xs text-[var(--foreground-secondary)] tabular-nums">
-                        {formatPositionUsd(positionUsd)}
-                      </span>
-                    </div>
+                    <DashboardTokenValue
+                      rawValue={position?.assets}
+                      decimals={decimals}
+                      symbol={vault.symbol}
+                      usd={positionUsd}
+                    />
                   ) : (
                     <span className="text-sm text-[var(--foreground-muted)]">-</span>
                   )}
                 </td>
-                <td className="px-1 py-2.5 align-middle text-right">
+                <td className={DASHBOARD_VALUE_CELL}>
                   <EarnedInterestCell vault={vault} decimals={decimals} />
                 </td>
-                <td className="px-1 py-2.5 align-middle text-right">
+                <td className={DASHBOARD_VALUE_CELL}>
                   {loading || !vaultData ? (
                     <Skeleton width="4rem" height="1rem" className="ml-auto" />
                   ) : (
-                    <div className="flex flex-col items-end gap-0.5">
-                      <span className="text-sm font-semibold text-[var(--primary)] tabular-nums">
-                        {formatPercentage(vaultData.apy)} APY
-                      </span>
-                      <span className="text-xs text-[var(--foreground-secondary)] tabular-nums">
-                        {formatSmartCurrency(vaultData.totalValueLocked || 0, { alwaysTwoDecimals: true })} TVL
-                      </span>
-                    </div>
+                    <DashboardApyTvlValue vaultData={vaultData} />
                   )}
                 </td>
               </tr>
