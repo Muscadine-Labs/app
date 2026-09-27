@@ -86,9 +86,6 @@ function VaultExplorerContent({
     if (filters.walletFilter === 'inWallet') {
       return 'No deposited vaults match the selected filters.';
     }
-    if (filters.walletFilter === 'inWalletAndWhitelisted') {
-      return 'No vaults match the selected filters.';
-    }
     return 'No vaults match the selected filters.';
   }, [filters.walletFilter, isConnected]);
 

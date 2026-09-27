@@ -78,12 +78,12 @@ export function Providers({ children, initialState }: Props) {
                 <ToastProvider>
                   <WalletProvider>
                     <VaultKindProvider>
-                    <VaultDataProvider>
-                      <TransactionProvider>
-                        <AdvisoryAgreementModal />
-                        {children}
-                      </TransactionProvider>
-                    </VaultDataProvider>
+                      <VaultDataProvider>
+                        <TransactionProvider>
+                          <AdvisoryAgreementModal />
+                          {children}
+                        </TransactionProvider>
+                      </VaultDataProvider>
                     </VaultKindProvider>
                   </WalletProvider>
                 </ToastProvider>
