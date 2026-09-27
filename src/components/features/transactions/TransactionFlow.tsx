@@ -38,6 +38,9 @@ import { useToast } from '@/contexts/ToastContext';
 import { useWallet } from '@/contexts/WalletContext';
 import { useVaultData } from '@/contexts/VaultDataContext';
 import { logger } from '@/lib/logger';
+import { VAULT_DEPOSIT_GATES_QUERY_KEY, VaultDepositBlockedError } from '@/lib/vault-gates';
+import { DEPOSIT_CAPACITY_QUERY_KEY, DepositCapExceededError } from '@/lib/deposit-capacity';
+import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { ERC4626_ABI } from '@/lib/abis';
 
@@ -100,6 +103,7 @@ export function TransactionFlow({
   const router = useRouter();
   const { data: walletClient } = useWalletClient();
   const publicClient = usePublicClient();
+  const queryClient = useQueryClient();
 
   const [currentTxHash, setCurrentTxHash] = useState<string | null>(null);
   const [stepsInfo, setStepsInfo] = useState<Array<{ stepIndex: number; label: string; type: 'signing' | 'approving' | 'confirming'; txHash?: string }>>([]);
@@ -564,6 +568,23 @@ export function TransactionFlow({
         return;
       }
       
+      if (err instanceof VaultDepositBlockedError) {
+        void queryClient.invalidateQueries({ queryKey: VAULT_DEPOSIT_GATES_QUERY_KEY });
+      }
+
+      if (err instanceof DepositCapExceededError) {
+        void queryClient.invalidateQueries({ queryKey: DEPOSIT_CAPACITY_QUERY_KEY });
+        let errorMessage = err.message;
+        if (err.maxAssets > BigInt(0)) {
+          setAmount(formatBigIntForInput(err.maxAssets, assetToUse.decimals));
+          const capped = formatAssetAmount(err.maxAssets, assetToUse.decimals, assetToUse.symbol);
+          errorMessage = `That amount is above this vault's deposit caps. The amount was lowered to ${capped}, the most it can accept right now.`;
+        }
+        setStatus('error', errorMessage);
+        showErrorToast(errorMessage, 5000);
+        return;
+      }
+
       const errorMessage = formatTransactionError(err);
       const failedPastFirstStep = currentStepRef.current > 0;
       if (failedPastFirstStep) {
@@ -582,12 +603,14 @@ export function TransactionFlow({
     derivedAsset,
     walletClient,
     publicClient,
+    queryClient,
     partialFailure,
     stepsInfo,
     totalSteps,
     preferredAsset,
     shouldUseWithdrawAll,
     completeSuccessfulTransaction,
+    setAmount,
     setStatus,
     showErrorToast,
   ]);

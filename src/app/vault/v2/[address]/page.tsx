@@ -17,7 +17,7 @@ import {
 } from '@/lib/vault-access';
 import { findWrapperForUnderlying } from '@/lib/vaults';
 import { useVaultDataFetch } from '@/hooks/useVaultDataFetch';
-import { useUnderlyingDepositAccess } from '@/hooks/useUnderlyingDepositAccess';
+import { useVaultDepositGates } from '@/hooks/useVaultDepositGates';
 import { useWallet } from '@/contexts/WalletContext';
 import VaultHero from '@/components/features/vault/VaultHero';
 import VaultTabs from '@/components/features/vault/VaultTabs';
@@ -113,7 +113,11 @@ export default function VaultV2Page() {
   const vault = useMemo(() => resolveVaultForPage(address), [address]);
   const { status: walletStatus, address: walletAddress } = useAccount();
   const { morphoHoldings } = useWallet();
-  const { eligibleUnderlyingAddresses } = useUnderlyingDepositAccess();
+  const {
+    eligibleUnderlyingAddresses,
+    isWrapperDepositBlocked,
+    isResolving: gatesResolving,
+  } = useVaultDepositGates();
   const depositedAddresses = useMemo(
     () => getDepositedVaultAddressSet(morphoHoldings.positions),
     [morphoHoldings.positions]
@@ -128,6 +132,7 @@ export default function VaultV2Page() {
       walletStatus,
       walletAddress,
       positionsResolvedFor: morphoHoldings.resolvedAddress,
+      gatesResolving,
     });
   }, [
     vault,
@@ -136,6 +141,7 @@ export default function VaultV2Page() {
     walletStatus,
     walletAddress,
     morphoHoldings.resolvedAddress,
+    gatesResolving,
   ]);
 
   const shouldFetchVaultData =
@@ -149,6 +155,9 @@ export default function VaultV2Page() {
     vaultKind: vault?.kind,
     vaultAddress: vault?.address ?? '',
     eligibleUnderlyingAddresses,
+    wrapperDepositBlocked: vault
+      ? isWrapperDepositBlocked(vault.address)
+      : false,
   });
 
   useEffect(() => {

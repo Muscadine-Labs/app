@@ -14,7 +14,6 @@ import {
   useRole,
 } from '@floating-ui/react';
 import type { VaultStrategy } from '@/lib/vaults';
-import type { VaultKindFilter } from '@/lib/vault-utils';
 
 interface FilterDropdownProps {
   label: string;
@@ -110,7 +109,6 @@ export type VaultAssetFilter = 'all' | 'USDC' | 'cbBTC' | 'WETH';
 export type VaultNetworkFilter = 'all' | 'base';
 export type VaultStrategyFilter = 'all' | VaultStrategy;
 export type VaultWalletFilter = 'all' | 'inWallet' | 'inWalletAndWhitelisted';
-export type { VaultKindFilter };
 
 const WALLET_FILTER_OPTIONS: Array<{
   value: VaultWalletFilter;
@@ -244,13 +242,11 @@ export interface VaultExplorerFilterState {
   asset: VaultAssetFilter;
   strategy: VaultStrategyFilter;
   walletFilter: VaultWalletFilter;
-  kindFilter: VaultKindFilter;
 }
 
 interface VaultExplorerFiltersProps {
   filters: VaultExplorerFilterState;
   onFiltersChange: (filters: VaultExplorerFilterState) => void;
-  showKindFilter: boolean;
 }
 
 export function getDefaultExplorerFilters(): VaultExplorerFilterState {
@@ -259,14 +255,12 @@ export function getDefaultExplorerFilters(): VaultExplorerFilterState {
     asset: 'all',
     strategy: 'all',
     walletFilter: 'inWalletAndWhitelisted',
-    kindFilter: 'wrappers',
   };
 }
 
 export default function VaultExplorerFilters({
   filters,
   onFiltersChange,
-  showKindFilter,
 }: VaultExplorerFiltersProps) {
   const update = (partial: Partial<VaultExplorerFilterState>) => {
     onFiltersChange({ ...filters, ...partial });
@@ -308,18 +302,6 @@ export default function VaultExplorerFilters({
             options={assetOptions}
             onChange={(value) => update({ asset: value as VaultAssetFilter })}
           />
-          {showKindFilter && (
-            <FilterDropdown
-              label="Vaults"
-              value={filters.kindFilter}
-              options={[
-                { label: 'All', value: 'all' },
-                { label: 'Underlying', value: 'underlying' },
-                { label: 'Wrappers', value: 'wrappers' },
-              ]}
-              onChange={(value) => update({ kindFilter: value as VaultKindFilter })}
-            />
-          )}
         </div>
 
         <WalletFilterControl

@@ -51,50 +51,6 @@ export function hasOnChainVaultShares(
   }
 }
 
-/** All-time earned USD from Morpho `pnlUsd` for the given vaults (positive only). */
-export function sumPositivePnlUsd(
-  positions: readonly WalletMorphoPosition[],
-  vaultAddresses?: ReadonlyArray<string>
-): number {
-  const allowed =
-    vaultAddresses === undefined
-      ? null
-      : new Set(vaultAddresses.map((address) => address.toLowerCase()));
-
-  let total = 0;
-  for (const position of positions) {
-    if (!hasOnChainVaultShares(position)) continue;
-    if (allowed && !allowed.has(position.vault.address.toLowerCase())) continue;
-    const usd = position.pnlUsd;
-    if (typeof usd === 'number' && Number.isFinite(usd) && usd > 0) {
-      total += usd;
-    }
-  }
-  return total;
-}
-
-/** All-time earned raw amount from Morpho `pnlRaw` for the given vaults (positive only). */
-export function sumPositivePnlRaw(
-  positions: readonly WalletMorphoPosition[],
-  vaultAddresses: ReadonlyArray<string>
-): bigint {
-  const allowed = new Set(vaultAddresses.map((address) => address.toLowerCase()));
-
-  let total = BigInt(0);
-  for (const position of positions) {
-    if (!hasOnChainVaultShares(position)) continue;
-    if (!allowed.has(position.vault.address.toLowerCase())) continue;
-    if (!position.pnlRaw) continue;
-    try {
-      const raw = BigInt(position.pnlRaw);
-      if (raw > BigInt(0)) total += raw;
-    } catch {
-      // skip malformed raw amounts
-    }
-  }
-  return total;
-}
-
 /** USD value for tables/selectors; falls back when assetsUsd was not priced yet. */
 export function resolvePositionAssetsUsd(
   position: WalletMorphoPosition,
@@ -237,7 +193,7 @@ export function createExternalVaultStub(
 
 export type VaultWalletFilterMode = 'all' | 'inWallet' | 'inWalletAndWhitelisted';
 
-export type VaultKindFilter = 'all' | 'underlying' | 'wrappers';
+export type VaultKindFilter = 'underlying' | 'wrappers';
 
 export function getDepositedVaultAddressSet(
   positions: WalletMorphoPosition[]
@@ -274,53 +230,65 @@ export function filterDashboardDepositedVaults(
   return vaults.filter((vault) => !drop.has(vault.address.toLowerCase()));
 }
 
-/** Dashboard kind pill — only when the wallet holds wrapper and underlying for the pair. */
-export function userHoldsBothVaultPairSides(
+function holdsWrapperOfPair(
   vault: Vault,
   depositedAddresses: ReadonlySet<string>
 ): boolean {
-  if (vault.kind === 'wrapper' && vault.underlyingAddress) {
-    return (
-      depositedAddresses.has(vault.address.toLowerCase()) &&
-      depositedAddresses.has(vault.underlyingAddress.toLowerCase())
-    );
+  if (vault.kind === 'wrapper') {
+    return depositedAddresses.has(vault.address.toLowerCase());
   }
-  if (vault.kind === 'underlying') {
-    const wrapper = findWrapperForUnderlying(vault.address);
-    if (!wrapper) return false;
-    return (
-      depositedAddresses.has(wrapper.address.toLowerCase()) &&
-      depositedAddresses.has(vault.address.toLowerCase())
-    );
-  }
-  return false;
+  const wrapper = findWrapperForUnderlying(vault.address);
+  return wrapper ? depositedAddresses.has(wrapper.address.toLowerCase()) : false;
 }
 
 /**
- * /vaults explorer: gate-eligible underlyings stay visible (even with no shares).
- * Otherwise hide the unheld sibling — wrapper-only drops underlying, not vice versa.
+ * Settings switch for wallets that can deposit into every underlying (default
+ * Underlying) or hold underlying shares (default Wrappers, Underlying view-only).
+ * Hidden when every wrapper is blocked.
  */
-export function collapseExplorerRegistryVaultPairs(
-  vaults: Vault[],
-  depositedAddresses: ReadonlySet<string>,
-  eligibleUnderlyingAddresses: ReadonlySet<string>
-): Vault[] {
-  const drop = new Set<string>();
+export function resolveVaultKindFilter(options: {
+  canDepositEveryUnderlying: boolean;
+  wrappersAcceptDeposits: boolean;
+  holdsUnderlying: boolean;
+  manualKind: VaultKindFilter | null;
+}): { kindFilter: VaultKindFilter; canSwitchKinds: boolean } {
+  const canSwitchKinds =
+    (options.canDepositEveryUnderlying || options.holdsUnderlying) &&
+    options.wrappersAcceptDeposits;
+  const defaultKind: VaultKindFilter = options.canDepositEveryUnderlying
+    ? 'underlying'
+    : 'wrappers';
+  return {
+    kindFilter: canSwitchKinds ? (options.manualKind ?? defaultKind) : defaultKind,
+    canSwitchKinds,
+  };
+}
 
-  for (const def of getRegistryVaultList()) {
-    if (def.kind !== 'wrapper' || !def.underlyingAddress) continue;
-    const wrapperKey = def.address.toLowerCase();
-    const underlyingKey = def.underlyingAddress.toLowerCase();
-
-    if (eligibleUnderlyingAddresses.has(underlyingKey)) continue;
-
-    const hasWrapper = depositedAddresses.has(wrapperKey);
-    const hasUnderlying = depositedAddresses.has(underlyingKey);
-    if (hasWrapper && hasUnderlying) continue;
-    if (hasWrapper && !hasUnderlying) drop.add(underlyingKey);
+function pairCounterpartAddress(vault: Vault): string | null {
+  if (vault.kind === 'wrapper') return vault.underlyingAddress?.toLowerCase() ?? null;
+  if (vault.kind === 'underlying') {
+    return findWrapperForUnderlying(vault.address)?.address.toLowerCase() ?? null;
   }
+  return null;
+}
 
-  return vaults.filter((vault) => !drop.has(vault.address.toLowerCase()));
+/**
+ * Kind pills only where kinds mix. A vault listed outside the current kind is
+ * labeled, and so is the other side of its pair. A list of one kind stays unlabeled.
+ */
+export function selectVaultKindMarkAddresses(options: {
+  listedVaults: readonly Vault[];
+  kindFilter: VaultKindFilter;
+}): Set<string> {
+  const listKind: VaultKind = options.kindFilter === 'underlying' ? 'underlying' : 'wrapper';
+  const marks = new Set<string>();
+  for (const vault of options.listedVaults) {
+    if (!vault.kind || vault.kind === listKind) continue;
+    marks.add(vault.address.toLowerCase());
+    const counterpart = pairCounterpartAddress(vault);
+    if (counterpart) marks.add(counterpart);
+  }
+  return marks;
 }
 
 /** Registry vaults for the explorer: wrappers always; underlyings by live gate or shares. */
@@ -328,6 +296,8 @@ export function selectRegistryVaultsForExplorer(options: {
   kindFilter: VaultKindFilter;
   depositedAddresses: ReadonlySet<string>;
   eligibleUnderlyingAddresses: ReadonlySet<string>;
+  /** Underlyings the wrappers list also shows (wallet can deposit without the switch). */
+  wrapperListUnderlyingAddresses: ReadonlySet<string>;
 }): Vault[] {
   const accessible = getAllRegistryVaults().filter((vault) =>
     isUnderlyingVisible({
@@ -341,20 +311,16 @@ export function selectRegistryVaultsForExplorer(options: {
   if (options.kindFilter === 'wrappers') {
     return accessible.filter((vault) => {
       if (vault.kind === 'wrapper') return true;
-      return options.depositedAddresses.has(vault.address.toLowerCase());
+      const key = vault.address.toLowerCase();
+      if (options.depositedAddresses.has(key)) return true;
+      if (options.wrapperListUnderlyingAddresses.has(key)) return true;
+      return holdsWrapperOfPair(vault, options.depositedAddresses);
     });
   }
-  if (options.kindFilter === 'underlying') {
-    return accessible.filter((vault) => {
-      if (vault.kind === 'underlying') return true;
-      return options.depositedAddresses.has(vault.address.toLowerCase());
-    });
-  }
-  return collapseExplorerRegistryVaultPairs(
-    accessible,
-    options.depositedAddresses,
-    options.eligibleUnderlyingAddresses
-  );
+  return accessible.filter((vault) => {
+    if (vault.kind === 'underlying') return true;
+    return options.depositedAddresses.has(vault.address.toLowerCase());
+  });
 }
 
 export function dedupeVaultsByAddress(vaults: Vault[]): Vault[] {
@@ -442,10 +408,6 @@ export function getVaultAnalyticsUrl(address: string): string {
   return `${MUSCADINE_ANALYTICS_ORIGIN}/vault/v2/${address}`;
 }
 
-export function getVaultApiPath(address: string, endpoint: string): string {
-  return `/api/vault/v2/${address}/${endpoint}`;
-}
-
 export function isValidEthereumAddress(address: string): boolean {
   return /^0x[a-fA-F0-9]{40}$/.test(address);
 }
@@ -514,135 +476,4 @@ export function calculateYAxisDomain(
   }
 
   return [domainMin, domainMax];
-}
-
-export function calculateCurrentAssetsRaw(options: {
-  positionAssets?: string | number | bigint | null;
-  positionShares?: string | number | null;
-  sharePriceInAsset?: number | null;
-  totalAssets?: string | number | null;
-  totalSupply?: string | number | null;
-  assetDecimals?: number | null;
-}): bigint {
-  const {
-    positionAssets,
-    positionShares,
-    sharePriceInAsset,
-    totalAssets,
-    totalSupply,
-    assetDecimals = 18,
-  } = options;
-
-  if (positionAssets !== undefined && positionAssets !== null) {
-    try {
-      const assets = BigInt(positionAssets);
-      if (assets > BigInt(0)) return assets;
-    } catch {
-      // ignore parse errors
-    }
-  }
-
-  const sharesRaw = positionShares !== undefined && positionShares !== null ? (() => {
-    try {
-      return BigInt(positionShares);
-    } catch {
-      return BigInt(0);
-    }
-  })() : BigInt(0);
-
-  const sharesDecimal = Number(sharesRaw) / 1e18;
-  const decimals = assetDecimals ?? 18;
-
-  const toRaw = (value: number) => {
-    if (!value || !isFinite(value) || value <= 0) return BigInt(0);
-    return BigInt(Math.floor(value * Math.pow(10, decimals)));
-  };
-
-  if (sharesDecimal > 0 && sharePriceInAsset && sharePriceInAsset > 0 && isFinite(sharePriceInAsset)) {
-    const raw = toRaw(sharesDecimal * sharePriceInAsset);
-    if (raw > BigInt(0)) return raw;
-  }
-
-  if (sharesDecimal > 0) {
-    let totalAssetsRaw = BigInt(0);
-    let totalSupplyRaw = BigInt(0);
-
-    try {
-      if (totalAssets !== undefined && totalAssets !== null) {
-        totalAssetsRaw = BigInt(totalAssets);
-      }
-    } catch {
-      // ignore
-    }
-
-    try {
-      if (totalSupply !== undefined && totalSupply !== null) {
-        totalSupplyRaw = BigInt(totalSupply);
-      }
-    } catch {
-      // ignore
-    }
-
-    if (totalAssetsRaw > BigInt(0) && totalSupplyRaw > BigInt(0)) {
-      const totalAssetsDecimal = Number(totalAssetsRaw) / Math.pow(10, decimals);
-      const totalSupplyDecimal = Number(totalSupplyRaw) / 1e18;
-
-      if (totalSupplyDecimal > 0 && totalAssetsDecimal > 0) {
-        const sharePrice = totalAssetsDecimal / totalSupplyDecimal;
-        const raw = toRaw(sharesDecimal * sharePrice);
-        if (raw > BigInt(0)) return raw;
-      }
-    }
-  }
-
-  return BigInt(0);
-}
-
-export function resolveAssetPriceUsd(options: {
-  quotedPriceUsd?: number | null;
-  vaultData?: {
-    totalValueLocked?: number;
-    totalAssets?: string | number | null;
-    assetDecimals?: number;
-    sharePrice?: number;
-  };
-  fallbackSharePriceUsd?: number;
-  assetDecimals?: number;
-}): number {
-  const { quotedPriceUsd, vaultData, fallbackSharePriceUsd, assetDecimals } = options;
-
-  if (typeof quotedPriceUsd === 'number' && isFinite(quotedPriceUsd) && quotedPriceUsd > 0) {
-    return quotedPriceUsd;
-  }
-
-  const decimals = assetDecimals ?? vaultData?.assetDecimals ?? 18;
-
-  if (
-    vaultData?.totalValueLocked &&
-    typeof vaultData.totalAssets !== 'undefined' &&
-    vaultData.totalAssets !== null
-  ) {
-    try {
-      const totalAssetsRaw = BigInt(vaultData.totalAssets);
-      if (totalAssetsRaw > BigInt(0)) {
-        const totalAssetsDecimal = Number(totalAssetsRaw) / Math.pow(10, decimals);
-        if (totalAssetsDecimal > 0) {
-          return vaultData.totalValueLocked / totalAssetsDecimal;
-        }
-      }
-    } catch {
-      // ignore
-    }
-  }
-
-  if (
-    fallbackSharePriceUsd &&
-    vaultData?.sharePrice &&
-    fallbackSharePriceUsd > 0 &&
-    vaultData.sharePrice > 0
-  ) {
-    return fallbackSharePriceUsd / vaultData.sharePrice;
-  }
-
-  return 0;
 }

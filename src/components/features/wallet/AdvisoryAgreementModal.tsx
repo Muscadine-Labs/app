@@ -81,7 +81,7 @@ export function AdvisoryAgreementModal() {
           </p>
 
           <p className="text-xs sm:text-sm text-[var(--foreground)] leading-relaxed">
-            Vaults shown by default are fee wrappers that deposit into Muscadine’s underlying Morpho vaults and charge a performance fee.{' '}
+            Unless your wallet is whitelisted, the vaults shown by default are fee wrappers that deposit into Muscadine’s underlying Morpho vaults. A wrapper may charge a performance fee.{' '}
             <a
               href="https://analytics.muscadine.xyz"
               target="_blank"

@@ -31,7 +31,7 @@ export default function VaultHero({ vaultData }: VaultHeroProps) {
           title={`Click to copy address: ${vaultData.address}`}
         >
           <span className="break-words">{vaultData.name}</span>
-          <VaultKindMark kind={vaultData.kind} />
+          <VaultKindMark kind={vaultData.kind} address={vaultData.address} />
         </h1>
         <div className="flex items-center gap-2 mt-1">
           <div className="w-5 h-5 rounded-full bg-white flex items-center justify-center overflow-hidden shrink-0">
@@ -46,7 +46,7 @@ export default function VaultHero({ vaultData }: VaultHeroProps) {
             />
           </div>
           <span className="text-sm sm:text-base text-[var(--foreground-secondary)]">
-            {vaultData.symbol}
+            {vaultData.vaultSymbol || vaultData.symbol}
           </span>
         </div>
       </div>
