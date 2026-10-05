@@ -1,6 +1,7 @@
 **To Work on Today:**
 
-- Review bundler 3, morpho is going to deprecate it (on their bundler3 github), look into the new bundles contract on github. See if we need to migrate. 
+- Review bundler 3, morpho is going to deprecate it (on their bundler3 github), look into the new bundles contract on github. See if we need to migrate.
+- Also, re-design the wrapper vaults since we took off send-assets-gates.
 
 **To work on another day:**
 
