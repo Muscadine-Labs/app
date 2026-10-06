@@ -23,43 +23,11 @@ import {
 import { logger } from '@/lib/logger';
 import type { TransactionProgressCallback } from '@/types/transactions';
 
-/**
- * Bundler3 share-price slippage, matching Morpho SDK `DEFAULT_SLIPPAGE_TOLERANCE` (0.03%).
- * 3 bps of quoted assets/shares. Tight enough to catch inflation / share-price jumps;
- * loose enough that normal interest accrual during wallet confirmation does not revert.
- */
-export const BUNDLER_SLIPPAGE_BPS = BigInt(3);
-
-const SHARE_PRICE_SCALE_E27 = BigInt(10) ** BigInt(27);
-
-/**
- * Morpho adapter maxSharePriceE27: max assets paid per share, scaled by 1e27.
- * Quote from convertToShares(assets) → assets/shares, then apply upside tolerance.
- */
-export function maxSharePriceE27FromQuote(
-  assets: bigint,
-  shares: bigint,
-  slippageBps: bigint = BUNDLER_SLIPPAGE_BPS
-): bigint {
-  if (shares === BigInt(0) || assets === BigInt(0)) return maxUint256;
-  // Morpho checks assets.rDivUp(shares) <= maxSharePriceE27 (ceil division).
-  const price = (assets * SHARE_PRICE_SCALE_E27) / shares;
-  return price + (price * slippageBps) / BigInt(10_000) + BigInt(1);
-}
-
-/**
- * Morpho adapter minSharePriceE27: min assets received per share, scaled by 1e27.
- */
-export function minSharePriceE27FromQuote(
-  assets: bigint,
-  shares: bigint,
-  slippageBps: bigint = BUNDLER_SLIPPAGE_BPS
-): bigint {
-  if (shares === BigInt(0) || assets === BigInt(0)) return BigInt(0);
-  const price = (assets * SHARE_PRICE_SCALE_E27) / shares;
-  const slip = (price * slippageBps) / BigInt(10_000);
-  return price > slip ? price - slip : BigInt(0);
-}
+export {
+  maxSharePriceE27FromQuote,
+  minSharePriceE27FromQuote,
+  MORPHO_DEFAULT_SLIPPAGE_BPS,
+} from './share-price';
 
 export type Bundler3Call = {
   to: Address;
