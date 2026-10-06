@@ -1,29 +1,46 @@
 /**
  * Transaction utilities for V2 vaults.
- * Deposits: direct ERC-4626, except WETH vault + ETH wrap (Bundler3) when the
- * vault gate lets GeneralAdapter1 send assets. Withdraw/redeem: direct ERC-4626,
- * except WETH→ETH which uses Bundler3 unwrap (wrappers and underlyings).
+ * Deposits: direct ERC-4626, except native ETH into WETH vaults through
+ * VaultBundlesV1 and the legacy combined ETH + WETH route through Bundler3.
+ * Withdraw/redeem: direct ERC-4626, except WETH→ETH which uses Bundler3 unwrap.
  */
 
 import { type Address, type PublicClient, type WalletClient, type TransactionReceipt, parseUnits, formatUnits, getAddress, parseEventLogs } from 'viem';
+import { base } from 'viem/chains';
 import { builderWriteOpts } from './builder-code';
 import {
   buildUnwrapWalletWethBundle,
   buildVaultDepositBundle,
   buildWethVaultWithdrawToEthBundle,
   executeBundler3Multicall,
-  maxSharePriceE27FromQuote,
-  minSharePriceE27FromQuote,
 } from './bundler3';
-import { BASE_WETH_ADDRESS, ETH_GAS_RESERVE_WEI, GENERAL_ADAPTER_ADDRESS } from './constants';
+import {
+  BASE_CHAIN_ID,
+  BASE_WETH_ADDRESS,
+  ETH_GAS_RESERVE_WEI,
+  GENERAL_ADAPTER_ADDRESS,
+} from './constants';
+import {
+  getVaultDepositApproval,
+  getVaultDepositCaller,
+  resolveDepositExecutionRoute,
+} from './deposit-route';
 import {
   VaultDepositBlockedError,
-  readBundlerCanDeposit,
   readVaultDepositBlocker,
 } from './vault-gates';
+import {
+  maxSharePriceE27FromQuote,
+  minSharePriceE27FromQuote,
+} from './share-price';
+import {
+  buildVaultBundlesNativeDeposit,
+  VAULT_BUNDLES_V1_ABI,
+} from './morpho-vault-bundles';
 import { assertDepositWithinCapacity } from './deposit-capacity';
 import type { ForceWithdrawPlan } from './force-withdraw-v2';
 import { planForceWithdrawV2, VAULT_V2_FORCE_ABI } from './force-withdraw-v2';
+import { logger } from './logger';
 import type { TransactionProgressCallback } from '../types/transactions';
 
 // ERC20 ABI for approvals and balance checks
@@ -239,6 +256,81 @@ async function quoteDepositShares(
     );
   }
   return shares;
+}
+
+async function executeVaultBundlesNativeDeposit(
+  publicClient: PublicClient,
+  walletClient: WalletClient,
+  options: {
+    vault: Address;
+    assets: bigint;
+    maxSharePriceE27: bigint;
+    onProgress?: TransactionProgressCallback;
+    stepIndex: number;
+    totalSteps: number;
+  }
+): Promise<`0x${string}`> {
+  const account = walletClient.account;
+  if (!account) throw new Error('Wallet not connected');
+  if (walletClient.chain && walletClient.chain.id !== BASE_CHAIN_ID) {
+    throw new Error(`Wrong network: native ETH deposits require Base (${BASE_CHAIN_ID}).`);
+  }
+  if (publicClient.chain && publicClient.chain.id !== BASE_CHAIN_ID) {
+    throw new Error(`Wrong network: native ETH deposits require Base (${BASE_CHAIN_ID}).`);
+  }
+
+  const latestBlock = await publicClient.getBlock({ blockTag: 'latest' });
+  const call = buildVaultBundlesNativeDeposit({
+    vault: options.vault,
+    assets: options.assets,
+    maxSharePriceE27: options.maxSharePriceE27,
+    deadline: latestBlock.timestamp + BigInt(5 * 60),
+  });
+
+  // Simulate the complete bundle so send-assets and receive-shares gates run
+  // with VaultBundlesV1's real transient initiator before the wallet is prompted.
+  const { request } = await publicClient.simulateContract({
+    address: call.address,
+    abi: VAULT_BUNDLES_V1_ABI,
+    functionName: 'vaultBundlesV1Deposit',
+    args: call.args,
+    value: call.value,
+    account,
+    ...builderWriteOpts(),
+  });
+
+  options.onProgress?.({
+    type: 'confirming',
+    stepIndex: options.stepIndex,
+    totalSteps: options.totalSteps,
+    stepLabel: 'Deposit (wrap ETH)',
+    txHash: '',
+  });
+
+  logger.info('Executing VaultBundlesV1 native deposit', {
+    bundle: call.address,
+    vault: options.vault,
+    assets: options.assets.toString(),
+    maxSharePriceE27: options.maxSharePriceE27.toString(),
+  });
+
+  const hash = await walletClient.writeContract({
+    ...request,
+    account,
+    chain: walletClient.chain ?? base,
+    ...builderWriteOpts(),
+  });
+
+  options.onProgress?.({
+    type: 'confirming',
+    stepIndex: options.stepIndex,
+    totalSteps: options.totalSteps,
+    stepLabel: 'Deposit (wrap ETH)',
+    txHash: hash,
+  });
+
+  await waitForSuccessfulReceipt(publicClient, hash, 'Deposit');
+  return hash;
 }
 
 /**
@@ -494,7 +586,7 @@ async function executeVaultWithdrawThenUnwrap(
 
 /**
  * Deposit assets into a v2 vault.
- * Direct ERC-4626 unless wrapping ETH (Bundler3: wrap + deposit in one tx).
+ * Native ETH-only WETH deposits use VaultBundlesV1; combined ETH + WETH uses Bundler3.
  */
 export async function depositToVaultV2(
   publicClient: PublicClient,
@@ -514,23 +606,6 @@ export async function depositToVaultV2(
 
   const amountBigInt = parseAmount(amount, assetDecimals);
 
-  const wantsNativeEth = preferredAsset === 'ETH' || preferredAsset === 'ALL';
-  const [depositBlocker, nativeEthAllowed, capError] = await Promise.all([
-    readVaultDepositBlocker(publicClient, normalizedVault, userAddress),
-    wantsNativeEth ? readBundlerCanDeposit(publicClient, normalizedVault) : false,
-    assertDepositWithinCapacity(publicClient, normalizedVault, amountBigInt).then(
-      () => null,
-      (err: unknown) => err
-    ),
-  ]);
-  if (depositBlocker) throw new VaultDepositBlockedError(depositBlocker);
-  if (wantsNativeEth && !nativeEthAllowed) {
-    throw new Error(
-      'Deposit WETH. Native ETH deposits are not available for this vault.'
-    );
-  }
-  if (capError) throw capError;
-
   // Get vault asset address
   const assetAddress = await publicClient.readContract({
     address: normalizedVault,
@@ -539,28 +614,28 @@ export async function depositToVaultV2(
   }) as Address;
 
   const isWethVault = assetAddress.toLowerCase() === BASE_WETH_ADDRESS.toLowerCase();
+  const assetPreference = preferredAsset || 'WETH';
+  const wantsNativeEth = assetPreference === 'ETH' || assetPreference === 'ALL';
+  if (wantsNativeEth && !isWethVault) {
+    throw new Error('Native ETH deposits are only available for WETH vaults.');
+  }
 
   // Determine if wrapping is needed (read-only operations first)
   let ethToWrap: bigint = BigInt(0);
   if (isWethVault) {
-    // Fetch balances
-    const existingWeth = await publicClient.readContract({
-      address: BASE_WETH_ADDRESS,
-      abi: ERC20_ABI,
-      functionName: 'balanceOf',
-      args: [userAddress],
-    }) as bigint;
-
-    const availableEth = await publicClient.getBalance({
-      address: userAddress,
-    });
+    const [existingWeth, availableEth] = await Promise.all([
+      publicClient.readContract({
+        address: BASE_WETH_ADDRESS,
+        abi: ERC20_ABI,
+        functionName: 'balanceOf',
+        args: [userAddress],
+      }) as Promise<bigint>,
+      publicClient.getBalance({ address: userAddress }),
+    ]);
 
     // Reserve ETH for gas fees - clamp to zero if availableEth is less than reserve
-    const availableEthAfterReserve = availableEth > gasReserveWei 
-      ? availableEth - gasReserveWei 
-      : BigInt(0);
-
-    const assetPreference = preferredAsset || 'WETH';
+    const availableEthAfterReserve =
+      availableEth > gasReserveWei ? availableEth - gasReserveWei : BigInt(0);
 
     if (assetPreference === 'ETH') {
       if (amountBigInt > availableEthAfterReserve) {
@@ -598,29 +673,42 @@ export async function depositToVaultV2(
           `Please reduce the amount or add more funds to your wallet.`
         );
       }
-      // Compute ethToWrap = max(0, amountBigInt - existingWeth) but capped to availableEthAfterReserve
+      // Use WETH first, then native ETH; the combined route remains atomic.
       const ethNeeded = amountBigInt > existingWeth ? amountBigInt - existingWeth : BigInt(0);
       ethToWrap = ethNeeded > availableEthAfterReserve ? availableEthAfterReserve : ethNeeded;
     }
   }
 
+  const route = resolveDepositExecutionRoute({
+    isWethVault,
+    preferredAsset: assetPreference,
+    ethToWrap,
+  });
   const wethFromWalletForBundler =
-    isWethVault && ethToWrap > BigInt(0)
-      ? amountBigInt > ethToWrap
-        ? amountBigInt - ethToWrap
-        : BigInt(0)
-      : BigInt(0);
-  const useBundlerDeposit = isWethVault && ethToWrap > BigInt(0) && nativeEthAllowed;
-  if (isWethVault && ethToWrap > BigInt(0) && !nativeEthAllowed) {
-    throw new Error(
-      'Deposit WETH. Native ETH deposits are not available for this vault.'
-    );
-  }
-  const approvalSpender = useBundlerDeposit ? GENERAL_ADAPTER_ADDRESS : normalizedVault;
-  const approvalAmount = useBundlerDeposit ? wethFromWalletForBundler : amountBigInt;
+    route === 'bundler3' ? amountBigInt - ethToWrap : BigInt(0);
+  const depositCaller = getVaultDepositCaller(route, userAddress);
+
+  const [depositBlocker, capError] = await Promise.all([
+    readVaultDepositBlocker(publicClient, normalizedVault, userAddress, depositCaller),
+    assertDepositWithinCapacity(publicClient, normalizedVault, amountBigInt).then(
+      () => null,
+      (err: unknown) => err
+    ),
+  ]);
+  if (depositBlocker) throw new VaultDepositBlockedError(depositBlocker);
+  if (capError) throw capError;
+
+  const approval = getVaultDepositApproval({
+    route,
+    vault: normalizedVault,
+    totalAssets: amountBigInt,
+    wethFromWallet: wethFromWalletForBundler,
+  });
+  const approvalSpender = approval?.spender;
+  const approvalAmount = approval?.amount ?? BigInt(0);
 
   let allowance = BigInt(0);
-  if (approvalAmount > BigInt(0)) {
+  if (approvalSpender && approvalAmount > BigInt(0)) {
     allowance = (await publicClient.readContract({
       address: assetAddress,
       abi: ERC20_ABI,
@@ -633,7 +721,7 @@ export async function depositToVaultV2(
   const needsReset = needsApproval && allowance > BigInt(0) && allowance < approvalAmount;
 
   let bundlerExpectedShares: bigint | undefined;
-  if (useBundlerDeposit) {
+  if (route === 'bundler3') {
     bundlerExpectedShares = await quoteDepositShares(
       publicClient,
       normalizedVault,
@@ -647,13 +735,14 @@ export async function depositToVaultV2(
   } else if (needsApproval) {
     planLabels.push('Approve token');
   }
-  planLabels.push(useBundlerDeposit ? 'Deposit (wrap ETH)' : 'Deposit');
+  planLabels.push(route === 'erc4626' ? 'Deposit' : 'Deposit (wrap ETH)');
   emitTransactionPlan(onProgress, planLabels);
 
   const totalSteps = planLabels.length;
   let currentStep = 0;
 
   if (needsApproval) {
+    if (!approvalSpender) throw new Error('Deposit route does not support token approvals.');
     const didReset = await ensureApproval(
       publicClient,
       walletClient,
@@ -668,7 +757,7 @@ export async function depositToVaultV2(
     currentStep += didReset ? 2 : 1;
   }
 
-  if (useBundlerDeposit) {
+  if (route === 'bundler3') {
     // Re-quote after approvals so 0.03% maxSharePrice is not stale from a reset/approve wait.
     const sharesForPrice =
       needsApproval || bundlerExpectedShares === undefined
@@ -691,6 +780,22 @@ export async function depositToVaultV2(
       stepIndex: currentStep,
       totalSteps,
       stepLabel: 'Deposit (wrap ETH)',
+    });
+  }
+
+  if (route === 'vault-bundles-v1') {
+    const sharesForPrice = await quoteDepositShares(
+      publicClient,
+      normalizedVault,
+      amountBigInt
+    );
+    return executeVaultBundlesNativeDeposit(publicClient, walletClient, {
+      vault: normalizedVault,
+      assets: amountBigInt,
+      maxSharePriceE27: maxSharePriceE27FromQuote(amountBigInt, sharesForPrice),
+      onProgress,
+      stepIndex: currentStep,
+      totalSteps,
     });
   }
 

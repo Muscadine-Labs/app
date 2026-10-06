@@ -31,8 +31,8 @@ export function canDepositToVault(options: {
 }
 
 /**
- * Native ETH wrap-and-deposit (Bundler3) fallback when the vault gate read fails:
- * wrappers only, since GeneralAdapter1 is not on the underlying allowlist.
+ * Native ETH deposit fallback when the VaultBundlesV1 gate read fails:
+ * wrappers only, since the bundle is not on the underlying allowlist.
  */
 export function allowsNativeEthVaultDeposit(vaultAddress: string): boolean {
   return !isUnderlyingVaultAddress(vaultAddress);

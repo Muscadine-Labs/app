@@ -76,8 +76,12 @@ export function useScopedVaultTransaction({
   const { isConnected } = useAccount();
   const { tokenBalances, morphoHoldings, refreshBalances } = useWallet();
   const { fetchVaultData } = useVaultData();
-  const { allowsNativeEthDeposit } = useVaultDepositGates();
+  const {
+    allowsNativeEthDeposit,
+    allowsCombinedEthWethDeposit,
+  } = useVaultDepositGates();
   const nativeEthAllowed = allowsNativeEthDeposit(vaultAddress);
+  const combinedEthWethAllowed = allowsCombinedEthWethDeposit(vaultAddress);
   const {
     fromAccount,
     toAccount,
@@ -176,8 +180,9 @@ export function useScopedVaultTransaction({
   useEffect(() => {
     if (effectiveActiveTab !== 'deposit') return;
     if (!isWethVault(vaultAddress, vaultSymbol)) return;
-    if (nativeEthAllowed) return;
-    if (preferredAsset === 'ETH' || preferredAsset === 'ALL') {
+    if (preferredAsset === 'ETH' && !nativeEthAllowed) {
+      setPreferredAsset('WETH');
+    } else if (preferredAsset === 'ALL' && !combinedEthWethAllowed) {
       setPreferredAsset('WETH');
     }
   }, [
@@ -185,6 +190,7 @@ export function useScopedVaultTransaction({
     vaultAddress,
     vaultSymbol,
     nativeEthAllowed,
+    combinedEthWethAllowed,
     preferredAsset,
     setPreferredAsset,
   ]);

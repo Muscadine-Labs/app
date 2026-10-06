@@ -64,7 +64,14 @@ export function useVaultDepositGates() {
 
   const allowsNativeEthDeposit = useCallback(
     (vaultAddress: string) =>
-      gates?.[vaultAddress.toLowerCase()]?.bundlerCanDeposit ??
+      gates?.[vaultAddress.toLowerCase()]?.vaultBundlesCanDeposit ??
+      allowsNativeEthVaultDeposit(vaultAddress),
+    [gates]
+  );
+
+  const allowsCombinedEthWethDeposit = useCallback(
+    (vaultAddress: string) =>
+      gates?.[vaultAddress.toLowerCase()]?.bundler3CanDeposit ??
       allowsNativeEthVaultDeposit(vaultAddress),
     [gates]
   );
@@ -73,6 +80,7 @@ export function useVaultDepositGates() {
     eligibleUnderlyingAddresses,
     isWrapperDepositBlocked,
     allowsNativeEthDeposit,
+    allowsCombinedEthWethDeposit,
     canDepositEveryUnderlying,
     wrappersAcceptDeposits,
     isResolving: vaultQuery.isLoading || (Boolean(address) && walletQuery.isLoading),

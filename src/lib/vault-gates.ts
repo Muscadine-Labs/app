@@ -1,5 +1,8 @@
 import { getAddress, zeroAddress, type Address, type PublicClient } from 'viem';
-import { GENERAL_ADAPTER_ADDRESS } from '@/lib/constants';
+import {
+  GENERAL_ADAPTER_ADDRESS,
+  VAULT_BUNDLES_V1_ADDRESS,
+} from '@/lib/constants';
 import { allowsNativeEthVaultDeposit } from '@/lib/vault-access';
 import type { VaultDefinition } from '@/lib/vaults';
 
@@ -61,8 +64,10 @@ export type GateCheck = boolean | null;
 export interface VaultGateStatus {
   /** Neither deposit gate is set, so any wallet can deposit. */
   open: GateCheck;
-  /** GeneralAdapter1 can send assets (Bundler3 ETH wrap deposit). */
-  bundlerCanDeposit: GateCheck;
+  /** VaultBundlesV1 can send assets (native ETH deposit). */
+  vaultBundlesCanDeposit: GateCheck;
+  /** GeneralAdapter1 can send assets (legacy combined ETH + WETH deposit). */
+  bundler3CanDeposit: GateCheck;
   /** Wrapper only: its liquidity adapter can still deposit into the child vault. */
   adapterCanDeposit: GateCheck;
 }
@@ -152,7 +157,7 @@ export async function readVaultGateStatus(
   publicClient: PublicClient,
   vaults: readonly VaultDefinition[]
 ): Promise<Record<string, VaultGateStatus>> {
-  const stride = 4;
+  const stride = 5;
   const results = (await publicClient.multicall({
     allowFailure: true,
     contracts: vaults.flatMap((vault) => {
@@ -160,6 +165,12 @@ export async function readVaultGateStatus(
       return [
         { address, abi: VAULT_GATE_ABI, functionName: 'sendAssetsGate' as const },
         { address, abi: VAULT_GATE_ABI, functionName: 'receiveSharesGate' as const },
+        {
+          address,
+          abi: VAULT_GATE_ABI,
+          functionName: 'canSendAssets' as const,
+          args: [VAULT_BUNDLES_V1_ADDRESS] as const,
+        },
         {
           address,
           abi: VAULT_GATE_ABI,
@@ -178,7 +189,7 @@ export async function readVaultGateStatus(
     const key = vault.address.toLowerCase();
     const sendAssetsGate = asAddress(results[i * stride]);
     const receiveSharesGate = asAddress(results[i * stride + 1]);
-    const liquidityAdapter = asAddress(results[i * stride + 3]);
+    const liquidityAdapter = asAddress(results[i * stride + 4]);
 
     const open =
       sendAssetsGate === null || receiveSharesGate === null
@@ -196,7 +207,8 @@ export async function readVaultGateStatus(
 
     status[key] = {
       open,
-      bundlerCanDeposit: asBool(results[i * stride + 2]),
+      vaultBundlesCanDeposit: asBool(results[i * stride + 2]),
+      bundler3CanDeposit: asBool(results[i * stride + 3]),
       adapterCanDeposit,
     };
   });
@@ -322,7 +334,8 @@ export class VaultDepositBlockedError extends Error {
 export async function readVaultDepositBlocker(
   publicClient: PublicClient,
   vaultAddress: Address,
-  wallet: Address
+  wallet: Address,
+  depositCaller: Address = wallet
 ): Promise<DepositBlocker | null> {
   try {
     const [send, receive, adapter] = (await publicClient.multicall({
@@ -332,7 +345,7 @@ export async function readVaultDepositBlocker(
           address: vaultAddress,
           abi: VAULT_GATE_ABI,
           functionName: 'canSendAssets',
-          args: [wallet],
+          args: [depositCaller],
         },
         {
           address: vaultAddress,
@@ -344,7 +357,12 @@ export async function readVaultDepositBlocker(
       ],
     })) as MulticallItem[];
 
-    if (bothTrue(asBool(send), asBool(receive)) === false) return 'wallet';
+    if (asBool(send) === false) {
+      return depositCaller.toLowerCase() === wallet.toLowerCase()
+        ? 'wallet'
+        : 'adapter';
+    }
+    if (asBool(receive) === false) return 'wallet';
 
     const liquidityAdapter = asAddress(adapter);
     if (!liquidityAdapter || liquidityAdapter === zeroAddress) return null;
@@ -357,8 +375,25 @@ export async function readVaultDepositBlocker(
   }
 }
 
-/** Bundler3 ETH wrap deposits send assets from GeneralAdapter1, so the vault gate must allow it. */
-export async function readBundlerCanDeposit(
+/** Native deposits call the vault from VaultBundlesV1, which its send-assets gate must allow. */
+export async function readVaultBundlesCanDeposit(
+  publicClient: PublicClient,
+  vaultAddress: Address
+): Promise<boolean> {
+  try {
+    return await publicClient.readContract({
+      address: vaultAddress,
+      abi: VAULT_GATE_ABI,
+      functionName: 'canSendAssets',
+      args: [VAULT_BUNDLES_V1_ADDRESS],
+    });
+  } catch {
+    return allowsNativeEthVaultDeposit(vaultAddress);
+  }
+}
+
+/** The legacy combined ETH + WETH path sends vault assets from GeneralAdapter1. */
+export async function readBundler3CanDeposit(
   publicClient: PublicClient,
   vaultAddress: Address
 ): Promise<boolean> {

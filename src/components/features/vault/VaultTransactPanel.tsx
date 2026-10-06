@@ -103,7 +103,10 @@ export function VaultTransactPanel({
   canDeposit,
 }: VaultTransactPanelProps) {
   const { btc: btcPrice, eth: ethPrice } = usePrices();
-  const { allowsNativeEthDeposit } = useVaultDepositGates();
+  const {
+    allowsNativeEthDeposit,
+    allowsCombinedEthWethDeposit,
+  } = useVaultDepositGates();
   const [rewardsModeOverride, setRewardsModeOverride] = useState<RewardsMode | null>(
     null
   );
@@ -146,6 +149,7 @@ export function VaultTransactPanel({
     vaultData.status === 'paused' ||
     vaultData.status === 'deprecated';
   const allowEthDeposit = allowsNativeEthDeposit(vaultData.address);
+  const allowCombinedEthWethDeposit = allowsCombinedEthWethDeposit(vaultData.address);
 
   const inputUsd = amountUsdValue(
     tx.amount,
@@ -277,7 +281,7 @@ export function VaultTransactPanel({
               <div className="flex items-center gap-2">
                 {isWethVault(vaultData.address, vaultData.symbol) &&
                   tx.effectiveActiveTab === 'deposit' &&
-                  allowEthDeposit && (
+                  (allowEthDeposit || allowCombinedEthWethDeposit) && (
                     <select
                       value={tx.preferredAsset || 'WETH'}
                       onChange={(e) =>
@@ -286,8 +290,10 @@ export function VaultTransactPanel({
                       className="text-xs px-2 py-1 bg-[var(--surface-elevated)] border border-[var(--border-subtle)] rounded text-[var(--foreground-muted)] focus:outline-none cursor-pointer"
                     >
                       <option value="WETH">WETH</option>
-                      <option value="ETH">ETH</option>
-                      <option value="ALL">ETH + WETH</option>
+                      {allowEthDeposit && <option value="ETH">ETH</option>}
+                      {allowCombinedEthWethDeposit && (
+                        <option value="ALL">ETH + WETH</option>
+                      )}
                     </select>
                   )}
                 {isWethVault(vaultData.address, vaultData.symbol) &&
