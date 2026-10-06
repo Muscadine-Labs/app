@@ -19,6 +19,8 @@ export const MORPHO_DISCLAIMER_URL = 'https://morpho.org/disclaimers' as const;
 export const BUNDLER3_ADDRESS = '0x6BFd8137e702540E7A42B74178A4a49Ba43920C4' as const;
 /** Morpho GeneralAdapter1 on Base (wrap/unwrap + ERC-4626 via Bundler3). */
 export const GENERAL_ADAPTER_ADDRESS = '0xb98c948CFA24072e58935BC004a8A7b376AE746A' as const;
+/** Morpho VaultBundlesV1 on Base (native ETH-funded WETH vault deposits). */
+export const VAULT_BUNDLES_V1_ADDRESS = '0x2B08A911f48dE25A7e305D910Afb5597aBE8ea7B' as const;
 
 // Cache durations (in milliseconds)
 export const CACHE_DURATION_PRICES = 10 * 60 * 1000; // 10 minutes
