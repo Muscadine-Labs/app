@@ -122,7 +122,7 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                             className="block py-2 text-sm text-[var(--foreground)] hover:text-[var(--primary)] transition-colors cursor-pointer"
                                             onClick={() => setIsMenuOpen(false)}
                                         >
-                                            Muscadine.io
+                                            Muscadine.xyz
                                         </a>
                                     </div>
 
