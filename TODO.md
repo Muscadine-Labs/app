@@ -1,7 +1,7 @@
 **To Work on Today:**
 
 - Review bundler 3, morpho is going to deprecate it (on their bundler3 github), look into the new bundles contract on github. See if we need to migrate.
-- Also, re-design the wrapper vaults since we took off send-assets-gates.
+- Also, re-design the wrapper vaults since we took off send-assets-gates. Have it so its auto underlying on settings, if you own wrapper vault shares than it shows up with the underlying vault, and the wrapper would have the label. Take the checks for the gates off. 
 
 **To work on another day:**
 
