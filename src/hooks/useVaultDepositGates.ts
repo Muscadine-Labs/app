@@ -17,10 +17,11 @@ const GATE_STALE_MS = 30_000;
 const REGISTRY_VAULTS = getRegistryVaultList();
 
 /**
- * Deposit access read from each vault's own gates on Base.
+ * Deposit access read from each vault's send-assets gate on Base.
+ * Receive-shares is abated on every registry vault, so it is not read.
  *
- * Underlying deposits open only after a successful read says yes (vault has no
- * gate, or the wallet passes it). Wrapper deposits stay open unless a
+ * Underlying deposits open only after a successful read says yes (send-assets
+ * gate unset, or the wallet passes it). Wrapper deposits stay open unless a
  * successful read says the wallet or the wrapper's liquidity adapter is blocked.
  */
 export function useVaultDepositGates() {
