@@ -1,5 +1,4 @@
 import type { VaultKind } from '@/lib/vaults';
-import { isUnderlyingVaultAddress } from '@/lib/vaults';
 
 /** Underlying rows: the vault's gate lets this wallet deposit, or it holds shares (exits). */
 export function isUnderlyingVisible(options: {
@@ -28,14 +27,6 @@ export function canDepositToVault(options: {
   return options.eligibleUnderlyingAddresses.has(
     options.vaultAddress.toLowerCase()
   );
-}
-
-/**
- * Native ETH wrap-and-deposit (Bundler3) fallback when the vault gate read fails:
- * wrappers only, since GeneralAdapter1 is not on the underlying allowlist.
- */
-export function allowsNativeEthVaultDeposit(vaultAddress: string): boolean {
-  return !isUnderlyingVaultAddress(vaultAddress);
 }
 
 export type UnderlyingVaultPageAccess = 'allowed' | 'pending' | 'denied';

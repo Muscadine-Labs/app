@@ -4,7 +4,6 @@ import { useCallback, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAccount, usePublicClient } from 'wagmi';
 import { BASE_CHAIN_ID } from '@/lib/constants';
-import { allowsNativeEthVaultDeposit } from '@/lib/vault-access';
 import {
   VAULT_DEPOSIT_GATES_QUERY_KEY,
   readVaultGateStatus,
@@ -63,17 +62,9 @@ export function useVaultDepositGates() {
     [blockedWrapperAddresses]
   );
 
-  const allowsNativeEthDeposit = useCallback(
-    (vaultAddress: string) =>
-      gates?.[vaultAddress.toLowerCase()]?.bundlerCanDeposit ??
-      allowsNativeEthVaultDeposit(vaultAddress),
-    [gates]
-  );
-
   return {
     eligibleUnderlyingAddresses,
     isWrapperDepositBlocked,
-    allowsNativeEthDeposit,
     canDepositEveryUnderlying,
     wrappersAcceptDeposits,
     isResolving: vaultQuery.isLoading || (Boolean(address) && walletQuery.isLoading),
