@@ -1,5 +1,6 @@
 /**
- * Morpho Bundler3 helpers for WETH/ETH wrap/unwrap on Base (not used for plain ERC-20 deposits).
+ * Morpho Bundler3 helpers for fee-wrapper force exits on Base.
+ * One bundle force-deallocates the child vault, then withdraws the wrapper.
  * Addresses: https://docs.morpho.org/get-started/resources/addresses/
  */
 
@@ -10,13 +11,11 @@ import {
   type WalletClient,
   encodeFunctionData,
   getAddress,
-  maxUint256,
 } from 'viem';
 import { base } from 'viem/chains';
 import { builderWriteOpts } from '@/lib/builder-code';
 import {
   BASE_CHAIN_ID,
-  BASE_WETH_ADDRESS,
   BUNDLER3_ADDRESS,
   GENERAL_ADAPTER_ADDRESS,
 } from '@/lib/constants';
@@ -31,21 +30,6 @@ import type { TransactionProgressCallback } from '@/types/transactions';
 export const BUNDLER_SLIPPAGE_BPS = BigInt(3);
 
 const SHARE_PRICE_SCALE_E27 = BigInt(10) ** BigInt(27);
-
-/**
- * Morpho adapter maxSharePriceE27: max assets paid per share, scaled by 1e27.
- * Quote from convertToShares(assets) → assets/shares, then apply upside tolerance.
- */
-export function maxSharePriceE27FromQuote(
-  assets: bigint,
-  shares: bigint,
-  slippageBps: bigint = BUNDLER_SLIPPAGE_BPS
-): bigint {
-  if (shares === BigInt(0) || assets === BigInt(0)) return maxUint256;
-  // Morpho checks assets.rDivUp(shares) <= maxSharePriceE27 (ceil division).
-  const price = (assets * SHARE_PRICE_SCALE_E27) / shares;
-  return price + (price * slippageBps) / BigInt(10_000) + BigInt(1);
-}
 
 /**
  * Morpho adapter minSharePriceE27: min assets received per share, scaled by 1e27.
@@ -92,49 +76,6 @@ const BUNDLER3_ABI = [
 ] as const;
 
 const GENERAL_ADAPTER_ABI = [
-  {
-    name: 'wrapNative',
-    type: 'function',
-    stateMutability: 'nonpayable',
-    inputs: [
-      { name: 'amount', type: 'uint256' },
-      { name: 'receiver', type: 'address' },
-    ],
-    outputs: [],
-  },
-  {
-    name: 'unwrapNative',
-    type: 'function',
-    stateMutability: 'nonpayable',
-    inputs: [
-      { name: 'amount', type: 'uint256' },
-      { name: 'receiver', type: 'address' },
-    ],
-    outputs: [],
-  },
-  {
-    name: 'erc20TransferFrom',
-    type: 'function',
-    stateMutability: 'nonpayable',
-    inputs: [
-      { name: 'token', type: 'address' },
-      { name: 'receiver', type: 'address' },
-      { name: 'amount', type: 'uint256' },
-    ],
-    outputs: [],
-  },
-  {
-    name: 'erc4626Deposit',
-    type: 'function',
-    stateMutability: 'nonpayable',
-    inputs: [
-      { name: 'vault', type: 'address' },
-      { name: 'assets', type: 'uint256' },
-      { name: 'maxSharePriceE27', type: 'uint256' },
-      { name: 'receiver', type: 'address' },
-    ],
-    outputs: [],
-  },
   {
     name: 'erc4626Withdraw',
     type: 'function',
@@ -187,70 +128,6 @@ function adapterCall(data: Hex, value: bigint = BigInt(0)): Bundler3Call {
   };
 }
 
-/**
- * Fund GeneralAdapter1 with native ETH via `receive()` (wrapNative is non-payable).
- * Morpho SDK encodes this as nativeTransfer(user → adapter) → empty calldata + value.
- */
-function buildNativeFundAdapterCall(amount: bigint): Bundler3Call {
-  return {
-    to: GENERAL_ADAPTER_ADDRESS,
-    data: '0x' as Hex,
-    value: amount,
-    skipRevert: false,
-    callbackHash: ZERO_HASH,
-  };
-}
-
-/** Wrap ETH already on the adapter. Always value=0 — fund first with buildNativeFundAdapterCall. */
-function buildWrapNativeCall(amount: bigint, receiver: Address = GENERAL_ADAPTER_ADDRESS): Bundler3Call {
-  return adapterCall(
-    encodeFunctionData({
-      abi: GENERAL_ADAPTER_ABI,
-      functionName: 'wrapNative',
-      args: [amount, receiver],
-    })
-  );
-}
-
-function buildUnwrapNativeCall(amount: bigint, receiver: Address): Bundler3Call {
-  return adapterCall(
-    encodeFunctionData({
-      abi: GENERAL_ADAPTER_ABI,
-      functionName: 'unwrapNative',
-      args: [amount, receiver],
-    })
-  );
-}
-
-function buildErc20TransferFromCall(
-  token: Address,
-  receiver: Address,
-  amount: bigint
-): Bundler3Call {
-  return adapterCall(
-    encodeFunctionData({
-      abi: GENERAL_ADAPTER_ABI,
-      functionName: 'erc20TransferFrom',
-      args: [token, receiver, amount],
-    })
-  );
-}
-
-function buildErc4626DepositCall(
-  vault: Address,
-  assets: bigint,
-  receiver: Address,
-  maxSharePriceE27: bigint
-): Bundler3Call {
-  return adapterCall(
-    encodeFunctionData({
-      abi: GENERAL_ADAPTER_ABI,
-      functionName: 'erc4626Deposit',
-      args: [vault, assets, maxSharePriceE27, receiver],
-    })
-  );
-}
-
 export function buildErc4626WithdrawCall(
   vault: Address,
   assets: bigint,
@@ -281,85 +158,6 @@ export function buildErc4626RedeemCall(
       args: [vault, shares, minSharePriceE27, receiver, owner],
     })
   );
-}
-
-/**
- * ETH wrap + deposit via Bundler3 / GeneralAdapter1 (`maxSharePriceE27`).
- * Tokens already in wallet must be approved to the adapter. Plain ERC-20 deposits
- * should call the vault directly instead of this bundle.
- */
-export function buildVaultDepositBundle(params: {
-  vault: Address;
-  asset: Address;
-  user: Address;
-  ethToWrap?: bigint;
-  assetsFromWallet: bigint;
-  totalAssets: bigint;
-  /** From convertToShares(totalAssets) + slippage; defaults to maxUint256 if omitted. */
-  maxSharePriceE27?: bigint;
-}): Bundler3Call[] {
-  const {
-    vault,
-    asset,
-    user,
-    assetsFromWallet,
-    totalAssets,
-    maxSharePriceE27 = maxUint256,
-  } = params;
-  const ethToWrap = params.ethToWrap ?? BigInt(0);
-  const calls: Bundler3Call[] = [];
-
-  if (ethToWrap > BigInt(0)) {
-    if (asset.toLowerCase() !== BASE_WETH_ADDRESS.toLowerCase()) {
-      throw new Error('Native wrap is only valid when the vault asset is WETH.');
-    }
-    // Fund adapter (empty call + value), then wrap — wrapNative is non-payable.
-    calls.push(buildNativeFundAdapterCall(ethToWrap));
-    calls.push(buildWrapNativeCall(ethToWrap, GENERAL_ADAPTER_ADDRESS));
-  }
-  if (assetsFromWallet > BigInt(0)) {
-    calls.push(buildErc20TransferFromCall(asset, GENERAL_ADAPTER_ADDRESS, assetsFromWallet));
-  }
-  calls.push(buildErc4626DepositCall(vault, totalAssets, user, maxSharePriceE27));
-  return calls;
-}
-
-/** Atomic vault withdraw/redeem → unwrap WETH to ETH for the user. */
-export function buildWethVaultWithdrawToEthBundle(params: {
-  vault: Address;
-  user: Address;
-  mode: 'withdraw' | 'redeem';
-  assetsOrShares: bigint;
-  /** From assets/shares quote + slippage; defaults to 0 if omitted. */
-  minSharePriceE27?: bigint;
-}): Bundler3Call[] {
-  const {
-    vault,
-    user,
-    mode,
-    assetsOrShares,
-    minSharePriceE27 = BigInt(0),
-  } = params;
-  const toAdapter = GENERAL_ADAPTER_ADDRESS;
-
-  const exitCall =
-    mode === 'withdraw'
-      ? buildErc4626WithdrawCall(vault, assetsOrShares, toAdapter, user, minSharePriceE27)
-      : buildErc4626RedeemCall(vault, assetsOrShares, toAdapter, user, minSharePriceE27);
-
-  return [
-    exitCall,
-    // Unwrap whatever the adapter received (handles rounding).
-    buildUnwrapNativeCall(maxUint256, user),
-  ];
-}
-
-/** Unwrap wallet WETH to ETH via adapter (resume / leftover WETH). */
-export function buildUnwrapWalletWethBundle(user: Address, amount: bigint): Bundler3Call[] {
-  return [
-    buildErc20TransferFromCall(BASE_WETH_ADDRESS, GENERAL_ADAPTER_ADDRESS, amount),
-    buildUnwrapNativeCall(amount, user),
-  ];
 }
 
 export async function executeBundler3Multicall(

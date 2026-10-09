@@ -1,6 +1,4 @@
 import { getAddress, zeroAddress, type Address, type PublicClient } from 'viem';
-import { GENERAL_ADAPTER_ADDRESS } from '@/lib/constants';
-import { allowsNativeEthVaultDeposit } from '@/lib/vault-access';
 import type { VaultDefinition } from '@/lib/vaults';
 
 /**
@@ -48,8 +46,6 @@ export type GateCheck = boolean | null;
 export interface VaultGateStatus {
   /** `sendAssetsGate` is unset, so any wallet can deposit. */
   open: GateCheck;
-  /** GeneralAdapter1 can send assets (Bundler3 ETH wrap deposit). */
-  bundlerCanDeposit: GateCheck;
   /** Wrapper only: its liquidity adapter can still send assets into the child vault. */
   adapterCanDeposit: GateCheck;
 }
@@ -125,19 +121,13 @@ export async function readVaultGateStatus(
   publicClient: PublicClient,
   vaults: readonly VaultDefinition[]
 ): Promise<Record<string, VaultGateStatus>> {
-  const stride = 3;
+  const stride = 2;
   const results = (await publicClient.multicall({
     allowFailure: true,
     contracts: vaults.flatMap((vault) => {
       const address = getAddress(vault.address);
       return [
         { address, abi: VAULT_GATE_ABI, functionName: 'sendAssetsGate' as const },
-        {
-          address,
-          abi: VAULT_GATE_ABI,
-          functionName: 'canSendAssets' as const,
-          args: [GENERAL_ADAPTER_ADDRESS] as const,
-        },
         { address, abi: VAULT_GATE_ABI, functionName: 'liquidityAdapter' as const },
       ];
     }),
@@ -149,7 +139,7 @@ export async function readVaultGateStatus(
   vaults.forEach((vault, i) => {
     const key = vault.address.toLowerCase();
     const sendAssetsGate = asAddress(results[i * stride]);
-    const liquidityAdapter = asAddress(results[i * stride + 2]);
+    const liquidityAdapter = asAddress(results[i * stride + 1]);
 
     const open = sendAssetsGate === null ? null : sendAssetsGate === zeroAddress;
 
@@ -164,7 +154,6 @@ export async function readVaultGateStatus(
 
     status[key] = {
       open,
-      bundlerCanDeposit: asBool(results[i * stride + 1]),
       adapterCanDeposit,
     };
   });
@@ -305,19 +294,3 @@ export async function readVaultDepositBlocker(
   }
 }
 
-/** Bundler3 ETH wrap deposits send assets from GeneralAdapter1, so the vault gate must allow it. */
-export async function readBundlerCanDeposit(
-  publicClient: PublicClient,
-  vaultAddress: Address
-): Promise<boolean> {
-  try {
-    return await publicClient.readContract({
-      address: vaultAddress,
-      abi: VAULT_GATE_ABI,
-      functionName: 'canSendAssets',
-      args: [GENERAL_ADAPTER_ADDRESS],
-    });
-  } catch {
-    return allowsNativeEthVaultDeposit(vaultAddress);
-  }
-}

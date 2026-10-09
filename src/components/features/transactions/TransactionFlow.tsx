@@ -28,7 +28,6 @@ import {
   depositToVaultV2,
   withdrawFromVaultV2,
   redeemFromVaultV2,
-  resumeUnwrapWalletWethV2,
   forceWithdrawFromVaultV2,
 } from '@/lib/transactionUtilsV2';
 import { TransactionConfirmation } from './TransactionConfirmation';
@@ -60,24 +59,6 @@ function stepTypeForLabel(label: string): 'signing' | 'approving' | 'confirming'
   return 'confirming';
 }
 
-/**
- * Once the force exit tx was sent, a later failure (WETH approval / unwrap) resumes the unwrap
- * only — never re-run the force exit. A failure on the force step itself retries the full flow
- * (the tx may have reverted). Atomic Bundler3 exits ("Withdraw to ETH") have no force hash and
- * always retry the full flow.
- */
-function shouldResumeUnwrapOnly(
-  transactionType: string | null,
-  failedStepIndex: number,
-  stepsInfo: Array<{ stepIndex: number; label: string; txHash?: string }>,
-  forceExitHash: string | null
-): boolean {
-  if (transactionType !== 'withdraw' || !forceExitHash) return false;
-  const failedStep = stepsInfo.find((s) => s.stepIndex === failedStepIndex);
-  const label = failedStep?.label?.toLowerCase() ?? '';
-  return !label.includes('force');
-}
-
 export function TransactionFlow({
   onSuccess,
   onSuccessComplete,
@@ -93,7 +74,6 @@ export function TransactionFlow({
     txHash,
     transactionType,
     derivedAsset,
-    preferredAsset,
     setAmount,
     setStatus,
   } = useTransactionState();
@@ -126,8 +106,6 @@ export function TransactionFlow({
   const [isCheckingLiquidity, setIsCheckingLiquidity] = useState(false);
   const currentStepRef = useRef(0);
   const forcePlanRef = useRef<ForceWithdrawPlan | null>(null);
-  /** Hash of the sent force exit tx. Step indexes shift when approvals come first, so track it by label. */
-  const forceExitHashRef = useRef<string | null>(null);
   const executingRef = useRef(false);
   const confirmLockRef = useRef(false);
 
@@ -383,7 +361,6 @@ export function TransactionFlow({
         setTotalSteps(0);
         setCurrentTxHash(null);
         setPartialFailure(false);
-        forceExitHashRef.current = null;
       }
 
       logger.info('Transaction execution started', {
@@ -408,14 +385,6 @@ export function TransactionFlow({
             }))
           );
           return;
-        }
-
-        if (
-          step.type === 'confirming' &&
-          step.txHash &&
-          step.stepLabel?.toLowerCase().includes('force')
-        ) {
-          forceExitHashRef.current = step.txHash;
         }
 
         if (step.type === 'confirming' && step.txHash) {
@@ -469,31 +438,7 @@ export function TransactionFlow({
 
       let txHash: string;
 
-      const resumeStepIndex = currentStepRef.current;
-      const resumeTotalSteps = totalSteps > 0 ? totalSteps : Math.max(stepsInfo.length, 2);
-
-      const priorWithdrawHash = forceExitHashRef.current;
-      if (
-        isResuming &&
-        shouldResumeUnwrapOnly(transactionType, resumeStepIndex, stepsInfo, priorWithdrawHash)
-      ) {
-        forcePlanRef.current = null;
-        if (!priorWithdrawHash) {
-          throw new Error(
-            'Previous withdrawal transaction not found.\n\n' +
-              'Use Start over if you need to withdraw again.'
-          );
-        }
-        txHash = await resumeUnwrapWalletWethV2(
-          publicClient as PublicClient,
-          walletClient as WalletClient,
-          priorWithdrawHash as `0x${string}`,
-          onProgress,
-          resumeStepIndex,
-          resumeTotalSteps
-        );
-      } else if (transactionType === 'deposit') {
-        forceExitHashRef.current = null;
+      if (transactionType === 'deposit') {
         const vaultAddr = (toAccount as VaultAccount).address as Address;
         txHash = await depositToVaultV2(
           publicClient as PublicClient,
@@ -501,15 +446,10 @@ export function TransactionFlow({
           vaultAddr,
           amount,
           assetToUse.decimals,
-          preferredAsset,
           onProgress
         );
       } else if (transactionType === 'withdraw') {
-        // Full retry: a hash from an earlier (reverted) force attempt must not drive a later resume.
-        forceExitHashRef.current = null;
         const vaultAddr = (fromAccount as VaultAccount).address as Address;
-        const withdrawPreferredAsset =
-          preferredAsset === 'ALL' ? undefined : (preferredAsset as 'ETH' | 'WETH' | undefined);
 
         const forcePlan = forcePlanRef.current;
         if (forcePlan) {
@@ -517,7 +457,6 @@ export function TransactionFlow({
             publicClient as PublicClient,
             walletClient as WalletClient,
             forcePlan,
-            withdrawPreferredAsset,
             onProgress
           );
           forcePlanRef.current = null;
@@ -527,7 +466,6 @@ export function TransactionFlow({
             walletClient as WalletClient,
             vaultAddr,
             assetToUse.decimals,
-            withdrawPreferredAsset,
             onProgress
           );
         } else {
@@ -537,7 +475,6 @@ export function TransactionFlow({
             vaultAddr,
             amount,
             assetToUse.decimals,
-            withdrawPreferredAsset,
             onProgress
           );
         }
@@ -605,9 +542,6 @@ export function TransactionFlow({
     publicClient,
     queryClient,
     partialFailure,
-    stepsInfo,
-    totalSteps,
-    preferredAsset,
     shouldUseWithdrawAll,
     completeSuccessfulTransaction,
     setAmount,

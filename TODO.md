@@ -1,7 +1,5 @@
 **To Work on Today:**
 
-- Review bundler 3, morpho is going to deprecate it (on their bundler3 github), look into the new bundles contract on github. See if we need to migrate. 
-
 **To work on another day:**
 
 
