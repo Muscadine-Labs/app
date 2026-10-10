@@ -3,14 +3,14 @@ import type { GraphQLError } from '@/types/api';
 import { logger } from '@/lib/logger';
 import { isValidEthereumAddress } from '@/lib/vault-utils';
 import { isValidChainId, isValidPeriod, MIN_VALID_TIMESTAMP, PERIOD_SECONDS, INTERVAL_MAP, stripIncompleteVaultHistoryBuckets, fetchMorphoGraphQL, readMorphoGraphQLResponse, MORPHO_RATE_LIMIT_BODY, resolveMorphoAssetPriceUsd } from '@/lib/api-utils';
-import { MORPHO_GRAPHQL_REVALIDATE_SECONDS } from '@/lib/constants';
+import { BASE_CHAIN_ID, MORPHO_GRAPHQL_REVALIDATE_SECONDS } from '@/lib/constants';
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ address: string }> }
 ) {
   const { searchParams } = new URL(request.url);
-  const chainIdParam = searchParams.get('chainId') || '8453';
+  const chainIdParam = searchParams.get('chainId') || String(BASE_CHAIN_ID);
   const period = searchParams.get('period') || '30d';
   
   let address: string | undefined;

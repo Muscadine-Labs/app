@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { logger } from '@/lib/logger';
+import { BASE_CHAIN_ID } from '@/lib/constants';
 import { isValidEthereumAddress } from '@/lib/vault-utils';
 import { isValidChainId } from '@/lib/api-utils';
 import { fetchVaultV2ActivityData } from '@/lib/vault-v2-activity';
@@ -9,7 +10,7 @@ export async function GET(
   { params }: { params: Promise<{ address: string }> }
 ) {
   const { searchParams } = new URL(request.url);
-  const chainIdParam = searchParams.get('chainId') || '8453';
+  const chainIdParam = searchParams.get('chainId') || String(BASE_CHAIN_ID);
   const userAddress = searchParams.get('userAddress');
 
   let address: string | undefined;

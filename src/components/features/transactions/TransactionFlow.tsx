@@ -212,7 +212,7 @@ export function TransactionFlow({
 
           await Promise.allSettled(
             Array.from(vaultsInTransaction).map((vaultAddress) =>
-              fetchVaultData(vaultAddress, 8453, true).catch((err) => {
+              fetchVaultData(vaultAddress, BASE_CHAIN_ID, true).catch((err) => {
                 logger.error('Failed to refresh vault data', err, { vaultAddress, txHash: hashToUse });
               })
             )
@@ -221,7 +221,7 @@ export function TransactionFlow({
           const vaultsToRefresh = morphoHoldings.positions.map((pos) => pos.vault.address);
           await Promise.allSettled(
             vaultsToRefresh.map((vaultAddress) =>
-              fetchVaultData(vaultAddress, 8453, true).catch((err) => {
+              fetchVaultData(vaultAddress, BASE_CHAIN_ID, true).catch((err) => {
                 logger.error('Failed to refresh vault data', err, { vaultAddress, txHash: hashToUse });
               })
             )

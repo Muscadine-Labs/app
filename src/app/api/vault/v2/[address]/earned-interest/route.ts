@@ -13,6 +13,7 @@ import { isValidChainId, fetchMorphoGraphQL } from '@/lib/api-utils';
 import { computeEarnedInterestFromActivity } from '@/lib/interest-utils';
 import { fetchVaultV2ActivityData } from '@/lib/vault-v2-activity';
 import { logger } from '@/lib/logger';
+import { BASE_CHAIN_ID } from '@/lib/constants';
 
 interface VaultV2PositionData {
   assets: number | string;
@@ -70,7 +71,7 @@ export async function GET(
   { params }: { params: Promise<{ address: string }> }
 ) {
   const { searchParams } = new URL(request.url);
-  const chainIdParam = searchParams.get('chainId') || '8453';
+  const chainIdParam = searchParams.get('chainId') || String(BASE_CHAIN_ID);
   const userAddress = searchParams.get('userAddress');
 
   const { address: vaultAddress } = await params;

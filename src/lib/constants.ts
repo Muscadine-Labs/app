@@ -9,7 +9,29 @@ export function getChainDisplayName(chainId: number): string {
   if (chainId === BASE_CHAIN_ID) return BASE_CHAIN_NAME;
   return `Chain ${chainId}`;
 }
+/** Chain slug used in app.morpho.org URLs. */
+export const MORPHO_CHAIN_SLUG: Record<number, string> = {
+  [BASE_CHAIN_ID]: 'base',
+  1: 'ethereum',
+};
+export function getMorphoChainSlug(chainId: number): string {
+  return MORPHO_CHAIN_SLUG[chainId] ?? MORPHO_CHAIN_SLUG[BASE_CHAIN_ID];
+}
+
 export const BASE_WETH_ADDRESS = '0x4200000000000000000000000000000000000006' as const;
+
+/** Major token addresses on Base. */
+export const TOKEN_ADDRESSES = {
+  USDC: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+  cbBTC: '0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf',
+  WETH: BASE_WETH_ADDRESS,
+} as const;
+
+export const TOKEN_ADDRESSES_LOWER = {
+  USDC: TOKEN_ADDRESSES.USDC.toLowerCase(),
+  cbBTC: TOKEN_ADDRESSES.cbBTC.toLowerCase(),
+  WETH: TOKEN_ADDRESSES.WETH.toLowerCase(),
+} as const;
 /** Morpho Vault V2 `forceDeallocate` (cash force-withdraw; not in-kind). */
 export const MORPHO_FORCE_DEALLOCATE_DOCS_URL =
   'https://docs.morpho.org/learn/concepts/vault-v2/#1-in-kind-redemptions-with-forcedeallocate' as const;
@@ -43,6 +65,6 @@ export const MORPHO_PRELOAD_BATCH_SIZE = 4;
 export const MORPHO_FETCH_ERROR_COOLDOWN_MS = 60_000;
 
 // Price API configuration
-export const STABLECOIN_SYMBOLS = ['USDC', 'USDBC', 'USDT', 'DAI', 'EUSD', 'USDS'] as const;
+export const STABLECOIN_SYMBOLS = ['USDC', 'USDT'] as const;
 export const DEFAULT_ASSET_PRICE = 1;
 export const DEFAULT_ASSET_DECIMALS = 18;

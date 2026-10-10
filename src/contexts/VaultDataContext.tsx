@@ -4,7 +4,7 @@ import React, { createContext, useContext, useState, useCallback, ReactNode } fr
 import { formatUnits } from 'viem';
 import { Vault, MorphoVaultData, VaultLiquidityBreakdown } from '@/types/vault';
 import { getVaultVersion, findVaultByAddress, isCuratedVaultAddress } from '@/lib/vault-utils';
-import { MORPHO_PRELOAD_BATCH_SIZE, MORPHO_FETCH_ERROR_COOLDOWN_MS, CLIENT_VAULT_DATA_CACHE_MS } from '../lib/constants';
+import { BASE_CHAIN_ID, MORPHO_PRELOAD_BATCH_SIZE, MORPHO_FETCH_ERROR_COOLDOWN_MS, CLIENT_VAULT_DATA_CACHE_MS } from '../lib/constants';
 
 interface VaultDataState {
   [vaultAddress: string]: {
@@ -81,7 +81,7 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
     chainId?: number,
     forceRefresh?: boolean
   ) => {
-    const effectiveChainId = chainId ?? 8453;
+    const effectiveChainId = chainId ?? BASE_CHAIN_ID;
     const shouldForceRefresh = forceRefresh ?? false;
     const vaultVersion = getVaultVersion(address);
     const cacheKey = `vault-complete-${vaultVersion}-${address}-${effectiveChainId}`;

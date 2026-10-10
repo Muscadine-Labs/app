@@ -1,6 +1,4 @@
-const CHAIN_SLUG: Record<number, string> = {
-  8453: 'base',
-};
+import { getMorphoChainSlug } from '@/lib/constants';
 
 /** Lowercase slug for Morpho market URLs (e.g. cbBTC + USDC → cbbtc-usdc). */
 export function morphoMarketUrlSlug(collateralSymbol: string, loanSymbol: string): string {
@@ -52,7 +50,7 @@ export function getMorphoMarketUrl(
   collateralSymbol: string,
   loanSymbol: string
 ): string {
-  const network = CHAIN_SLUG[chainId] ?? 'base';
+  const network = getMorphoChainSlug(chainId);
   const slug = morphoMarketUrlSlug(collateralSymbol, loanSymbol);
   return `https://app.morpho.org/${network}/variable/${marketId}/${slug}#market`;
 }

@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useAccount } from 'wagmi';
 import { logger } from '@/lib/logger';
+import { BASE_CHAIN_ID } from '@/lib/constants';
 
 export interface VaultEarnedInterest {
   earnedInterest: number;
@@ -49,7 +50,7 @@ export function useVaultEarnedInterest(
       try {
         const params = new URLSearchParams({
           userAddress: address,
-          chainId: '8453',
+          chainId: String(BASE_CHAIN_ID),
         });
         if (assetSymbol) {
           params.set('symbol', assetSymbol);

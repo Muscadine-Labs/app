@@ -501,7 +501,7 @@ src/
 
 `WalletContext`:
 
-- Native ETH + tokens: USDC, cbBTC, WETH, cbETH, wstETH (`TOKEN_ADDRESSES` on Base) via Alchemy
+- Native ETH + tokens: USDC, cbBTC, WETH (`TOKEN_ADDRESSES` in `constants.ts`) via Alchemy. USD prices come from CoinGecko (`/api/prices`).
 - **Morpho positions:** `/api/user/morpho-positions` (v2); metadata from `/api/vault/v2/.../complete`
 - `refreshBalances`, `refreshBalancesWithPolling` after transactions
 
@@ -527,8 +527,10 @@ Optional later: [Base Notifications API](https://docs.base.org/apps/technical-gu
 
 `src/lib/constants.ts`:
 
-- `BASE_CHAIN_ID = 8453`
+- `BASE_CHAIN_ID = 8453` — use this constant; never write `8453` inline
+- `MORPHO_CHAIN_SLUG` / `getMorphoChainSlug` — chain slug for app.morpho.org links
 - `BASE_WETH_ADDRESS` — Base canonical WETH
+- `TOKEN_ADDRESSES` / `TOKEN_ADDRESSES_LOWER` — USDC, cbBTC, WETH on Base
 - `GENERAL_ADAPTER_ADDRESS` — Morpho GeneralAdapter1 on Base (wrapper ERC-4626 exit via Bundler3)
 - Cache TTLs: vault client + Morpho in-memory **60s**; prices 10m; activity 1m
 - Morpho GraphQL: `MORPHO_GRAPHQL_URL`, `MORPHO_GRAPHQL_REVALIDATE_SECONDS`, fetch timeout/retries, preload batch size — all Morpho calls go through `fetchMorphoGraphQL()` in `api-utils.ts`
