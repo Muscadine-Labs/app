@@ -36,6 +36,7 @@ export default function VaultHistory({ vaultData }: VaultHistoryProps) {
             { signal: abortController.signal }
           );
           const userResponseData = await userResponse.json();
+          if (abortController.signal.aborted) return;
           setUserTransactions(userResponseData.transactions || []);
           return;
         }
@@ -58,11 +59,13 @@ export default function VaultHistory({ vaultData }: VaultHistoryProps) {
 
         const responses = await Promise.all(requests);
         const allData = await responses[0].json();
+        if (abortController.signal.aborted) return;
         setTransactions(allData.transactions || []);
         setAllActivityLoaded(true);
 
         if (responses[1]) {
           const userResponseData = await responses[1].json();
+          if (abortController.signal.aborted) return;
           setUserTransactions(userResponseData.transactions || []);
         } else {
           setUserTransactions([]);
@@ -180,7 +183,7 @@ export default function VaultHistory({ vaultData }: VaultHistoryProps) {
           <div className="space-y-2">
             {recentTransactions.map((tx) => (
               <div
-                key={tx.id || tx.transactionHash}
+                key={`${tx.id ?? ''}-${tx.transactionHash ?? ''}-${tx.type}-${tx.timestamp}`}
                 className="flex items-center justify-between p-4 bg-[var(--surface-elevated)] rounded-lg border border-[var(--border-subtle)] hover:border-[var(--border)] transition-colors"
               >
                 <div className="flex items-center gap-4 flex-1">

@@ -127,6 +127,7 @@ export default function PortfolioPositionChart() {
             }
           })
         );
+        if (signal.aborted) return;
         setter(aggregatePortfolioHistory(vaultHistories));
       } catch (error) {
         if (error instanceof Error && error.name === 'AbortError') return;

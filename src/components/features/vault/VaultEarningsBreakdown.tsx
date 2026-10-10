@@ -25,6 +25,7 @@ export function VaultEarningsBreakdown({
   isLoading,
 }: VaultEarningsBreakdownProps) {
   const parsedAllTimeRaw = useMemo(() => {
+    if (allTimeRaw === '') return null;
     try {
       return BigInt(allTimeRaw || '0');
     } catch {

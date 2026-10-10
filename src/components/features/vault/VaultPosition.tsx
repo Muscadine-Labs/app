@@ -184,6 +184,8 @@ export default function VaultPosition({
   }, [positionHistoryFetchKey]);
 
   useEffect(() => {
+    const abortController = new AbortController();
+
     const fetchPositionHistory = async () => {
       if (!address) {
         setUserPositionHistory([]);
@@ -201,7 +203,8 @@ export default function VaultPosition({
         // This provides historical data points for chart display
         // Current position balance uses RPC (balanceOf + convertToAssets) - see above
         const response = await fetch(
-          `/api/vault/${vaultData.version}/${vaultData.address}/position-history?chainId=${vaultData.chainId}&userAddress=${address}&period=all`
+          `/api/vault/${vaultData.version}/${vaultData.address}/position-history?chainId=${vaultData.chainId}&userAddress=${address}&period=all`,
+          { signal: abortController.signal }
         );
         
         // Validate HTTP response
@@ -210,6 +213,7 @@ export default function VaultPosition({
         }
         
         const data = await response.json().catch(() => ({}));
+        if (abortController.signal.aborted) return;
         
         // Check for errors in response body (API returns 200 with error field for graceful errors)
         if (data.error) {
@@ -233,6 +237,7 @@ export default function VaultPosition({
           setUserPositionHistory([]);
         }
       } catch (error) {
+        if (abortController.signal.aborted) return;
         logger.error(
           'Failed to fetch vault position history',
           error instanceof Error ? error : new Error(String(error)),
@@ -241,14 +246,17 @@ export default function VaultPosition({
         setUserPositionHistory([]);
         showErrorToast('Failed to load position data. Please refresh the page.', 5000);
       } finally {
-        setLoading(false);
-        if (address) {
-          positionHistoryLoadedRef.current = true;
+        if (!abortController.signal.aborted) {
+          setLoading(false);
+          if (address) {
+            positionHistoryLoadedRef.current = true;
+          }
         }
       }
     };
 
-    fetchPositionHistory();
+    void fetchPositionHistory();
+    return () => abortController.abort();
   }, [vaultData.address, vaultData.chainId, vaultData.version, address, showErrorToast]);
 
   const chartEndTimestamp = useMemo(() => {
@@ -349,6 +357,7 @@ export default function VaultPosition({
         }
 
         const data = await response.json().catch(() => ({}));
+        if (abortController.signal.aborted) return;
         if (data.error || !Array.isArray(data.deposits) || !Array.isArray(data.withdrawals)) {
           setActivityFlowEvents(null);
           setActivityError(true);
@@ -667,8 +676,8 @@ export default function VaultPosition({
           <VaultEarningsBreakdown
             symbol={vaultData.symbol}
             decimals={interestDecimals}
-            allTimeRaw={earnedInterest.earnedInterestRaw || '0'}
-            allTimeUsd={earnedInterest.earnedInterestUsd}
+            allTimeRaw={earnedInterest.error ? '' : earnedInterest.earnedInterestRaw || '0'}
+            allTimeUsd={earnedInterest.error ? 0 : earnedInterest.earnedInterestUsd}
             isConnected={isConnected}
             isLoading={earnedInterest.isLoading}
           />
@@ -681,7 +690,7 @@ export default function VaultPosition({
           initialTab={transactTab}
           onTabChange={onTransactTabChange}
           positionDecimals={depositAssetDecimals}
-          currentAssetsRaw={currentAssetsBigInt}
+          currentAssetsRaw={address && currentAssetsRaw === undefined ? null : currentAssetsBigInt}
           history={userPositionHistory}
           events={activityFlowEvents}
           nowTs={now}
