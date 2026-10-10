@@ -682,13 +682,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
               vaultData.status === 'paused' ? 'text-[var(--warning)]' :
               'text-[var(--foreground-muted)]'
             }`}>
-              {vaultData.withdrawOnly
-                ? 'Withdraw only'
-                : vaultData.status === 'active'
-                  ? 'Active'
-                  : vaultData.status === 'paused'
-                    ? 'Paused'
-                    : 'Deprecated'}
+              {vaultData.status === 'active' ? 'Active' : vaultData.status === 'paused' ? 'Paused' : 'Deprecated'}
             </p>
             <p className="text-xs text-[var(--foreground-secondary)] mt-1">
               {vaultData.status === 'active' ? 'Accepting deposits' : 'Not accepting deposits'}

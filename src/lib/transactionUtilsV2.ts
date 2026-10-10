@@ -8,7 +8,6 @@ import { type Address, type PublicClient, type WalletClient, type TransactionRec
 import { builderWriteOpts } from './builder-code';
 import { VaultDepositBlockedError, isWalletDepositBlocked } from './vault-gates';
 import { assertDepositWithinCapacity } from './deposit-capacity';
-import { findVaultByAddress } from './vault-utils';
 import type { ForceWithdrawPlan } from './force-withdraw-v2';
 import { planForceWithdrawV2, VAULT_V2_FORCE_ABI } from './force-withdraw-v2';
 import type { TransactionProgressCallback } from '../types/transactions';
@@ -298,9 +297,6 @@ export async function depositToVaultV2(
 
   const userAddress = walletClient.account.address;
   const normalizedVault = getAddress(vaultAddress);
-  if (findVaultByAddress(normalizedVault)?.withdrawOnly) {
-    throw new Error('This vault no longer accepts deposits.');
-  }
 
   const amountBigInt = parseAmount(amount, assetDecimals);
 

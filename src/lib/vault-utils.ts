@@ -1,8 +1,6 @@
 import {
   VaultDefinition,
   VaultStrategy,
-  getLegacyVaultList,
-  getPairedVaultAddress,
   getRegistryVaultList,
 } from '@/lib/vaults';
 import { Vault } from '@/types/vault';
@@ -145,8 +143,6 @@ export function registryDefinitionToVault(vault: VaultDefinition): Vault {
     version: vault.version,
     strategy: vault.strategy,
     isCurated: true,
-    withdrawOnly: vault.withdrawOnly,
-    underlyingAddress: vault.underlyingAddress,
   };
 }
 
@@ -155,13 +151,13 @@ export function getAllRegistryVaults(): Vault[] {
 }
 
 /**
- * Find a registry or legacy wrapper vault by its address (case-insensitive)
+ * Find a vault by its address (case-insensitive)
  */
 export function findVaultByAddress(address: string): Vault | null {
   if (!address) return null;
 
   const normalizedAddress = address.toLowerCase().trim();
-  const vault = [...getRegistryVaultList(), ...getLegacyVaultList()].find(
+  const vault = getRegistryVaultList().find(
     (v) => v.address.toLowerCase() === normalizedAddress
   );
 
@@ -201,51 +197,15 @@ export function getDepositedVaultAddressSet(
   );
 }
 
-/**
- * Profit on the other contract of a registry vault / legacy wrapper pair, once that
- * contract has no shares. Its row is gone, so the row still shown carries it.
- * When both sides are held, each row keeps its own profit.
- */
-export function closedPairEarnedPnl(
-  positions: readonly WalletMorphoPosition[],
-  vaultAddress: string
-): { pnlRaw: string; pnlUsd: number } | null {
-  const pairAddress = getPairedVaultAddress(vaultAddress);
-  if (!pairAddress) return null;
-  const pair = positions.find(
-    (position) => position.vault.address.toLowerCase() === pairAddress.toLowerCase()
-  );
-  if (!pair || hasOnChainVaultShares(pair) || !pair.pnlRaw) return null;
-  let pnlRaw: bigint;
-  try {
-    pnlRaw = BigInt(pair.pnlRaw);
-  } catch {
-    return null;
-  }
-  // A loss on the closed contract must not shrink the open row. The vault page
-  // floors each side at zero. Skip the pair when the dollar figure is missing.
-  if (pnlRaw <= BigInt(0) || pair.pnlUsd === undefined || !(pair.pnlUsd > 0)) {
-    return null;
-  }
-  return { pnlRaw: pnlRaw.toString(), pnlUsd: pair.pnlUsd };
-}
-
-/**
- * Registry vaults the explorer lists: deposit-eligible, or held so the owner can exit.
- * Legacy wrappers are listed only while held.
- */
+/** Registry vaults the explorer lists: deposit-eligible, or held so the owner can exit. */
 export function selectRegistryVaultsForExplorer(options: {
   depositedAddresses: ReadonlySet<string>;
   eligibleVaultAddresses: ReadonlySet<string>;
 }): Vault[] {
-  const registry = getAllRegistryVaults().filter((vault) => {
+  return getAllRegistryVaults().filter((vault) => {
     const key = vault.address.toLowerCase();
     return options.eligibleVaultAddresses.has(key) || options.depositedAddresses.has(key);
   });
-  const heldLegacy = getLegacyVaultList()
-    .filter((vault) => options.depositedAddresses.has(vault.address.toLowerCase()))
-    .map(registryDefinitionToVault);
-  return [...registry, ...heldLegacy];
 }
 
 export function dedupeVaultsByAddress(vaults: Vault[]): Vault[] {

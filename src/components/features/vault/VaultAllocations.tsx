@@ -1,11 +1,10 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
-import Link from 'next/link';
 import { MorphoVaultData } from '@/types/vault';
 import type { VaultMarketAllocation } from '@/lib/vault-v2-allocations';
 import { formatMorphoMarketRateLabel } from '@/lib/morpho-market-url';
-import { findVaultByAddress, getVaultAnalyticsUrl, getVaultRoute } from '@/lib/vault-utils';
+import { getVaultAnalyticsUrl } from '@/lib/vault-utils';
 import {
   formatSmartCurrency,
   formatPercentage,
@@ -225,9 +224,6 @@ export function VaultAllocations({
   const allocatedHeader =
     allocatedValueType === 'usd' ? 'Allocated (USD)' : `Allocated (${vaultTokenLabel})`;
   const analyticsHref = getVaultAnalyticsUrl(vaultData.address);
-  const underlyingVault = vaultData.underlyingAddress
-    ? findVaultByAddress(vaultData.underlyingAddress)
-    : null;
 
   return (
     <div className="space-y-3 min-h-[10rem]">
@@ -239,18 +235,6 @@ export function VaultAllocations({
           </p>
         </div>
       )}
-      {underlyingVault ? (
-        <p className="text-xs text-[var(--foreground-secondary)]">
-          This retired wrapper deposits into{' '}
-          <Link
-            href={getVaultRoute(underlyingVault.address)}
-            className="text-[var(--primary)] hover:underline"
-          >
-            {underlyingVault.name} ({underlyingVault.vaultSymbol})
-          </Link>
-          . Its market allocations are on that vault&apos;s page.
-        </p>
-      ) : null}
 
       {loading ? (
         <div className="p-2 space-y-3">
