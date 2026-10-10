@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import Image from 'next/image';
-import Link from 'next/link';
 import { MorphoVaultData, getVaultLogo } from '@/types/vault';
 import { Button, Modal } from '@/components/ui';
 import { TransactionFlow, TransactionProgressBar } from '@/components/features/transactions';
@@ -20,7 +19,6 @@ import {
 import { usePrices } from '@/contexts/PriceContext';
 import { ConnectButton } from '@/components/features/wallet';
 import { parseTransactionAmount } from '@/lib/liquidity-utils';
-import { findVaultByAddress, getVaultRoute } from '@/lib/vault-utils';
 import {
   buildPastEarningsRows,
   buildProjectedEarningsRows,
@@ -140,13 +138,7 @@ export function VaultTransactPanel({
     tx.handleResetToIdle();
   };
 
-  const withdrawOnly = vaultData.withdrawOnly === true;
-  const underlyingVault = vaultData.underlyingAddress
-    ? findVaultByAddress(vaultData.underlyingAddress)
-    : null;
-
   const depositsDisabled =
-    withdrawOnly ||
     !canDeposit ||
     vaultData.status === 'paused' ||
     vaultData.status === 'deprecated';
@@ -262,15 +254,13 @@ export function VaultTransactPanel({
   return (
     <div className="w-full flex flex-col gap-3">
       <div className="flex items-center gap-1">
-            {withdrawOnly ? null : (
-              <button
-                type="button"
-                onClick={() => handleTabClick('deposit')}
-                className={tabClass(tx.effectiveActiveTab === 'deposit')}
-              >
-                Deposit
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => handleTabClick('deposit')}
+              className={tabClass(tx.effectiveActiveTab === 'deposit')}
+            >
+              Deposit
+            </button>
             <button
               type="button"
               onClick={() => handleTabClick('withdraw')}
@@ -279,25 +269,6 @@ export function VaultTransactPanel({
               Withdraw
             </button>
           </div>
-
-          {withdrawOnly ? (
-            <p className="text-xs leading-relaxed text-[var(--foreground-secondary)]">
-              This retired wrapper ({vaultData.vaultSymbol}) no longer takes deposits. Withdraw
-              here
-              {underlyingVault ? (
-                <>
-                  , then deposit into{' '}
-                  <Link
-                    href={getVaultRoute(underlyingVault.address)}
-                    className="text-[var(--primary)] hover:underline"
-                  >
-                    {underlyingVault.name} ({underlyingVault.vaultSymbol})
-                  </Link>
-                </>
-              ) : null}
-              .
-            </p>
-          ) : null}
 
           <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
             <div className="flex items-center justify-between gap-2 mb-3">

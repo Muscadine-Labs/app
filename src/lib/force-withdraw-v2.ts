@@ -27,10 +27,8 @@ import {
   formatUnits,
   getAddress,
   parseAbiParameters,
-  zeroAddress,
 } from 'viem';
 import { logger } from '@/lib/logger';
-import { findVaultByAddress } from '@/lib/vault-utils';
 
 const FORCE_DEALLOCATE_WAD = BigInt(10) ** BigInt(18);
 
@@ -205,13 +203,6 @@ const ADAPTER_ABI = [
     type: 'function',
     stateMutability: 'view',
     inputs: [{ name: 'marketId', type: 'bytes32' }],
-    outputs: [{ name: '', type: 'uint256' }],
-  },
-  {
-    name: 'realAssets',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [],
     outputs: [{ name: '', type: 'uint256' }],
   },
 ] as const;
@@ -518,42 +509,6 @@ async function readVaultCashLiquidity(
   };
 }
 
-/**
- * What a plain withdraw on a legacy wrapper can pay now: its idle cash plus what its
- * liquidity adapter can pull from the underlying vault (capped by the wrapper's position there).
- */
-async function readWrapperInstantAssets(
-  publicClient: PublicClient,
-  wrapper: Address,
-  underlying: Address
-): Promise<bigint> {
-  const [asset, liquidityAdapter, underlyingCash] = await Promise.all([
-    publicClient.readContract({ address: wrapper, abi: VAULT_V2_FORCE_ABI, functionName: 'asset' }),
-    publicClient.readContract({
-      address: wrapper,
-      abi: VAULT_V2_FORCE_ABI,
-      functionName: 'liquidityAdapter',
-    }),
-    readVaultCashLiquidity(publicClient, underlying),
-  ]);
-  const adapter = getAddress(liquidityAdapter);
-  const [idleAssets, positionAssets] = await Promise.all([
-    publicClient.readContract({
-      address: getAddress(asset),
-      abi: ERC20_BALANCE_ABI,
-      functionName: 'balanceOf',
-      args: [wrapper],
-    }),
-    adapter === zeroAddress
-      ? Promise.resolve(BigInt(0))
-      : publicClient.readContract({ address: adapter, abi: ADAPTER_ABI, functionName: 'realAssets' }),
-  ]);
-  return (
-    idleAssets +
-    minBigInt(positionAssets, underlyingCash.idleAssets + underlyingCash.routeAssets)
-  );
-}
-
 function buildMulticallArgs(
   deallocations: ForceDeallocationStep[],
   onBehalf: Address,
@@ -618,19 +573,6 @@ export async function planForceWithdrawV2(
   const normalizedVault = getAddress(vaultAddress);
   const user = getAddress(onBehalf);
   const useRedeemExit = options?.useRedeemExit === true;
-
-  // Legacy wrappers have no Blue markets of their own, and their force exit needed the
-  // deprecated Bundler3. Exits are plain withdraws, capped at what the underlying can pay now.
-  const wrapper = findVaultByAddress(normalizedVault);
-  if (wrapper?.withdrawOnly && wrapper.underlyingAddress) {
-    const instant = await readWrapperInstantAssets(
-      publicClient,
-      normalizedVault,
-      getAddress(wrapper.underlyingAddress)
-    );
-    if (requestedAssets <= instant) return null;
-    throw new ForceWithdrawShortfallError(instant);
-  }
 
   const cash = await readVaultCashLiquidity(publicClient, normalizedVault);
   const instantLiquidityAssets = cash.idleAssets + cash.routeAssets;

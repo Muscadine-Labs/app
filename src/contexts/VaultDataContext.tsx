@@ -190,8 +190,6 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
           chainId: effectiveChainId,
           version: 'v2',
           strategy: registryVault?.strategy,
-          withdrawOnly: registryVault?.withdrawOnly,
-          underlyingAddress: registryVault?.underlyingAddress,
           totalValueLocked: vaultInfo.state?.totalAssetsUsd || 0,
           totalAssets: vaultInfo.state?.totalAssets || '0',
           assetDecimals: assetDecimals,
@@ -212,8 +210,7 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
           netApyWithoutRewards: netApyWithoutRewards,
           rewardsApr: totalRewardsApr,
           rewardSymbol: primaryRewardSymbol,
-          // Legacy wrappers take no deposits; the overview must not say "Accepting deposits".
-          status: registryVault?.withdrawOnly ? 'deprecated' : 'active',
+          status: 'active',
           curator: curatorName || curatorAddress || 'Unknown Curator',
           curatorAddress: curatorAddress,
           guardianAddress: vaultInfo.state?.guardian,
@@ -298,8 +295,6 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
       description: basic.description || 'High-yield lending vault optimized for stablecoin deposits with automated market allocation.',
       strategy: basic.strategy,
       isCurated: basic.isCurated ?? isCuratedVaultAddress(address),
-      withdrawOnly: basic.withdrawOnly,
-      underlyingAddress: basic.underlyingAddress,
     };
   }, [vaultData]);
 

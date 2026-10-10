@@ -132,9 +132,9 @@ The product surface is the four curated Morpho Vault V2 contracts in `src/lib/va
 
 **Vault registry fields:** `symbol` (underlying asset), `vaultSymbol` (share token label), `strategy` (`prime` | `frontier`).
 
-**Legacy fee wrappers** (`LEGACY_WRAPPER_VAULTS` in `vaults.ts`: wmpUSDC, wmfUSDC, wmpWETH, wmpcbBTC) are retired. They are withdraw-only (`withdrawOnly`, `underlyingAddress`), kept out of `getRegistryVaultList()` (no gate reads, never deposit-eligible), and shown only to wallets holding their shares; `findVaultByAddress` resolves them so their pages and API routes work. Their page opens on Withdraw with no Deposit tab; `depositToVaultV2` refuses them. Exits are plain withdraw/redeem, capped at the wrapper's idle cash plus what its underlying can pay now (`readWrapperInstantAssets` in `force-withdraw-v2.ts`); there is no wrapper force exit (it needed the deprecated Bundler3). As curator, free underlying liquidity if holders need more.
+**Retired fee wrappers** (wmpUSDC, wmfUSDC, wmpWETH, wmpcbBTC): depositors migrated to the underlying vaults, and the app has no wrapper code. A wallet that still holds wrapper shares sees them as an External row, like any non-Muscadine vault. Each vault page shows only its own contract. Do not re-add the wrappers.
 
-**Combined position:** an underlying vault's page adds its legacy wrapper (`getProductVaultAddresses`): position, earned interest, activity and the chart (`mergeVaultPositionSeries` in `portfolio-utils.ts`), with an "Includes … in wmpUSDC" note. A wrapper page shows only the wrapper. The dashboard chart merges each pair the same way, and a row whose pair is fully exited carries that pair's profit (`closedPairEarnedPnl`). Once Morpho shows a wrapper's TVL at ~0, delete its entry.
+**Vault page access** (`resolveVaultPageAccess` in `vault-access.ts`) also reads the wallet's share balance on chain, so a holder reaches the page even when the Morpho positions API fails or lags. Once allowed, the page stays open for that wallet so a full withdraw does not redirect away mid-success.
 
 **Explorer visibility** is gate-driven (`useVaultDepositGates`, read from each vault on chain). A vault is listed when the wallet can deposit (send-assets gate unset, or the wallet passes it) or the wallet holds shares so it can exit. There is no wrapper/underlying settings switch.
 
