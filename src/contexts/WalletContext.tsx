@@ -14,7 +14,7 @@ import {
   TOKEN_ADDRESSES_LOWER,
 } from '@/lib/constants';
 import { findVaultByAddress } from '@/lib/vault-utils';
-import type { VaultKind, VaultStrategy } from '@/lib/vaults';
+import type { VaultStrategy } from '@/lib/vaults';
 
 export interface TokenBalance {
   address: string;
@@ -33,7 +33,6 @@ interface VaultPosition {
     symbol: string;
     vaultSymbol?: string;
     strategy?: VaultStrategy;
-    kind?: VaultKind;
     isCurated?: boolean;
     state: {
       sharePriceUsd: number;
@@ -596,7 +595,6 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
             symbol: string;
             vaultSymbol?: string;
             strategy?: string;
-            kind?: string;
             isCurated?: boolean;
           };
           shares: string;
@@ -616,7 +614,6 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
               symbol: p.vault.symbol,
               vaultSymbol: curated?.vaultSymbol ?? p.vault.vaultSymbol,
               strategy: (curated?.strategy ?? p.vault.strategy) as VaultStrategy | undefined,
-              kind: curated?.kind,
               isCurated: !!curated,
               state: { sharePriceUsd: 0, totalAssetsUsd: 0, totalSupply: '0' },
             },

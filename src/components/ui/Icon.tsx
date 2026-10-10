@@ -186,10 +186,6 @@ export function Icon({
 }
 
 // Convenience components for common icons
-export function WalletIcon(props: Omit<IconProps, 'name'>) {
-  return <Icon name="wallet" {...props} />;
-}
-
 export function ExternalLinkIcon(props: Omit<IconProps, 'name'>) {
   return <Icon name="external-link" {...props} />;
 }
@@ -198,50 +194,6 @@ export function CloseIcon(props: Omit<IconProps, 'name'>) {
   return <Icon name="close" {...props} />;
 }
 
-export function ChevronDownIcon(props: Omit<IconProps, 'name'>) {
-  return <Icon name="chevron-down" {...props} />;
-}
-
-export function ChevronUpIcon(props: Omit<IconProps, 'name'>) {
-  return <Icon name="chevron-up" {...props} />;
-}
-
-export function InfoIcon(props: Omit<IconProps, 'name'>) {
-  return <Icon name="info" {...props} />;
-}
-
-export function CheckCircleIcon(props: Omit<IconProps, 'name'>) {
-  return <Icon name="check-circle" {...props} />;
-}
-
-export function XCircleIcon(props: Omit<IconProps, 'name'>) {
-  return <Icon name="x-circle" {...props} />;
-}
-
-export function WarningIcon(props: Omit<IconProps, 'name'>) {
-  return <Icon name="warning" {...props} />;
-}
-
 export function InfoCircleIcon(props: Omit<IconProps, 'name'>) {
   return <Icon name="info-circle" {...props} />;
-}
-
-export function XIcon(props: Omit<IconProps, 'name'>) {
-  return <Icon name="x" {...props} />;
-}
-
-export function BookIcon(props: Omit<IconProps, 'name'>) {
-  return <Icon name="book" {...props} />;
-}
-
-export function LoadingSpinnerIcon(props: Omit<IconProps, 'name'>) {
-  return <Icon name="loading-spinner" {...props} />;
-}
-
-export function MoneyInIcon(props: Omit<IconProps, 'name'>) {
-  return <Icon name="money-in" {...props} />;
-}
-
-export function MoneyOutIcon(props: Omit<IconProps, 'name'>) {
-  return <Icon name="money-out" {...props} />;
 }

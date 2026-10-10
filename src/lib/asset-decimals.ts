@@ -82,14 +82,6 @@ export function resolveAssetDecimals(
   return getAssetDecimalsForSymbol(symbol);
 }
 
-/** Convert a human-readable token amount to raw integer string. */
-export function tokenAmountToRaw(amount: number, decimals: number): string {
-  if (!Number.isFinite(amount) || amount <= 0) return '0';
-  const scaled = amount * 10 ** decimals;
-  if (!Number.isFinite(scaled) || scaled <= 0) return '0';
-  return BigInt(Math.trunc(scaled)).toString();
-}
-
 function integerStringFromNumber(amount: number): string {
   if (!Number.isFinite(amount) || amount <= 0) return '0';
   if (Number.isSafeInteger(amount)) return String(amount);

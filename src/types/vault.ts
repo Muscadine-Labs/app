@@ -1,4 +1,4 @@
-import type { VaultKind, VaultStrategy } from '@/lib/vaults';
+import type { VaultStrategy } from '@/lib/vaults';
 
 /** Morpho v2 liquidity breakdown (instant, idle, adapter, deallocatable, total). */
 export interface VaultLiquidityBreakdown {
@@ -25,11 +25,12 @@ export interface Vault {
     chainId: number;
     version?: 'v1' | 'v2';
     strategy?: VaultStrategy;
-    kind?: VaultKind;
-    /** Underlying Morpho vault when `kind` is `wrapper`. */
-    underlyingAddress?: string;
     /** True when vault is in the Muscadine registry (has a detail page). */
     isCurated?: boolean;
+    /** Legacy fee wrapper: withdraw only, shown only to holders. */
+    withdrawOnly?: boolean;
+    /** Legacy wrapper only: the registry vault it deposits into. */
+    underlyingAddress?: string;
     
     // Financial Metrics
     totalValueLocked?: number; // TVL in USD
@@ -50,7 +51,6 @@ export interface Vault {
     sharePriceUsd?: number; // Current vault share price in USD
     
     // Security & Risk
-    whitelisted?: boolean; // Whether vault is whitelisted by Morpho
     timelockDuration?: number; // Timelock in seconds
     
     // Status
@@ -95,7 +95,6 @@ export interface MorphoVaultData extends Vault {
     liquidityBreakdown?: VaultLiquidityBreakdown;
     sharePrice: number; // Share price in tokens (not USD)
     sharePriceUsd: number; // Share price in USD
-    whitelisted: boolean;
     timelockDuration: number;
     guardianAddress: string;
     oracleAddress: string;
@@ -129,8 +128,6 @@ export const getVaultLogo = (symbol: string): string => {
 };
 
 // Account types for transaction flow
-export type AccountType = 'wallet' | 'vault';
-
 export interface WalletAccount {
     type: 'wallet';
     address: 'wallet';

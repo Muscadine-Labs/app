@@ -3,19 +3,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter, useParams } from 'next/navigation';
-import { useAccount } from 'wagmi';
+import { useAccount, useReadContract } from 'wagmi';
 import {
   getDepositedVaultAddressSet,
   isCuratedVaultAddress,
   isValidEthereumAddress,
   resolveVaultForPage,
-  getVaultRoute,
 } from '@/lib/vault-utils';
-import {
-  canDepositToVault,
-  resolveUnderlyingVaultPageAccess,
-} from '@/lib/vault-access';
-import { findWrapperForUnderlying } from '@/lib/vaults';
+import { resolveVaultPageAccess, type OnChainShareState } from '@/lib/vault-access';
+import { ERC20_BALANCE_ABI } from '@/lib/abis';
+import { BASE_CHAIN_ID } from '@/lib/constants';
 import { useVaultDataFetch } from '@/hooks/useVaultDataFetch';
 import { useVaultDepositGates } from '@/hooks/useVaultDepositGates';
 import { useWallet } from '@/contexts/WalletContext';
@@ -86,7 +83,9 @@ export default function VaultV2Page() {
   const router = useRouter();
   const address = (params?.address as string) || '';
   const [activeTab, setActiveTab] = useState<string>('position');
-  const [transactTab, setTransactTab] = useState<VaultTransactionTab>('deposit');
+  const [transactTab, setTransactTab] = useState<VaultTransactionTab>(() =>
+    resolveVaultForPage(address)?.withdrawOnly ? 'withdraw' : 'deposit'
+  );
   const { status: transactStatus } = useTransactionState();
   const transactBusy =
     transactStatus === 'preview' ||
@@ -114,8 +113,7 @@ export default function VaultV2Page() {
   const { status: walletStatus, address: walletAddress } = useAccount();
   const { morphoHoldings } = useWallet();
   const {
-    eligibleUnderlyingAddresses,
-    isWrapperDepositBlocked,
+    eligibleVaultAddresses,
     isResolving: gatesResolving,
   } = useVaultDepositGates();
   const depositedAddresses = useMemo(
@@ -123,42 +121,60 @@ export default function VaultV2Page() {
     [morphoHoldings.positions]
   );
 
-  const underlyingAccess = useMemo(() => {
-    if (!vault || vault.kind !== 'underlying') return 'allowed' as const;
-    return resolveUnderlyingVaultPageAccess({
+  const shareRead = useReadContract({
+    address: vault ? (vault.address as `0x${string}`) : undefined,
+    chainId: BASE_CHAIN_ID,
+    abi: ERC20_BALANCE_ABI,
+    functionName: 'balanceOf',
+    args: walletAddress ? [walletAddress] : undefined,
+    query: { enabled: !!vault && !!walletAddress },
+  });
+  const onChainShares: OnChainShareState = !vault || !walletAddress
+    ? 'unknown'
+    : shareRead.data !== undefined
+      ? shareRead.data > BigInt(0) ? 'held' : 'empty'
+      : shareRead.isError
+        ? 'unknown'
+        : 'loading';
+
+  const resolvedAccess = useMemo(() => {
+    if (!vault) return 'denied' as const;
+    return resolveVaultPageAccess({
       vaultAddress: vault.address,
-      eligibleUnderlyingAddresses,
+      eligibleVaultAddresses,
       depositedAddresses,
       walletStatus,
       walletAddress,
       positionsResolvedFor: morphoHoldings.resolvedAddress,
       gatesResolving,
+      onChainShares,
     });
   }, [
     vault,
-    eligibleUnderlyingAddresses,
+    eligibleVaultAddresses,
     depositedAddresses,
     walletStatus,
     walletAddress,
     morphoHoldings.resolvedAddress,
     gatesResolving,
+    onChainShares,
   ]);
 
-  const shouldFetchVaultData =
-    !!vault && (vault.kind !== 'underlying' || underlyingAccess !== 'denied');
+  // Once allowed for this wallet, stay: a full withdraw empties the position and would
+  // otherwise redirect away mid-success screen.
+  const accessKey = `${vault?.address ?? ''}:${walletAddress ?? ''}`;
+  const [allowedKey, setAllowedKey] = useState<string | null>(null);
+  if (resolvedAccess === 'allowed' && allowedKey !== accessKey) {
+    setAllowedKey(accessKey);
+  }
+  const pageAccess =
+    resolvedAccess === 'denied' && vault && allowedKey === accessKey ? 'allowed' : resolvedAccess;
 
   const { vaultData, isLoading, hasError, refetch, errorMessage } = useVaultDataFetch(
-    shouldFetchVaultData ? vault : null
+    pageAccess !== 'denied' ? vault : null
   );
 
-  const canDeposit = canDepositToVault({
-    vaultKind: vault?.kind,
-    vaultAddress: vault?.address ?? '',
-    eligibleUnderlyingAddresses,
-    wrapperDepositBlocked: vault
-      ? isWrapperDepositBlocked(vault.address)
-      : false,
-  });
+  const canDeposit = !!vault && eligibleVaultAddresses.has(vault.address.toLowerCase());
 
   useEffect(() => {
     if (!address) return;
@@ -168,11 +184,8 @@ export default function VaultV2Page() {
   }, [address, router]);
 
   useEffect(() => {
-    if (!vault || vault.kind !== 'underlying') return;
-    if (underlyingAccess !== 'denied') return;
-    const wrapper = findWrapperForUnderlying(vault.address);
-    router.replace(wrapper ? getVaultRoute(wrapper.address) : '/vaults');
-  }, [vault, underlyingAccess, router]);
+    if (vault && pageAccess === 'denied') router.replace('/vaults');
+  }, [vault, pageAccess, router]);
 
   const showMobileSticky = activeTab === 'overview';
   const pageShellClassName = `w-full bg-[var(--background)] flex flex-col p-4 sm:p-6 md:p-8 ${
@@ -183,13 +196,11 @@ export default function VaultV2Page() {
     return <VaultPageSkeleton className={pageShellClassName} />;
   }
 
-  if (vault.kind === 'underlying' && underlyingAccess === 'denied') {
+  if (pageAccess === 'denied') {
     return null;
   }
 
-  const showLoadingSkeleton =
-    (vault.kind === 'underlying' && underlyingAccess === 'pending') ||
-    (isLoading && !vaultData);
+  const showLoadingSkeleton = pageAccess === 'pending' || (isLoading && !vaultData);
 
   if (showLoadingSkeleton) {
     return <VaultPageSkeleton className={pageShellClassName} />;
@@ -259,15 +270,17 @@ export default function VaultV2Page() {
       {showMobileSticky ? (
         <div className="min-[1000px]:hidden fixed inset-x-0 bottom-0 z-40 border-t border-[var(--border)] bg-[var(--background)]/95 backdrop-blur-sm">
           <div className="flex gap-2 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-            <Button
-              onClick={() => openTransact('deposit')}
-              variant="primary"
-              size="md"
-              fullWidth
-              disabled={!canDeposit}
-            >
-              Deposit
-            </Button>
+            {vault.withdrawOnly ? null : (
+              <Button
+                onClick={() => openTransact('deposit')}
+                variant="primary"
+                size="md"
+                fullWidth
+                disabled={!canDeposit}
+              >
+                Deposit
+              </Button>
+            )}
             <Button onClick={() => openTransact('withdraw')} variant="secondary" size="md" fullWidth>
               Withdraw
             </Button>

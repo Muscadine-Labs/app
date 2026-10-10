@@ -175,7 +175,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
       
       if (chartType === 'apy') {
         firstNonZeroIndex = filtered.findIndex(d => d.apy > 0);
-        // Missing avgNetApy (new wrappers) would otherwise plot a fake 0% line.
+        // Missing avgNetApy (new vaults) would otherwise plot a fake 0% line.
         if (firstNonZeroIndex === -1) return [];
       } else if (chartType === 'tvl') {
         firstNonZeroIndex = filtered.findIndex(d => {
@@ -682,7 +682,13 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
               vaultData.status === 'paused' ? 'text-[var(--warning)]' :
               'text-[var(--foreground-muted)]'
             }`}>
-              {vaultData.status === 'active' ? 'Active' : vaultData.status === 'paused' ? 'Paused' : 'Deprecated'}
+              {vaultData.withdrawOnly
+                ? 'Withdraw only'
+                : vaultData.status === 'active'
+                  ? 'Active'
+                  : vaultData.status === 'paused'
+                    ? 'Paused'
+                    : 'Deprecated'}
             </p>
             <p className="text-xs text-[var(--foreground-secondary)] mt-1">
               {vaultData.status === 'active' ? 'Accepting deposits' : 'Not accepting deposits'}

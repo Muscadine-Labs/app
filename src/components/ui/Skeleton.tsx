@@ -42,33 +42,3 @@ export function Skeleton({
     />
   );
 }
-
-// Convenience components for common patterns
-export function SkeletonText({ lines = 1, className = '', ...props }: { lines?: number; className?: string } & Omit<SkeletonProps, 'variant'>) {
-  if (lines === 1) {
-    return <Skeleton variant="text" height="1em" className={className} {...props} />;
-  }
-
-  return (
-    <div className={className}>
-      {Array.from({ length: lines }).map((_, index) => (
-        <Skeleton
-          key={index}
-          variant="text"
-          height="1em"
-          className={index < lines - 1 ? 'mb-2' : ''}
-          {...props}
-        />
-      ))}
-    </div>
-  );
-}
-
-export function SkeletonCircle(props: Omit<SkeletonProps, 'variant'>) {
-  return <Skeleton variant="circular" {...props} />;
-}
-
-export function SkeletonRect(props: Omit<SkeletonProps, 'variant'>) {
-  return <Skeleton variant="rectangular" {...props} />;
-}
-

@@ -1,18 +1,14 @@
 /**
  * Transaction utilities for V2 vaults.
  * Deposits, withdraws, and redeems are direct ERC-4626 and pay the vault asset.
- * Wrapper force exits use Bundler3 to force-deallocate the child, then withdraw the wrapper.
+ * Force exits use vault.multicall.
  */
 
 import { type Address, type PublicClient, type WalletClient, type TransactionReceipt, parseUnits, formatUnits, getAddress } from 'viem';
 import { builderWriteOpts } from './builder-code';
-import { executeBundler3Multicall } from './bundler3';
-import { BASE_WETH_ADDRESS, GENERAL_ADAPTER_ADDRESS } from './constants';
-import {
-  VaultDepositBlockedError,
-  readVaultDepositBlocker,
-} from './vault-gates';
+import { VaultDepositBlockedError, isWalletDepositBlocked } from './vault-gates';
 import { assertDepositWithinCapacity } from './deposit-capacity';
+import { findVaultByAddress } from './vault-utils';
 import type { ForceWithdrawPlan } from './force-withdraw-v2';
 import { planForceWithdrawV2, VAULT_V2_FORCE_ABI } from './force-withdraw-v2';
 import type { TransactionProgressCallback } from '../types/transactions';
@@ -110,13 +106,6 @@ const ERC4626_ABI = [
     inputs: [{ name: 'shares', type: 'uint256' }],
     outputs: [{ name: '', type: 'uint256' }],
   },
-  {
-    name: 'convertToShares',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [{ name: 'assets', type: 'uint256' }],
-    outputs: [{ name: '', type: 'uint256' }],
-  },
 ] as const;
 
 async function readVaultAssetDecimals(
@@ -201,8 +190,9 @@ function parseAmount(amount: string, decimals: number): bigint {
 }
 
 /**
- * Check if token approval is needed and approve if necessary
- * @returns true if a reset was needed (caller should account for extra step)
+ * Approve `amount` of `tokenAddress` for `spenderAddress`. `allowance` is the caller's fresh read.
+ * USDC-style tokens need a reset to 0 first when a smaller allowance is already set.
+ * @returns true if a reset was sent (caller should account for the extra step)
  */
 async function ensureApproval(
   publicClient: PublicClient,
@@ -210,32 +200,12 @@ async function ensureApproval(
   tokenAddress: Address,
   spenderAddress: Address,
   amount: bigint,
-  ownerAddress: Address,
-  onProgress?: TransactionProgressCallback,
-  stepIndex: number = 0,
-  totalSteps: number = 1,
-  labels?: { reset?: string; approve?: string },
-  /** USDC-style tokens need a reset to 0 first. Vault V2 shares do not. */
-  resetFirst: boolean = true
+  allowance: bigint,
+  onProgress: TransactionProgressCallback | undefined,
+  stepIndex: number,
+  totalSteps: number
 ): Promise<boolean> {
-  // Early return if amount is zero (no approval needed)
-  if (amount === BigInt(0)) {
-    return false;
-  }
-
-  const resetLabel = labels?.reset ?? 'Reset approval';
-  const approveLabel = labels?.approve ?? 'Approve token';
-
-  // Check current allowance
-  const allowance = await publicClient.readContract({
-    address: tokenAddress,
-    abi: ERC20_ABI,
-    functionName: 'allowance',
-    args: [ownerAddress, spenderAddress],
-  }) as bigint;
-
-  // If allowance is sufficient, no approval needed
-  if (allowance >= amount) {
+  if (amount === BigInt(0) || allowance >= amount) {
     return false;
   }
 
@@ -243,10 +213,11 @@ async function ensureApproval(
     throw new Error('Wallet account not available');
   }
 
-  let needsReset = false;
-  // Handle USDC-style ERC20s: if allowance > 0 && allowance < amount, reset to 0 first
-  if (resetFirst && allowance > BigInt(0) && allowance < amount) {
-    needsReset = true;
+  const resetLabel = 'Reset approval';
+  const approveLabel = 'Approve token';
+
+  const needsReset = allowance > BigInt(0);
+  if (needsReset) {
     onProgress?.({
       type: 'approving',
       stepIndex,
@@ -278,7 +249,6 @@ async function ensureApproval(
   }
 
   // Approve only the exact amount needed (more secure than unlimited approval)
-  // Use stepIndex + 1 if reset happened, otherwise use stepIndex
   const approvalStepIndex = needsReset ? stepIndex + 1 : stepIndex;
   onProgress?.({
     type: 'approving',
@@ -328,17 +298,20 @@ export async function depositToVaultV2(
 
   const userAddress = walletClient.account.address;
   const normalizedVault = getAddress(vaultAddress);
+  if (findVaultByAddress(normalizedVault)?.withdrawOnly) {
+    throw new Error('This vault no longer accepts deposits.');
+  }
 
   const amountBigInt = parseAmount(amount, assetDecimals);
 
-  const [depositBlocker, capError] = await Promise.all([
-    readVaultDepositBlocker(publicClient, normalizedVault, userAddress),
+  const [depositBlocked, capError] = await Promise.all([
+    isWalletDepositBlocked(publicClient, normalizedVault, userAddress),
     assertDepositWithinCapacity(publicClient, normalizedVault, amountBigInt).then(
       () => null,
       (err: unknown) => err
     ),
   ]);
-  if (depositBlocker) throw new VaultDepositBlockedError(depositBlocker);
+  if (depositBlocked) throw new VaultDepositBlockedError();
   if (capError) throw capError;
 
   const assetAddress = await publicClient.readContract({
@@ -347,41 +320,30 @@ export async function depositToVaultV2(
     functionName: 'asset',
   }) as Address;
 
-  const isWethVault = assetAddress.toLowerCase() === BASE_WETH_ADDRESS.toLowerCase();
+  const [assetBalance, allowance] = await publicClient.multicall({
+    allowFailure: false,
+    contracts: [
+      { address: assetAddress, abi: ERC20_ABI, functionName: 'balanceOf', args: [userAddress] },
+      {
+        address: assetAddress,
+        abi: ERC20_ABI,
+        functionName: 'allowance',
+        args: [userAddress, normalizedVault],
+      },
+    ],
+  });
 
-  if (isWethVault) {
-    const existingWeth = await publicClient.readContract({
-      address: BASE_WETH_ADDRESS,
-      abi: ERC20_ABI,
-      functionName: 'balanceOf',
-      args: [userAddress],
-    }) as bigint;
-
-    if (amountBigInt > existingWeth) {
-      throw new Error(
-        `Insufficient WETH balance.\n\n` +
-        `Requested: ${formatUnits(amountBigInt, 18)} WETH\n` +
-        `Available: ${formatUnits(existingWeth, 18)} WETH\n\n` +
-        `Please reduce the amount or add more WETH to your wallet.`
-      );
-    }
+  if (amountBigInt > assetBalance) {
+    throw new Error(
+      `Insufficient balance.\n\n` +
+      `Requested: ${formatUnits(amountBigInt, assetDecimals)}\n` +
+      `Available: ${formatUnits(assetBalance, assetDecimals)}\n\n` +
+      `Please reduce the amount or add more funds to your wallet.`
+    );
   }
 
-  const approvalSpender = normalizedVault;
-  const approvalAmount = amountBigInt;
-
-  let allowance = BigInt(0);
-  if (approvalAmount > BigInt(0)) {
-    allowance = (await publicClient.readContract({
-      address: assetAddress,
-      abi: ERC20_ABI,
-      functionName: 'allowance',
-      args: [userAddress, approvalSpender],
-    })) as bigint;
-  }
-
-  const needsApproval = approvalAmount > BigInt(0) && allowance < approvalAmount;
-  const needsReset = needsApproval && allowance > BigInt(0) && allowance < approvalAmount;
+  const needsApproval = amountBigInt > BigInt(0) && allowance < amountBigInt;
+  const needsReset = needsApproval && allowance > BigInt(0);
 
   const planLabels: string[] = [];
   if (needsReset) {
@@ -400,9 +362,9 @@ export async function depositToVaultV2(
       publicClient,
       walletClient,
       assetAddress,
-      approvalSpender,
-      approvalAmount,
-      userAddress,
+      normalizedVault,
+      amountBigInt,
+      allowance,
       onProgress,
       currentStep,
       totalSteps
@@ -540,7 +502,6 @@ export async function redeemFromVaultV2(
   publicClient: PublicClient,
   walletClient: WalletClient,
   vaultAddress: Address,
-  _assetDecimals: number, // Reserved for future use (currently unused as redeem uses full share balance)
   onProgress?: TransactionProgressCallback
 ): Promise<string> {
   if (!walletClient.account) {
@@ -600,8 +561,7 @@ export async function redeemFromVaultV2(
 
 /**
  * Force withdraw when instant liquidity is insufficient.
- * Underlyings: vault.multicall. Wrappers: one Bundler3 bundle of child
- * forceDeallocate, then wrapper withdraw. Pays the vault asset.
+ * Force-deallocate illiquid supply, then withdraw or redeem. Pays the vault asset.
  */
 export async function forceWithdrawFromVaultV2(
   publicClient: PublicClient,
@@ -624,13 +584,7 @@ export async function forceWithdrawFromVaultV2(
   if (!freshPlan) {
     // Instant liquidity now covers the exit: a plain withdraw/redeem is enough.
     if (plan.exitMode === 'redeem') {
-      return redeemFromVaultV2(
-        publicClient,
-        walletClient,
-        plan.vaultAddress,
-        0,
-        onProgress
-      );
+      return redeemFromVaultV2(publicClient, walletClient, plan.vaultAddress, onProgress);
     }
     const assetDecimals = await readVaultAssetDecimals(publicClient, plan.vaultAddress);
     return withdrawFromVaultV2(
@@ -644,85 +598,34 @@ export async function forceWithdrawFromVaultV2(
   }
   plan = freshPlan;
 
-  const useBundler = Boolean(plan.bundlerCalls && plan.bundlerCalls.length > 0);
-  if (
-    plan.expectedAssetsOut <= BigInt(0) ||
-    (!useBundler && plan.multicallArgs.length === 0)
-  ) {
+  if (plan.expectedAssetsOut <= BigInt(0) || plan.multicallArgs.length === 0) {
     throw new Error('Invalid force withdraw plan.');
   }
 
-  // Vault V2 shares approve directly (no USDC-style reset to 0).
-  let needsShareApproval = false;
-  const sharesToApprove = plan.sharesToApprove ?? BigInt(0);
-  if (useBundler && sharesToApprove > BigInt(0)) {
-    const shareAllowance = (await publicClient.readContract({
-      address: plan.vaultAddress,
-      abi: ERC20_ABI,
-      functionName: 'allowance',
-      args: [userAddress, GENERAL_ADAPTER_ADDRESS],
-    })) as bigint;
-    needsShareApproval = shareAllowance < sharesToApprove;
-  }
-
-  const planLabels: string[] = [];
-  if (needsShareApproval) planLabels.push('Approve shares');
-  planLabels.push('Force withdraw');
-  const totalSteps = planLabels.length;
-  emitTransactionPlan(onProgress, planLabels);
-
-  let forceStep = 0;
-  if (needsShareApproval) {
-    await ensureApproval(
-      publicClient,
-      walletClient,
-      plan.vaultAddress,
-      GENERAL_ADAPTER_ADDRESS,
-      sharesToApprove,
-      userAddress,
-      onProgress,
-      0,
-      totalSteps,
-      { approve: 'Approve shares' },
-      false
-    );
-    forceStep = 1;
-  }
+  emitTransactionPlan(onProgress, ['Force withdraw']);
 
   onProgress?.({
     type: 'confirming',
-    stepIndex: forceStep,
-    totalSteps,
+    stepIndex: 0,
+    totalSteps: 1,
     stepLabel: 'Force withdraw',
     txHash: '',
   });
 
-  const forceHash = useBundler
-    ? await executeBundler3Multicall(
-        publicClient,
-        walletClient,
-        plan.bundlerCalls ?? [],
-        {
-          onProgress,
-          stepIndex: forceStep,
-          totalSteps,
-          stepLabel: 'Force withdraw',
-        }
-      )
-    : await walletClient.writeContract({
-        address: plan.vaultAddress,
-        abi: VAULT_V2_FORCE_ABI,
-        functionName: 'multicall',
-        args: [plan.multicallArgs],
-        account: walletClient.account,
-        chain: undefined,
-        ...builderWriteOpts(),
-      });
+  const forceHash = await walletClient.writeContract({
+    address: plan.vaultAddress,
+    abi: VAULT_V2_FORCE_ABI,
+    functionName: 'multicall',
+    args: [plan.multicallArgs],
+    account: walletClient.account,
+    chain: undefined,
+    ...builderWriteOpts(),
+  });
 
   onProgress?.({
     type: 'confirming',
-    stepIndex: forceStep,
-    totalSteps,
+    stepIndex: 0,
+    totalSteps: 1,
     stepLabel: 'Force withdraw',
     txHash: forceHash,
   });

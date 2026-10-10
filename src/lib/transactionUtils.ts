@@ -92,7 +92,6 @@ export function formatTransactionError(error: unknown): string {
 
   if (
     errorLower.includes('simulation') ||
-    errorLower.includes('bundler') ||
     errorLower.includes('not ready')
   ) {
     return 'System is preparing the transaction. Please wait a moment and try again.';

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import Image from 'next/image';
+import Link from 'next/link';
 import { MorphoVaultData, getVaultLogo } from '@/types/vault';
 import { Button, Modal } from '@/components/ui';
 import { TransactionFlow, TransactionProgressBar } from '@/components/features/transactions';
@@ -19,6 +20,7 @@ import {
 import { usePrices } from '@/contexts/PriceContext';
 import { ConnectButton } from '@/components/features/wallet';
 import { parseTransactionAmount } from '@/lib/liquidity-utils';
+import { findVaultByAddress, getVaultRoute } from '@/lib/vault-utils';
 import {
   buildPastEarningsRows,
   buildProjectedEarningsRows,
@@ -32,7 +34,8 @@ interface VaultTransactPanelProps {
   initialTab: VaultTransactionTab;
   onTabChange: (tab: VaultTransactionTab) => void;
   positionDecimals: number;
-  currentAssetsRaw: bigint;
+  /** Null while the on-chain balance is still loading. */
+  currentAssetsRaw: bigint | null;
   history: Array<{ timestamp: number; assets: number }>;
   events: ActivityFlowEvent[] | null;
   nowTs: number;
@@ -137,7 +140,13 @@ export function VaultTransactPanel({
     tx.handleResetToIdle();
   };
 
+  const withdrawOnly = vaultData.withdrawOnly === true;
+  const underlyingVault = vaultData.underlyingAddress
+    ? findVaultByAddress(vaultData.underlyingAddress)
+    : null;
+
   const depositsDisabled =
+    withdrawOnly ||
     !canDeposit ||
     vaultData.status === 'paused' ||
     vaultData.status === 'deprecated';
@@ -155,21 +164,26 @@ export function VaultTransactPanel({
     return formatAssetBalance(tx.maxAmount, symbol, undefined, true);
   }, [tx.derivedAsset?.symbol, tx.maxAmount, tx.isWithdrawMaxLoading, vaultData.symbol]);
 
+  const positionKnown = currentAssetsRaw !== null;
+  const positionAssets = currentAssetsRaw ?? BigInt(0);
+
   const pastRows = useMemo(
     () =>
       buildPastEarningsRows({
         nowTs,
         decimals: positionDecimals,
         assetPriceUsd,
-        currentAssetsRaw,
+        currentAssetsRaw: positionAssets,
         history,
         events,
       }),
-    [assetPriceUsd, currentAssetsRaw, events, history, nowTs, positionDecimals]
+    [assetPriceUsd, positionAssets, events, history, nowTs, positionDecimals]
   );
 
+  // Until the balance loads, stay on Past so a holder does not see Future flash first.
   const rewardsMode: RewardsMode =
-    rewardsModeOverride ?? (currentAssetsRaw > BigInt(0) ? 'past' : 'future');
+    rewardsModeOverride ??
+    (!positionKnown || positionAssets > BigInt(0) ? 'past' : 'future');
 
   const futureProjection = useMemo(() => {
     const decimals = tx.derivedAsset?.decimals ?? positionDecimals;
@@ -177,12 +191,12 @@ export function VaultTransactPanel({
       tx.amount.trim().replace(/\.$/, ''),
       decimals
     );
-    let projectedAssets = currentAssetsRaw;
+    let projectedAssets = positionAssets;
     if (typedRaw > BigInt(0)) {
       if (tx.effectiveActiveTab === 'deposit') {
-        projectedAssets = currentAssetsRaw + typedRaw;
-      } else if (currentAssetsRaw > typedRaw) {
-        projectedAssets = currentAssetsRaw - typedRaw;
+        projectedAssets = positionAssets + typedRaw;
+      } else if (positionAssets > typedRaw) {
+        projectedAssets = positionAssets - typedRaw;
       } else {
         projectedAssets = BigInt(0);
       }
@@ -198,7 +212,7 @@ export function VaultTransactPanel({
     };
   }, [
     assetPriceUsd,
-    currentAssetsRaw,
+    positionAssets,
     positionDecimals,
     tx.amount,
     tx.derivedAsset?.decimals,
@@ -248,13 +262,15 @@ export function VaultTransactPanel({
   return (
     <div className="w-full flex flex-col gap-3">
       <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => handleTabClick('deposit')}
-              className={tabClass(tx.effectiveActiveTab === 'deposit')}
-            >
-              Deposit
-            </button>
+            {withdrawOnly ? null : (
+              <button
+                type="button"
+                onClick={() => handleTabClick('deposit')}
+                className={tabClass(tx.effectiveActiveTab === 'deposit')}
+              >
+                Deposit
+              </button>
+            )}
             <button
               type="button"
               onClick={() => handleTabClick('withdraw')}
@@ -263,6 +279,25 @@ export function VaultTransactPanel({
               Withdraw
             </button>
           </div>
+
+          {withdrawOnly ? (
+            <p className="text-xs leading-relaxed text-[var(--foreground-secondary)]">
+              This retired wrapper ({vaultData.vaultSymbol}) no longer takes deposits. Withdraw
+              here
+              {underlyingVault ? (
+                <>
+                  , then deposit into{' '}
+                  <Link
+                    href={getVaultRoute(underlyingVault.address)}
+                    className="text-[var(--primary)] hover:underline"
+                  >
+                    {underlyingVault.name} ({underlyingVault.vaultSymbol})
+                  </Link>
+                </>
+              ) : null}
+              .
+            </p>
+          ) : null}
 
           <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
             <div className="flex items-center justify-between gap-2 mb-3">
@@ -365,7 +400,7 @@ export function VaultTransactPanel({
             </div>
 
             {rewardsMode === 'past' ? (
-              earningsLoading || activityLoading ? (
+              !positionKnown || earningsLoading || activityLoading ? (
                 <p className="py-2 text-xs text-[var(--foreground-muted)]">Loading rewards…</p>
               ) : (
               <>

@@ -1,4 +1,3 @@
-import { findVaultByAddress, getVaultAnalyticsUrl } from '@/lib/vault-utils';
 import { fetchMorphoGraphQL, readMorphoGraphQLResponse } from '@/lib/api-utils';
 import {
   formatMorphoMarketName,
@@ -9,7 +8,7 @@ import { resolveAssetDecimals } from '@/lib/asset-decimals';
 import { MORPHO_GRAPHQL_REVALIDATE_SECONDS } from '@/lib/constants';
 import { logger } from '@/lib/logger';
 
-export type VaultAllocationKind = 'market' | 'idle' | 'vault';
+export type VaultAllocationKind = 'market' | 'idle';
 
 export interface VaultMarketAllocation {
   id: string;
@@ -17,10 +16,6 @@ export interface VaultMarketAllocation {
   marketId?: string;
   name: string;
   morphoUrl?: string;
-  /** Underlying vault address when kind is `vault`. */
-  vaultAddress?: string;
-  /** Analytics page for an underlying vault allocation (`kind: 'vault'`). */
-  href?: string;
   allocatedUsd: number;
   /** Null for idle — not applicable. */
   marketSizeUsd: number | null;
@@ -37,12 +32,6 @@ export interface VaultMarketAllocation {
   rateType?: MorphoMarketRateType;
   /** LLTV raw from Morpho (1e18 scale). */
   lltv?: string | number | null;
-  /** 0 = top-level; 1 = nested under an underlying vault group header. */
-  nestLevel?: number;
-  /** Underlying vault row id when this market/idle sits under a wrapper allocation. */
-  parentId?: string;
-  /** Underlying vault totalAssets raw — used to scale nested wrapper allocations, omitted from API JSON. */
-  innerTotalAssetsRaw?: string;
 }
 
 export interface VaultAllocationData {
@@ -94,45 +83,14 @@ const VAULT_ALLOCATIONS_QUERY = `
         items {
           __typename
           ${MARKET_V1_ADAPTER_SELECTION}
-          ... on MorphoVaultV2Adapter {
-            assets
-            assetsUsd
-            innerVault {
-              address
-              name
-              symbol
-              totalAssets
-              totalAssetsUsd
-              liquidityUsd
-              netApy
-              asset {
-                symbol
-                decimals
-              }
-            }
-          }
         }
       }
     }
   }
 `;
 
-type InnerVaultGraphQL = {
-  address?: string;
-  name?: string;
-  symbol?: string;
-  totalAssets?: number | string;
-  totalAssetsUsd?: number;
-  liquidityUsd?: number;
-  netApy?: number;
-  asset?: { symbol?: string; decimals?: number };
-};
-
 type AdapterItem = {
   __typename?: string;
-  assets?: number | string;
-  assetsUsd?: number;
-  innerVault?: InnerVaultGraphQL;
   positions?: {
     items?: Array<{
       market?: {
@@ -199,31 +157,6 @@ function resolveMorphoAdapterRateType(
   return 'variable';
 }
 
-function scaleUsd(
-  value: number,
-  numeratorUsd: number,
-  denominatorUsd: number
-): number {
-  if (!Number.isFinite(value) || value <= 0) return 0;
-  if (!Number.isFinite(denominatorUsd) || denominatorUsd <= 0) return value;
-  if (!Number.isFinite(numeratorUsd) || numeratorUsd <= 0) return 0;
-  const share = Math.min(numeratorUsd / denominatorUsd, 1);
-  return value * share;
-}
-
-function scaleRaw(raw: string, numerator: string, denominator: string): string {
-  try {
-    const n = BigInt(numerator || '0');
-    const d = BigInt(denominator || '0');
-    const r = BigInt(raw || '0');
-    if (r === BigInt(0) || n === BigInt(0)) return '0';
-    if (d === BigInt(0) || n >= d) return r.toString();
-    return ((r * n) / d).toString();
-  } catch {
-    return '0';
-  }
-}
-
 function isPositiveRaw(raw: string): boolean {
   try {
     return BigInt(raw || '0') > BigInt(0);
@@ -239,8 +172,6 @@ function buildIdleRow(args: {
   idleAssetsUsd: number;
   idleAssetsRaw: string;
   idleApy: number | null;
-  nestLevel?: number;
-  parentId?: string;
 }): VaultMarketAllocation | null {
   const idleAllocatedUsd = Number.isFinite(args.idleAssetsUsd) ? args.idleAssetsUsd : 0;
   const hasIdle = idleAllocatedUsd > 0 || isPositiveRaw(args.idleAssetsRaw);
@@ -257,23 +188,14 @@ function buildIdleRow(args: {
     marketSizeUsd: null,
     liquidityUsd: idleAllocatedUsd,
     apy: args.idleApy,
-    nestLevel: args.nestLevel,
-    parentId: args.parentId,
   };
 }
 
 function parseMarketRowsFromAdapters(
   items: AdapterItem[],
   chainId: number,
-  fallbackAssetSymbol: string,
-  options: {
-    nestLevel?: number;
-    parentId?: string;
-    scaleAllocatedUsd?: (usd: number) => number;
-    scaleAllocatedRaw?: (raw: string) => string;
-  } = {}
+  fallbackAssetSymbol: string
 ): VaultMarketAllocation[] {
-  const nestLevel = options.nestLevel ?? 0;
   const byMarketId = new Map<string, VaultMarketAllocation>();
 
   for (const adapter of items) {
@@ -295,14 +217,6 @@ function parseMarketRowsFromAdapters(
       const allocatedAssetsRaw = morphoRawAmount(position.state?.supplyAssets);
       if (allocatedUsd <= 0 && !isPositiveRaw(allocatedAssetsRaw)) continue;
 
-      const scaledUsd = options.scaleAllocatedUsd
-        ? options.scaleAllocatedUsd(allocatedUsd)
-        : allocatedUsd;
-      const scaledRaw = options.scaleAllocatedRaw
-        ? options.scaleAllocatedRaw(allocatedAssetsRaw)
-        : allocatedAssetsRaw;
-      if (scaledUsd <= 0 && !isPositiveRaw(scaledRaw)) continue;
-
       const marketApy = market.state?.netSupplyApy;
       const apy =
         marketApy != null && Number.isFinite(Number(marketApy))
@@ -311,23 +225,21 @@ function parseMarketRowsFromAdapters(
 
       const marketSizeUsd = Number(market.state?.supplyAssetsUsd ?? 0);
       const liquidityUsd = Number(market.state?.liquidityAssetsUsd ?? 0);
-      const rowId = options.parentId ? `${options.parentId}:${marketId}` : marketId;
-
-      const existing = byMarketId.get(rowId);
+      const existing = byMarketId.get(marketId);
       if (existing) {
-        existing.allocatedUsd += scaledUsd;
-        existing.allocatedAssetsRaw = addRawAmounts(existing.allocatedAssetsRaw, scaledRaw);
+        existing.allocatedUsd += allocatedUsd;
+        existing.allocatedAssetsRaw = addRawAmounts(existing.allocatedAssetsRaw, allocatedAssetsRaw);
         continue;
       }
 
-      byMarketId.set(rowId, {
-        id: rowId,
+      byMarketId.set(marketId, {
+        id: marketId,
         kind: 'market',
         marketId,
         name: formatMorphoMarketName(collateralSymbol, loanSymbol),
         morphoUrl: getMorphoMarketUrl(chainId, marketId, collateralSymbol, loanSymbol),
-        allocatedUsd: scaledUsd,
-        allocatedAssetsRaw: scaledRaw,
+        allocatedUsd,
+        allocatedAssetsRaw,
         tokenSymbol: loanSymbol,
         tokenDecimals: loanDecimals,
         marketSizeUsd: Number.isFinite(marketSizeUsd) ? marketSizeUsd : null,
@@ -337,8 +249,6 @@ function parseMarketRowsFromAdapters(
         collateralSymbol,
         rateType: resolveMorphoAdapterRateType(adapter.__typename),
         lltv: market.lltv ?? null,
-        nestLevel,
-        parentId: options.parentId,
       });
     }
   }
@@ -356,52 +266,6 @@ export function parseVaultV2AllocationsFromGraphQL(
     vault.asset?.yield?.apr != null ? Number(vault.asset.yield.apr) : null;
 
   const items = vault.adapters?.items ?? [];
-  const vaultRows: VaultMarketAllocation[] = [];
-
-  for (const adapter of items) {
-    if (adapter.__typename !== 'MorphoVaultV2Adapter' || !adapter.innerVault?.address) {
-      continue;
-    }
-
-    const inner = adapter.innerVault;
-    const innerAddress = inner.address;
-    if (!innerAddress) continue;
-
-    const tokenSymbol = inner.asset?.symbol ?? vault.asset?.symbol ?? assetSymbol;
-    const tokenDecimals = resolveAssetDecimals(
-      tokenSymbol,
-      inner.asset?.decimals ?? vault.asset?.decimals
-    );
-    const allocatedUsd = Number(adapter.assetsUsd ?? 0);
-    const allocatedAssetsRaw = morphoRawAmount(adapter.assets);
-    const innerApy =
-      inner.netApy != null && Number.isFinite(Number(inner.netApy))
-        ? Number(inner.netApy)
-        : null;
-    const innerTvl = Number(inner.totalAssetsUsd ?? 0);
-    const innerLiquidity = Number(inner.liquidityUsd ?? 0);
-    const innerTotalAssetsRaw = morphoRawAmount(inner.totalAssets);
-    const registry = findVaultByAddress(innerAddress);
-
-    const header: VaultMarketAllocation = {
-      id: innerAddress,
-      kind: 'vault',
-      vaultAddress: innerAddress,
-      name: registry?.name || inner.name || inner.symbol || 'Vault',
-      href: getVaultAnalyticsUrl(innerAddress),
-      allocatedUsd: Number.isFinite(allocatedUsd) ? allocatedUsd : 0,
-      allocatedAssetsRaw,
-      tokenSymbol,
-      tokenDecimals,
-      marketSizeUsd: Number.isFinite(innerTvl) ? innerTvl : null,
-      liquidityUsd: Number.isFinite(innerLiquidity) ? innerLiquidity : null,
-      apy: innerApy,
-      nestLevel: 0,
-      innerTotalAssetsRaw: innerTotalAssetsRaw,
-    };
-    vaultRows.push(header);
-  }
-
   const marketRows = parseMarketRowsFromAdapters(items, chainId, assetSymbol);
 
   const idleRow = buildIdleRow({
@@ -413,93 +277,14 @@ export function parseVaultV2AllocationsFromGraphQL(
     idleApy,
   });
 
-  const allocations = [...(idleRow ? [idleRow] : []), ...vaultRows, ...marketRows];
+  const allocations = [...(idleRow ? [idleRow] : []), ...marketRows];
 
   return { allocations };
 }
 
-function omitInnerScalingFields(row: VaultMarketAllocation): VaultMarketAllocation {
-  const rest = { ...row };
-  delete rest.innerTotalAssetsRaw;
-  return rest;
-}
-
-function nestScaledInnerAllocations(
-  innerAllocations: VaultMarketAllocation[],
-  header: VaultMarketAllocation
-): VaultMarketAllocation[] {
-  const innerTvl = header.marketSizeUsd ?? 0;
-  const denominatorRaw = header.innerTotalAssetsRaw ?? '0';
-  if (!isPositiveRaw(denominatorRaw)) return [];
-  const nested: VaultMarketAllocation[] = [];
-
-  for (const row of innerAllocations) {
-    if (row.kind === 'vault') continue;
-
-    const scaledUsd =
-      Number.isFinite(innerTvl) && innerTvl > 0
-        ? scaleUsd(row.allocatedUsd, header.allocatedUsd, innerTvl)
-        : 0;
-    const scaledRaw = scaleRaw(
-      row.allocatedAssetsRaw,
-      header.allocatedAssetsRaw,
-      denominatorRaw
-    );
-    if (scaledUsd <= 0 && !isPositiveRaw(scaledRaw)) continue;
-
-    nested.push({
-      ...row,
-      id: `${header.id}:${row.id}`,
-      allocatedUsd: scaledUsd,
-      allocatedAssetsRaw: scaledRaw,
-      liquidityUsd: row.kind === 'idle' ? scaledUsd : row.liquidityUsd,
-      nestLevel: 1,
-      parentId: header.id,
-    });
-  }
-
-  return nested;
-}
-
-async function expandWrapperInnerMarkets(
-  parsed: VaultAllocationData,
-  chainId: number
-): Promise<VaultAllocationData> {
-  const headers = parsed.allocations.filter((row) => row.kind === 'vault');
-  if (headers.length === 0) return parsed;
-
-  const nestedByHeader = await Promise.all(
-    headers.map(async (header) => {
-      if (!header.vaultAddress) return [header];
-      const inner = await fetchVaultV2AllocationData(header.vaultAddress, chainId, {
-        expandInnerVaults: false,
-      });
-      if (inner.allocations.length === 0) {
-        if (inner.error) {
-          logger.warn('Underlying vault allocations unavailable', {
-            innerVault: header.vaultAddress,
-            error: inner.error,
-            rateLimited: inner.rateLimited,
-          });
-        }
-        return [header];
-      }
-      return [header, ...nestScaledInnerAllocations(inner.allocations, header)];
-    })
-  );
-
-  const idle = parsed.allocations.filter((row) => row.kind === 'idle');
-  const markets = parsed.allocations.filter((row) => row.kind === 'market');
-
-  return {
-    allocations: [...idle, ...nestedByHeader.flat(), ...markets],
-  };
-}
-
 export async function fetchVaultV2AllocationData(
   vaultAddress: string,
-  chainId: number,
-  options: { expandInnerVaults?: boolean } = {}
+  chainId: number
 ): Promise<VaultAllocationData & { error?: string; rateLimited?: boolean }> {
   try {
     const response = await fetchMorphoGraphQL(
@@ -546,15 +331,7 @@ export async function fetchVaultV2AllocationData(
     }
 
     const parsed = parseVaultV2AllocationsFromGraphQL(vault, chainId);
-    const expanded =
-      options.expandInnerVaults === false
-        ? parsed
-        : await expandWrapperInnerMarkets(parsed, chainId);
-
-    return {
-      ...expanded,
-      allocations: expanded.allocations.map(omitInnerScalingFields),
-    };
+    return parsed;
   } catch (err) {
     logger.error(
       'Failed to fetch vault market allocations',

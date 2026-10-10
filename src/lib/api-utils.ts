@@ -285,7 +285,7 @@ export function stripIncompleteVaultHistoryBuckets<
     end--;
   }
   if (end === history.length) return history;
-  // Brand-new vaults (fee wrappers) can have only TVL/share-price points before
+  // Brand-new vaults can have only TVL/share-price points before
   // Morpho indexes avgNetApy. Keep those so Total Deposits / Share Price render.
   if (end === 0) {
     const withTvl = history.filter(hasVaultTvl);

@@ -8,10 +8,10 @@ import { Vault, getVaultLogo } from '@/types/vault';
 import type { MorphoVaultData } from '@/types/vault';
 import { useVaultData } from '@/contexts/VaultDataContext';
 import { useWallet } from '@/contexts/WalletContext';
-import { useVaultKind } from '@/contexts/VaultKindContext';
-import { VaultNameWithWrapper } from '@/components/features/vault/VaultNameWithWrapper';
+import { VaultName } from '@/components/features/vault/VaultName';
 import {
   getVaultRoute,
+  closedPairEarnedPnl,
   hasOnChainVaultShares,
   isCuratedVaultAddress,
   resolvePositionAssetsUsd,
@@ -46,6 +46,9 @@ function VaultShareLabel({ vault }: { vault: Vault }) {
   return (
     <span className="block text-[10px] text-[var(--foreground-muted)]">
       {vault.vaultSymbol || vault.symbol}
+      {vault.withdrawOnly ? (
+        <span className="text-[var(--warning)]"> · Withdraw only</span>
+      ) : null}
     </span>
   );
 }
@@ -245,12 +248,36 @@ function EarnedInterestCell({
 
   if (!hasWalletPosition) return zeroValue;
 
-  const earnedInterestRaw =
+  const ownRaw =
     walletPosition.pnlRaw ??
     (hookData.isLoading ? undefined : hookData.earnedInterestRaw || '0');
-  const earnedInterestUsd =
+  const ownUsd =
     walletPosition.pnlUsd ??
     (hookData.isLoading ? undefined : hookData.earnedInterestUsd);
+  const flooredOwnRaw = (() => {
+    if (ownRaw === undefined) return undefined;
+    try {
+      const value = BigInt(ownRaw);
+      return value > BigInt(0) ? value.toString() : '0';
+    } catch {
+      return '0';
+    }
+  })();
+  const flooredOwnUsd = ownUsd === undefined ? undefined : Math.max(0, ownUsd);
+  const closedPair = closedPairEarnedPnl(morphoHoldings.positions, vault.address);
+  const earnedInterestRaw = (() => {
+    if (flooredOwnRaw === undefined) return undefined;
+    if (!closedPair) return flooredOwnRaw;
+    try {
+      return (BigInt(flooredOwnRaw) + BigInt(closedPair.pnlRaw)).toString();
+    } catch {
+      return flooredOwnRaw;
+    }
+  })();
+  const earnedInterestUsd =
+    flooredOwnUsd === undefined
+      ? undefined
+      : flooredOwnUsd + (closedPair?.pnlUsd ?? 0);
 
   if (earnedInterestRaw === undefined || earnedInterestUsd === undefined) {
     return <Skeleton width="4rem" height="1rem" className={skeletonClass} />;
@@ -288,7 +315,7 @@ function VaultExplorerMobileCard({ vault, showYourPosition }: VaultExplorerRowPr
     if (!isCurated) return;
     router.push(getVaultRoute(vault.address));
   };
-  const wrapperProps = isCurated
+  const rowProps = isCurated
     ? {
         role: 'button' as const,
         tabIndex: 0,
@@ -302,12 +329,12 @@ function VaultExplorerMobileCard({ vault, showYourPosition }: VaultExplorerRowPr
       };
 
   return (
-    <div {...wrapperProps}>
+    <div {...rowProps}>
       <div className="flex items-start gap-3 mb-3">
         <VaultLogo vault={vault} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap min-w-0">
-            <VaultNameWithWrapper name={vault.name} kind={vault.kind} address={vault.address} />
+            <VaultName name={vault.name} />
             <span className="inline-flex rounded-md bg-[var(--surface-elevated)] px-2 py-0.5 text-[10px] font-medium text-[var(--foreground-secondary)]">
               Base
             </span>
@@ -373,14 +400,12 @@ function DashboardVaultMobileCard({
   positionUsd,
   loading,
   vaultData,
-  showKindMark,
 }: {
   vault: Vault;
   positionAssets?: string;
   positionUsd: number;
   loading: boolean;
   vaultData: MorphoVaultData | null;
-  showKindMark: boolean;
 }) {
   const router = useRouter();
   const { address } = useAccount();
@@ -391,7 +416,7 @@ function DashboardVaultMobileCard({
     if (!isCurated) return;
     router.push(getVaultRoute(vault.address));
   };
-  const wrapperProps = isCurated
+  const rowProps = isCurated
     ? {
         role: 'button' as const,
         tabIndex: 0,
@@ -406,16 +431,11 @@ function DashboardVaultMobileCard({
       };
 
   return (
-    <div {...wrapperProps}>
+    <div {...rowProps}>
       <div className="flex items-start gap-2.5 mb-2">
         <VaultLogo vault={vault} />
         <div className="min-w-0 flex-1">
-          <VaultNameWithWrapper
-            name={vault.name}
-            kind={vault.kind}
-            showKindMark={showKindMark}
-            lines={2}
-          />
+          <VaultName name={vault.name} lines={2} />
           <VaultShareLabel vault={vault} />
           <span className="text-[10px] text-[var(--foreground-muted)] block">
             {isCurated ? 'Whitelisted' : 'External'}
@@ -606,7 +626,7 @@ function VaultExplorerRow({ vault, showYourPosition }: VaultExplorerRowProps) {
           <VaultLogo vault={vault} />
           <div className="min-w-0">
             <div className="flex items-center gap-2 min-w-0">
-              <VaultNameWithWrapper name={vault.name} kind={vault.kind} address={vault.address} />
+              <VaultName name={vault.name} />
               {!isCurated ? (
                 <span className="shrink-0 text-[10px] text-[var(--foreground-muted)]">
                   External
@@ -827,7 +847,6 @@ export function DashboardVaultTable({
   const { morphoHoldings } = useWallet();
   const { getVaultData, isLoading } = useVaultData();
   const { address } = useAccount();
-  const { kindMarkAddresses } = useVaultKind();
 
   if (!isMounted) {
     return (
@@ -894,7 +913,6 @@ export function DashboardVaultTable({
               positionUsd={positionUsd}
               loading={loading}
               vaultData={vaultData}
-              showKindMark={kindMarkAddresses.has(vault.address.toLowerCase())}
             />
           );
         })}
@@ -944,12 +962,7 @@ export function DashboardVaultTable({
                   <div className="flex items-start gap-2 min-w-0">
                     <VaultLogo vault={vault} size={28} />
                     <div className="min-w-0 flex-1">
-                      <VaultNameWithWrapper
-                        name={vault.name}
-                        kind={vault.kind}
-                        showKindMark={kindMarkAddresses.has(vault.address.toLowerCase())}
-                        lines={2}
-                      />
+                      <VaultName name={vault.name} lines={2} />
                       <VaultShareLabel vault={vault} />
                     </div>
                   </div>
