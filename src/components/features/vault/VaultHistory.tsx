@@ -11,6 +11,7 @@ import {
   formatTransactionTypeLabel,
   transactionTypeDotClass,
 } from '@/lib/transaction-labels';
+import { getProductVaultAddresses } from '@/lib/vaults';
 
 interface VaultHistoryProps {
   vaultData: MorphoVaultData;
@@ -31,13 +32,29 @@ export default function VaultHistory({ vaultData }: VaultHistoryProps) {
       setLoading(true);
       try {
         if (address && showUserOnly) {
-          const userResponse = await fetch(
-            `/api/vault/${vaultData.version}/${vaultData.address}/activity?chainId=${vaultData.chainId}&userAddress=${address}`,
-            { signal: abortController.signal }
+          const version = vaultData.version ?? 'v2';
+          const responses = await Promise.all(
+            getProductVaultAddresses(vaultData.address).map((vaultAddress) =>
+              fetch(
+                `/api/vault/${version}/${vaultAddress}/activity?chainId=${vaultData.chainId}&userAddress=${address}`,
+                { signal: abortController.signal }
+              )
+            )
           );
-          const userResponseData = await userResponse.json();
+          if (responses.some((response) => !response.ok)) {
+            throw new Error('Failed to fetch vault activity');
+          }
+          const payloads = await Promise.all(responses.map((response) => response.json()));
+          if (payloads.some((payload) => payload?.error)) {
+            throw new Error('Failed to fetch vault activity');
+          }
           if (abortController.signal.aborted) return;
-          setUserTransactions(userResponseData.transactions || []);
+          const merged = payloads
+            .flatMap((payload) =>
+              Array.isArray(payload.transactions) ? (payload.transactions as Transaction[]) : []
+            )
+            .sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
+          setUserTransactions(merged);
           return;
         }
 

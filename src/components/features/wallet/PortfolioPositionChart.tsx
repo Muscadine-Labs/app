@@ -8,8 +8,11 @@ import { CHART_MARGIN, getChartYAxisWidth, withLeadingChartTick } from '@/lib/ch
 import {
   aggregatePortfolioHistory,
   mapPortfolioHistoryToChartData,
+  mergeVaultPositionSeries,
   PositionHistoryPoint,
+  VaultPositionSeriesPoint,
 } from '@/lib/portfolio-utils';
+import { getPairedVaultAddress } from '@/lib/vaults';
 import { formatCurrency, formatChartUsdAxisValue } from '@/lib/formatter';
 import { logger } from '@/lib/logger';
 import { useUnixTimestamp } from '@/hooks/useClientOnly';
@@ -47,21 +50,50 @@ async function fetchVaultHistory(
   userAddress: string,
   period: string,
   signal?: AbortSignal
-): Promise<PositionHistoryPoint[]> {
+): Promise<VaultPositionSeriesPoint[] | null> {
   const response = await fetch(
     `/api/vault/v2/${vault.address}/position-history?chainId=${vault.chainId}&userAddress=${userAddress}&period=${period}`,
     { signal }
   );
 
-  if (!response.ok) return [];
+  if (!response.ok) return null;
 
-  const data = await response.json().catch(() => ({}));
-  if (!Array.isArray(data.history)) return [];
+  const data = await response.json().catch(() => null);
+  if (!data || data.error || !Array.isArray(data.history)) return null;
 
-  return data.history.map((point: { timestamp: number; assetsUsd: number }) => ({
-    timestamp: point.timestamp,
-    assetsUsd: Math.max(0, point.assetsUsd ?? 0),
-  }));
+  return data.history.map(
+    (point: {
+      timestamp: number;
+      assets?: number;
+      assetsUsd?: number;
+      shares?: number;
+      assetsRaw?: string;
+    }) => ({
+      timestamp: point.timestamp,
+      assets: Math.max(0, point.assets ?? 0),
+      assetsUsd: Math.max(0, point.assetsUsd ?? 0),
+      shares: point.shares ?? 0,
+      assetsRaw: point.assetsRaw,
+    })
+  );
+}
+
+/** Wrapper and underlying histories are merged before the portfolio sum. */
+function groupProductVaults(vaults: readonly PortfolioVault[]): PortfolioVault[][] {
+  const used = new Set<string>();
+  const groups: PortfolioVault[][] = [];
+  for (const vault of vaults) {
+    const key = vault.address.toLowerCase();
+    if (used.has(key)) continue;
+    used.add(key);
+    const pairAddress = getPairedVaultAddress(vault.address)?.toLowerCase();
+    const mate = pairAddress
+      ? vaults.find((item) => item.address.toLowerCase() === pairAddress)
+      : undefined;
+    if (mate && pairAddress) used.add(pairAddress);
+    groups.push(mate ? [vault, mate] : [vault]);
+  }
+  return groups;
 }
 
 export default function PortfolioPositionChart() {
@@ -109,26 +141,49 @@ export default function PortfolioPositionChart() {
       }
 
       try {
-        const vaultHistories = await Promise.all(
-          portfolioVaults.map(async (vault) => {
-            try {
-              return await fetchVaultHistory(vault, address, period, signal);
-            } catch (error) {
-              if (error instanceof Error && error.name === 'AbortError') {
-                throw error;
-              }
+        const productHistories = await Promise.all(
+          groupProductVaults(portfolioVaults).map(async (group) => {
+            const histories = await Promise.all(
+              group.map(async (vault) => {
+                try {
+                  return await fetchVaultHistory(vault, address, period, signal);
+                } catch (error) {
+                  if (error instanceof Error && error.name === 'AbortError') {
+                    throw error;
+                  }
 
-              logger.warn('Failed to fetch vault position history', {
-                vaultAddress: vault.address,
-                error: error instanceof Error ? error.message : String(error),
+                  logger.warn('Failed to fetch vault position history', {
+                    vaultAddress: vault.address,
+                    error: error instanceof Error ? error.message : String(error),
+                  });
+
+                  return null;
+                }
+              })
+            );
+            if (histories.some((history) => history == null)) {
+              logger.warn('Skipping a vault product after a failed position history fetch', {
+                vaultAddresses: group.map((vault) => vault.address),
               });
-
-              return [];
+              return null;
             }
+            return mergeVaultPositionSeries(
+              histories.filter((history): history is VaultPositionSeriesPoint[] => history != null)
+            ).map((point) => ({
+              timestamp: point.timestamp,
+              assetsUsd: point.assetsUsd,
+            }));
           })
         );
         if (signal.aborted) return;
-        setter(aggregatePortfolioHistory(vaultHistories));
+        const completeHistories = productHistories.filter(
+          (history): history is PositionHistoryPoint[] => history != null
+        );
+        setter(
+          completeHistories.length === 0
+            ? []
+            : aggregatePortfolioHistory(completeHistories)
+        );
       } catch (error) {
         if (error instanceof Error && error.name === 'AbortError') return;
         logger.warn('Failed to fetch portfolio position history', {

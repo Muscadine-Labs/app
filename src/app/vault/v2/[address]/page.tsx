@@ -81,7 +81,9 @@ export default function VaultV2Page() {
   const router = useRouter();
   const address = (params?.address as string) || '';
   const [activeTab, setActiveTab] = useState<string>('position');
-  const [transactTab, setTransactTab] = useState<VaultTransactionTab>('deposit');
+  const [transactTab, setTransactTab] = useState<VaultTransactionTab>(() =>
+    resolveVaultForPage(address)?.withdrawOnly ? 'withdraw' : 'deposit'
+  );
   const { status: transactStatus } = useTransactionState();
   const transactBusy =
     transactStatus === 'preview' ||
@@ -117,7 +119,7 @@ export default function VaultV2Page() {
     [morphoHoldings.positions]
   );
 
-  const pageAccess = useMemo(() => {
+  const resolvedAccess = useMemo(() => {
     if (!vault) return 'denied' as const;
     return resolveVaultPageAccess({
       vaultAddress: vault.address,
@@ -137,6 +139,16 @@ export default function VaultV2Page() {
     morphoHoldings.resolvedAddress,
     gatesResolving,
   ]);
+
+  // Once allowed for this wallet, stay: a full withdraw empties the position and would
+  // otherwise redirect away mid-success screen.
+  const accessKey = `${vault?.address ?? ''}:${walletAddress ?? ''}`;
+  const [allowedKey, setAllowedKey] = useState<string | null>(null);
+  if (resolvedAccess === 'allowed' && allowedKey !== accessKey) {
+    setAllowedKey(accessKey);
+  }
+  const pageAccess =
+    resolvedAccess === 'denied' && vault && allowedKey === accessKey ? 'allowed' : resolvedAccess;
 
   const { vaultData, isLoading, hasError, refetch, errorMessage } = useVaultDataFetch(
     pageAccess !== 'denied' ? vault : null
@@ -238,15 +250,17 @@ export default function VaultV2Page() {
       {showMobileSticky ? (
         <div className="min-[1000px]:hidden fixed inset-x-0 bottom-0 z-40 border-t border-[var(--border)] bg-[var(--background)]/95 backdrop-blur-sm">
           <div className="flex gap-2 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-            <Button
-              onClick={() => openTransact('deposit')}
-              variant="primary"
-              size="md"
-              fullWidth
-              disabled={!canDeposit}
-            >
-              Deposit
-            </Button>
+            {vault.withdrawOnly ? null : (
+              <Button
+                onClick={() => openTransact('deposit')}
+                variant="primary"
+                size="md"
+                fullWidth
+                disabled={!canDeposit}
+              >
+                Deposit
+              </Button>
+            )}
             <Button onClick={() => openTransact('withdraw')} variant="secondary" size="md" fullWidth>
               Withdraw
             </Button>
