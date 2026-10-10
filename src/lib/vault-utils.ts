@@ -1,9 +1,7 @@
 import {
   VaultDefinition,
   VaultStrategy,
-  findRetiredWrapperFor,
   getRegistryVaultList,
-  isRetiredWrapperAddress,
 } from '@/lib/vaults';
 import { Vault } from '@/types/vault';
 import {
@@ -199,34 +197,6 @@ export function getDepositedVaultAddressSet(
   );
 }
 
-/**
- * Profit on a registry vault's retired wrapper. Wrappers never get a row, so the
- * registry vault's row carries it.
- */
-export function closedPairEarnedPnl(
-  positions: readonly WalletMorphoPosition[],
-  vaultAddress: string
-): { pnlRaw: string; pnlUsd: number } | null {
-  const pairAddress = findRetiredWrapperFor(vaultAddress)?.address;
-  if (!pairAddress) return null;
-  const pair = positions.find(
-    (position) => position.vault.address.toLowerCase() === pairAddress.toLowerCase()
-  );
-  if (!pair || !pair.pnlRaw) return null;
-  let pnlRaw: bigint;
-  try {
-    pnlRaw = BigInt(pair.pnlRaw);
-  } catch {
-    return null;
-  }
-  // A loss on the closed contract must not shrink the open row. The vault page
-  // floors each side at zero. Skip the pair when the dollar figure is missing.
-  if (pnlRaw <= BigInt(0) || pair.pnlUsd === undefined || !(pair.pnlUsd > 0)) {
-    return null;
-  }
-  return { pnlRaw: pnlRaw.toString(), pnlUsd: pair.pnlUsd };
-}
-
 /** Registry vaults the explorer lists: deposit-eligible, or held so the owner can exit. */
 export function selectRegistryVaultsForExplorer(options: {
   depositedAddresses: ReadonlySet<string>;
@@ -266,11 +236,7 @@ export function buildExplorerVaultCandidates(
   );
 
   const externalVaults: Vault[] = activePositions
-    .filter(
-      (position) =>
-        !isCuratedVaultAddress(position.vault.address) &&
-        !isRetiredWrapperAddress(position.vault.address)
-    )
+    .filter((position) => !isCuratedVaultAddress(position.vault.address))
     .map((position) => {
       const symbol = resolveMorphoAssetSymbol({
         assetSymbol: position.vault.symbol,
