@@ -3,14 +3,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter, useParams } from 'next/navigation';
-import { useAccount } from 'wagmi';
+import { useAccount, useReadContract } from 'wagmi';
 import {
   getDepositedVaultAddressSet,
   isCuratedVaultAddress,
   isValidEthereumAddress,
   resolveVaultForPage,
 } from '@/lib/vault-utils';
-import { resolveVaultPageAccess } from '@/lib/vault-access';
+import { resolveVaultPageAccess, type OnChainShareState } from '@/lib/vault-access';
+import { ERC20_BALANCE_ABI } from '@/lib/abis';
+import { BASE_CHAIN_ID } from '@/lib/constants';
 import { useVaultDataFetch } from '@/hooks/useVaultDataFetch';
 import { useVaultDepositGates } from '@/hooks/useVaultDepositGates';
 import { useWallet } from '@/contexts/WalletContext';
@@ -119,6 +121,22 @@ export default function VaultV2Page() {
     [morphoHoldings.positions]
   );
 
+  const shareRead = useReadContract({
+    address: vault ? (vault.address as `0x${string}`) : undefined,
+    chainId: BASE_CHAIN_ID,
+    abi: ERC20_BALANCE_ABI,
+    functionName: 'balanceOf',
+    args: walletAddress ? [walletAddress] : undefined,
+    query: { enabled: !!vault && !!walletAddress },
+  });
+  const onChainShares: OnChainShareState = !vault || !walletAddress
+    ? 'unknown'
+    : shareRead.data !== undefined
+      ? shareRead.data > BigInt(0) ? 'held' : 'empty'
+      : shareRead.isError
+        ? 'unknown'
+        : 'loading';
+
   const resolvedAccess = useMemo(() => {
     if (!vault) return 'denied' as const;
     return resolveVaultPageAccess({
@@ -129,6 +147,7 @@ export default function VaultV2Page() {
       walletAddress,
       positionsResolvedFor: morphoHoldings.resolvedAddress,
       gatesResolving,
+      onChainShares,
     });
   }, [
     vault,
@@ -138,6 +157,7 @@ export default function VaultV2Page() {
     walletAddress,
     morphoHoldings.resolvedAddress,
     gatesResolving,
+    onChainShares,
   ]);
 
   // Once allowed for this wallet, stay: a full withdraw empties the position and would

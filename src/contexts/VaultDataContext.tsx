@@ -212,7 +212,8 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
           netApyWithoutRewards: netApyWithoutRewards,
           rewardsApr: totalRewardsApr,
           rewardSymbol: primaryRewardSymbol,
-          status: 'active',
+          // Legacy wrappers take no deposits; the overview must not say "Accepting deposits".
+          status: registryVault?.withdrawOnly ? 'deprecated' : 'active',
           curator: curatorName || curatorAddress || 'Unknown Curator',
           curatorAddress: curatorAddress,
           guardianAddress: vaultInfo.state?.guardian,
