@@ -43,6 +43,6 @@ export const MORPHO_PRELOAD_BATCH_SIZE = 4;
 export const MORPHO_FETCH_ERROR_COOLDOWN_MS = 60_000;
 
 // Price API configuration
-export const STABLECOIN_SYMBOLS = ['USDC', 'USDT', 'DAI', 'EUSD', 'USDS'] as const;
+export const STABLECOIN_SYMBOLS = ['USDC', 'USDBC', 'USDT', 'DAI', 'EUSD', 'USDS'] as const;
 export const DEFAULT_ASSET_PRICE = 1;
 export const DEFAULT_ASSET_DECIMALS = 18;
