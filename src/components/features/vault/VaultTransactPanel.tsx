@@ -32,7 +32,8 @@ interface VaultTransactPanelProps {
   initialTab: VaultTransactionTab;
   onTabChange: (tab: VaultTransactionTab) => void;
   positionDecimals: number;
-  currentAssetsRaw: bigint;
+  /** Null while the combined wrapper and underlying balance is still loading. */
+  currentAssetsRaw: bigint | null;
   history: Array<{ timestamp: number; assets: number }>;
   events: ActivityFlowEvent[] | null;
   nowTs: number;
@@ -155,21 +156,25 @@ export function VaultTransactPanel({
     return formatAssetBalance(tx.maxAmount, symbol, undefined, true);
   }, [tx.derivedAsset?.symbol, tx.maxAmount, tx.isWithdrawMaxLoading, vaultData.symbol]);
 
+  const positionKnown = currentAssetsRaw !== null;
+  const positionAssets = currentAssetsRaw ?? BigInt(0);
+
   const pastRows = useMemo(
     () =>
       buildPastEarningsRows({
         nowTs,
         decimals: positionDecimals,
         assetPriceUsd,
-        currentAssetsRaw,
+        currentAssetsRaw: positionAssets,
         history,
         events,
       }),
-    [assetPriceUsd, currentAssetsRaw, events, history, nowTs, positionDecimals]
+    [assetPriceUsd, positionAssets, events, history, nowTs, positionDecimals]
   );
 
   const rewardsMode: RewardsMode =
-    rewardsModeOverride ?? (currentAssetsRaw > BigInt(0) ? 'past' : 'future');
+    rewardsModeOverride ??
+    (!positionKnown || positionAssets > BigInt(0) ? 'past' : 'future');
 
   const futureProjection = useMemo(() => {
     const decimals = tx.derivedAsset?.decimals ?? positionDecimals;
@@ -177,12 +182,12 @@ export function VaultTransactPanel({
       tx.amount.trim().replace(/\.$/, ''),
       decimals
     );
-    let projectedAssets = currentAssetsRaw;
+    let projectedAssets = positionAssets;
     if (typedRaw > BigInt(0)) {
       if (tx.effectiveActiveTab === 'deposit') {
-        projectedAssets = currentAssetsRaw + typedRaw;
-      } else if (currentAssetsRaw > typedRaw) {
-        projectedAssets = currentAssetsRaw - typedRaw;
+        projectedAssets = positionAssets + typedRaw;
+      } else if (positionAssets > typedRaw) {
+        projectedAssets = positionAssets - typedRaw;
       } else {
         projectedAssets = BigInt(0);
       }
@@ -198,7 +203,7 @@ export function VaultTransactPanel({
     };
   }, [
     assetPriceUsd,
-    currentAssetsRaw,
+    positionAssets,
     positionDecimals,
     tx.amount,
     tx.derivedAsset?.decimals,
@@ -364,7 +369,9 @@ export function VaultTransactPanel({
               </button>
             </div>
 
-            {rewardsMode === 'past' ? (
+            {!positionKnown ? (
+              <p className="py-2 text-xs text-[var(--foreground-muted)]">Loading rewards…</p>
+            ) : rewardsMode === 'past' ? (
               earningsLoading || activityLoading ? (
                 <p className="py-2 text-xs text-[var(--foreground-muted)]">Loading rewards…</p>
               ) : (
