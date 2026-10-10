@@ -9,8 +9,7 @@
  * supply positions to the user and is a separate path.
  *
  * Used when requested assets exceed instant liquidity (idle + liquidity adapter), read on-chain.
- * Underlying vaults: vault.multicall([forceDeallocate × N, withdraw|redeem]) on that vault.
- * Fee wrappers: one Bundler3 bundle of child forceDeallocate (0% penalty) then wrapper withdraw.
+ * Uses vault.multicall([forceDeallocate × N, withdraw|redeem]) on that vault.
  * The liquidity route market is never force-deallocated: the final withdraw already pulls from it.
  * Do not use Vault V2 maxWithdraw — it always returns 0.
  * Ref: https://docs.morpho.org/developers/sdks/morpho-sdk/vault/#force-withdraw--force-redeem
@@ -27,19 +26,8 @@ import {
   encodeFunctionData,
   formatUnits,
   getAddress,
-  keccak256,
-  pad,
   parseAbiParameters,
-  toHex,
 } from 'viem';
-import {
-  buildBundlerDirectCall,
-  buildErc4626RedeemCall,
-  buildErc4626WithdrawCall,
-  minSharePriceE27FromQuote,
-  type Bundler3Call,
-} from '@/lib/bundler3';
-import { BUNDLER3_ADDRESS, GENERAL_ADAPTER_ADDRESS } from '@/lib/constants';
 import { logger } from '@/lib/logger';
 
 export const FORCE_DEALLOCATE_WAD = BigInt(10) ** BigInt(18);
@@ -75,15 +63,8 @@ export type ForceWithdrawPlan = {
   deallocations: ForceDeallocationStep[];
   /** `redeem` on MAX exits (no share dust); otherwise `withdraw(assets)`. */
   exitMode: 'withdraw' | 'redeem';
-  /** Inner calls for vault.multicall (forceDeallocate… + withdraw|redeem). Empty when `bundlerCalls` is set. */
+  /** Inner calls for vault.multicall (forceDeallocate… + withdraw|redeem). */
   multicallArgs: Hex[];
-  /**
-   * Wrapper exits: `C.forceDeallocate` × N then `W.withdraw` in one Bundler3 multicall.
-   * The child penalty is 0, so this does not burn wrapper shares as a penalty.
-   */
-  bundlerCalls?: Bundler3Call[];
-  /** Wrapper shares GeneralAdapter1 must be allowed to burn on erc4626 withdraw/redeem. */
-  sharesToApprove?: bigint;
 };
 
 /** Request exceeds what force-deallocate can free. `reachableAssets` is the amount the UI should keep. */
@@ -250,23 +231,6 @@ const ADAPTER_ABI = [
     stateMutability: 'view',
     inputs: [{ name: 'marketId', type: 'bytes32' }],
     outputs: [{ name: '', type: 'uint256' }],
-  },
-] as const;
-
-const VAULT_ERC4626_ADAPTER_ABI = [
-  {
-    name: 'realAssets',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [],
-    outputs: [{ name: '', type: 'uint256' }],
-  },
-  {
-    name: 'morphoVaultV1',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [],
-    outputs: [{ name: '', type: 'address' }],
   },
 ] as const;
 
@@ -613,300 +577,6 @@ function buildMulticallArgs(
   return calls;
 }
 
-const BUNDLER3_SIM_ABI = [
-  {
-    name: 'multicall',
-    type: 'function',
-    stateMutability: 'payable',
-    inputs: [
-      {
-        name: 'bundle',
-        type: 'tuple[]',
-        components: [
-          { name: 'to', type: 'address' },
-          { name: 'data', type: 'bytes' },
-          { name: 'value', type: 'uint256' },
-          { name: 'skipRevert', type: 'bool' },
-          { name: 'callbackHash', type: 'bytes32' },
-        ],
-      },
-    ],
-    outputs: [],
-  },
-] as const;
-
-/** Vault V2 allowance mapping slot (owner → spender → amount). */
-const VAULT_V2_ALLOWANCE_SLOT = BigInt(13);
-
-export type WrapperExitLiquidity = {
-  idleAssets: bigint;
-  /** Idle on W plus what a plain W.withdraw can pull from C (capped by the adapter position). */
-  instantAssets: bigint;
-  /** Extra cash reachable by force-deallocating C's other markets, still capped by the adapter position. */
-  deallocatableAssets: bigint;
-  totalAssets: bigint;
-};
-
-type WrapperChildLink = { adapter: Address; child: Address };
-
-type WrapperExitState = WrapperExitLiquidity & {
-  /** Zero-penalty child slots outside the child's liquidity route. */
-  childSlots: AdapterLiquiditySlot[];
-};
-
-function allowanceStorageSlot(owner: Address, spender: Address): Hex {
-  const inner = keccak256(
-    encodeAbiParameters(
-      [{ type: 'address' }, { type: 'uint256' }],
-      [owner, VAULT_V2_ALLOWANCE_SLOT]
-    )
-  );
-  return keccak256(
-    encodeAbiParameters(
-      [{ type: 'address' }, { type: 'uint256' }],
-      [spender, BigInt(inner)]
-    )
-  );
-}
-
-/**
- * Fee wrapper link: exactly one adapter that points at a child vault (`morphoVaultV1`).
- * Returns null for other vaults. RPC failures throw so a wrapper is never planned as an underlying vault.
- */
-async function readWrapperChild(
-  publicClient: PublicClient,
-  vaultAddress: Address
-): Promise<WrapperChildLink | null> {
-  const adaptersLength = await publicClient.readContract({
-    address: vaultAddress,
-    abi: VAULT_V2_FORCE_ABI,
-    functionName: 'adaptersLength',
-  });
-  if (adaptersLength !== BigInt(1)) return null;
-  const adapter = getAddress(
-    await publicClient.readContract({
-      address: vaultAddress,
-      abi: VAULT_V2_FORCE_ABI,
-      functionName: 'adapters',
-      args: [BigInt(0)],
-    })
-  );
-  try {
-    const child = getAddress(
-      await publicClient.readContract({
-        address: adapter,
-        abi: VAULT_ERC4626_ADAPTER_ABI,
-        functionName: 'morphoVaultV1',
-      })
-    );
-    return { adapter, child };
-  } catch (err) {
-    if (isContractRevert(err)) return null;
-    throw err;
-  }
-}
-
-async function readWrapperExitState(
-  publicClient: PublicClient,
-  wrapper: Address,
-  childLink: WrapperChildLink
-): Promise<WrapperExitState> {
-  const [asset, realAssets, child] = await Promise.all([
-    publicClient.readContract({
-      address: wrapper,
-      abi: VAULT_V2_FORCE_ABI,
-      functionName: 'asset',
-    }),
-    publicClient.readContract({
-      address: childLink.adapter,
-      abi: VAULT_ERC4626_ADAPTER_ABI,
-      functionName: 'realAssets',
-    }),
-    readVaultCashLiquidity(publicClient, childLink.child),
-  ]);
-  const idleW = await publicClient.readContract({
-    address: getAddress(asset),
-    abi: ERC20_BALANCE_ABI,
-    functionName: 'balanceOf',
-    args: [wrapper],
-  });
-
-  const childInstant = minBigInt(realAssets, child.idleAssets + child.routeAssets);
-  const instantAssets = idleW + childInstant;
-  const headroom = realAssets > childInstant ? realAssets - childInstant : BigInt(0);
-
-  const childSlots = child.slots.filter((slot) => slot.penaltyWad === BigInt(0));
-  const otherCash = childSlots.reduce((sum, slot) => sum + slot.available, BigInt(0));
-  const deallocatableAssets = minBigInt(headroom, otherCash);
-
-  return {
-    idleAssets: idleW,
-    instantAssets,
-    deallocatableAssets,
-    totalAssets: instantAssets + deallocatableAssets,
-    childSlots,
-  };
-}
-
-/**
- * On-chain exit liquidity for a fee wrapper. Instant is what `W.withdraw` can take
- * with no penalty. Deallocatable is the rest of the wrapper's child position that
- * `C.forceDeallocate` can move to idle first. Returns null when the vault is not a wrapper.
- */
-export async function readWrapperExitLiquidity(
-  publicClient: PublicClient,
-  wrapperAddress: Address
-): Promise<WrapperExitLiquidity | null> {
-  const wrapper = getAddress(wrapperAddress);
-  const childLink = await readWrapperChild(publicClient, wrapper);
-  if (!childLink) return null;
-
-  const state = await readWrapperExitState(publicClient, wrapper, childLink);
-  return {
-    idleAssets: state.idleAssets,
-    instantAssets: state.instantAssets,
-    deallocatableAssets: state.deallocatableAssets,
-    totalAssets: state.totalAssets,
-  };
-}
-
-/** Wrapper exit goes through GeneralAdapter1 so only the bundle initiator can spend the shares. */
-function wrapperExitCall(
-  wrapper: Address,
-  user: Address,
-  exit:
-    | { mode: 'withdraw'; assets: bigint; shares: bigint }
-    | { mode: 'redeem'; assets: bigint; shares: bigint }
-): Bundler3Call {
-  const minSharePriceE27 = minSharePriceE27FromQuote(exit.assets, exit.shares);
-  if (exit.mode === 'redeem') {
-    return buildErc4626RedeemCall(wrapper, exit.shares, user, user, minSharePriceE27);
-  }
-  return buildErc4626WithdrawCall(wrapper, exit.assets, user, user, minSharePriceE27);
-}
-
-/**
- * Fee wrapper: move the shortfall to idle on the child (0% penalty), then withdraw the wrapper.
- * Returns null when instant liquidity already covers the exit.
- */
-async function planWrapperForceWithdraw(
-  publicClient: PublicClient,
-  wrapper: Address,
-  childLink: WrapperChildLink,
-  requestedAssets: bigint,
-  onBehalf: Address,
-  useRedeemExit: boolean
-): Promise<ForceWithdrawPlan | null> {
-  const liquidity = await readWrapperExitState(publicClient, wrapper, childLink);
-
-  let assetsOut = requestedAssets;
-  let userShares = BigInt(0);
-  if (useRedeemExit) {
-    userShares = (await publicClient.readContract({
-      address: wrapper,
-      abi: VAULT_V2_FORCE_ABI,
-      functionName: 'balanceOf',
-      args: [onBehalf],
-    })) as bigint;
-    if (userShares === BigInt(0)) throw new Error('No vault shares to redeem.');
-    assetsOut = (await publicClient.readContract({
-      address: wrapper,
-      abi: VAULT_V2_FORCE_ABI,
-      functionName: 'previewRedeem',
-      args: [userShares],
-    })) as bigint;
-  }
-
-  if (assetsOut <= liquidity.instantAssets) return null;
-  if (assetsOut > liquidity.totalAssets) {
-    throw new ForceWithdrawShortfallError(liquidity.totalAssets);
-  }
-
-  const shortfall = assetsOut - liquidity.instantAssets;
-  let remaining = shortfall;
-  const deallocations: ForceDeallocationStep[] = [];
-  for (const slot of liquidity.childSlots) {
-    if (remaining === BigInt(0)) break;
-    const amount = minBigInt(remaining, slot.available);
-    if (amount === BigInt(0)) continue;
-    deallocations.push({
-      adapter: slot.adapter,
-      data: slot.data,
-      amount,
-      penaltyWad: BigInt(0),
-      penaltyAssets: BigInt(0),
-    });
-    remaining -= amount;
-  }
-
-  if (remaining > BigInt(0) || deallocations.length === 0) {
-    throw new ForceWithdrawShortfallError(assetsOut - remaining);
-  }
-
-  const bundlerCalls = [
-    buildBundlerDirectCall(
-      childLink.child,
-      encodeFunctionData({ abi: VAULT_V2_FORCE_ABI, functionName: 'accrueInterest', args: [] })
-    ),
-    buildBundlerDirectCall(
-      wrapper,
-      encodeFunctionData({ abi: VAULT_V2_FORCE_ABI, functionName: 'accrueInterest', args: [] })
-    ),
-    ...deallocations.map((step) =>
-      buildBundlerDirectCall(
-        childLink.child,
-        encodeFunctionData({
-          abi: VAULT_V2_FORCE_ABI,
-          functionName: 'forceDeallocate',
-          args: [step.adapter, step.data, step.amount, onBehalf],
-        })
-      )
-    ),
-  ];
-
-  let exitMode: 'withdraw' | 'redeem' = 'withdraw';
-  let sharesToApprove = BigInt(0);
-  if (useRedeemExit) {
-    exitMode = 'redeem';
-    sharesToApprove = userShares;
-    bundlerCalls.push(
-      wrapperExitCall(wrapper, onBehalf, {
-        mode: 'redeem',
-        assets: assetsOut,
-        shares: userShares,
-      })
-    );
-  } else {
-    sharesToApprove = (await publicClient.readContract({
-      address: wrapper,
-      abi: VAULT_V2_FORCE_ABI,
-      functionName: 'previewWithdraw',
-      args: [assetsOut],
-    })) as bigint;
-    bundlerCalls.push(
-      wrapperExitCall(wrapper, onBehalf, {
-        mode: 'withdraw',
-        assets: assetsOut,
-        shares: sharesToApprove,
-      })
-    );
-  }
-
-  return {
-    vaultAddress: wrapper,
-    requestedAssets: assetsOut,
-    instantLiquidityAssets: liquidity.instantAssets,
-    assetsToDeallocate: shortfall,
-    expectedAssetsOut: assetsOut,
-    estimatedPenaltyAssets: BigInt(0),
-    maxPenaltyWad: BigInt(0),
-    deallocations,
-    exitMode,
-    multicallArgs: [],
-    bundlerCalls,
-    sharesToApprove,
-  };
-}
 
 /**
  * Plan a force withdraw: deallocate the illiquid shortfall into idle, then withdraw or redeem.
@@ -930,18 +600,6 @@ export async function planForceWithdrawV2(
   const normalizedVault = getAddress(vaultAddress);
   const user = getAddress(onBehalf);
   const useRedeemExit = options?.useRedeemExit === true;
-
-  const childLink = await readWrapperChild(publicClient, normalizedVault);
-  if (childLink) {
-    return planWrapperForceWithdraw(
-      publicClient,
-      normalizedVault,
-      childLink,
-      requestedAssets,
-      user,
-      useRedeemExit
-    );
-  }
 
   const cash = await readVaultCashLiquidity(publicClient, normalizedVault);
   const instantLiquidityAssets = cash.idleAssets + cash.routeAssets;
@@ -1081,33 +739,6 @@ export async function simulateForceWithdrawPlan(
   account: Address
 ): Promise<boolean> {
   try {
-    if (plan.bundlerCalls && plan.bundlerCalls.length > 0) {
-      const user = getAddress(account);
-      const shares = plan.sharesToApprove ?? BigInt(0);
-      await publicClient.simulateContract({
-        address: getAddress(BUNDLER3_ADDRESS),
-        abi: BUNDLER3_SIM_ABI,
-        functionName: 'multicall',
-        args: [plan.bundlerCalls],
-        account: user,
-        stateOverride:
-          shares > BigInt(0)
-            ? [
-                {
-                  address: plan.vaultAddress,
-                  stateDiff: [
-                    {
-                      slot: allowanceStorageSlot(user, getAddress(GENERAL_ADAPTER_ADDRESS)),
-                      value: pad(toHex(shares)),
-                    },
-                  ],
-                },
-              ]
-            : undefined,
-      });
-      return true;
-    }
-
     await publicClient.simulateContract({
       address: plan.vaultAddress,
       abi: VAULT_V2_FORCE_ABI,

@@ -175,7 +175,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
       
       if (chartType === 'apy') {
         firstNonZeroIndex = filtered.findIndex(d => d.apy > 0);
-        // Missing avgNetApy (new wrappers) would otherwise plot a fake 0% line.
+        // Missing avgNetApy (new vaults) would otherwise plot a fake 0% line.
         if (firstNonZeroIndex === -1) return [];
       } else if (chartType === 'tvl') {
         firstNonZeroIndex = filtered.findIndex(d => {

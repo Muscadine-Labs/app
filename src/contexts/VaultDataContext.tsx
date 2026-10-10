@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
 import { formatUnits } from 'viem';
 import { Vault, MorphoVaultData, VaultLiquidityBreakdown } from '@/types/vault';
-import { getVaultVersion, findVaultByAddress, isCuratedVaultAddress } from '@/lib/vault-utils';
+import { findVaultByAddress, isCuratedVaultAddress } from '@/lib/vault-utils';
 import { BASE_CHAIN_ID, MORPHO_PRELOAD_BATCH_SIZE, MORPHO_FETCH_ERROR_COOLDOWN_MS, CLIENT_VAULT_DATA_CACHE_MS } from '../lib/constants';
 
 interface VaultDataState {
@@ -83,8 +83,7 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
   ) => {
     const effectiveChainId = chainId ?? BASE_CHAIN_ID;
     const shouldForceRefresh = forceRefresh ?? false;
-    const vaultVersion = getVaultVersion(address);
-    const cacheKey = `vault-complete-${vaultVersion}-${address}-${effectiveChainId}`;
+    const cacheKey = `vault-complete-v2-${address}-${effectiveChainId}`;
     
     // Check if we already have fresh data (unless forcing refresh)
     // Use ref to read current state without adding to dependencies
@@ -119,7 +118,7 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
 
       try {
         // APY and vault metrics: /api/vault/v2/[address]/complete only (no v1 complete route).
-        const response = await fetch(`/api/vault/${vaultVersion}/${address}/complete?chainId=${effectiveChainId}`);
+        const response = await fetch(`/api/vault/v2/${address}/complete?chainId=${effectiveChainId}`);
         const data = await response.json();
 
         if (!response.ok) {
@@ -189,10 +188,8 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
           symbol: registryVault?.symbol || vaultInfo.asset?.symbol || 'UNKNOWN',
           vaultSymbol: registryVault?.vaultSymbol,
           chainId: effectiveChainId,
-          version: vaultVersion,
+          version: 'v2',
           strategy: registryVault?.strategy,
-          kind: registryVault?.kind,
-          underlyingAddress: registryVault?.underlyingAddress,
           totalValueLocked: vaultInfo.state?.totalAssetsUsd || 0,
           totalAssets: vaultInfo.state?.totalAssets || '0',
           assetDecimals: assetDecimals,
@@ -213,7 +210,6 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
           netApyWithoutRewards: netApyWithoutRewards,
           rewardsApr: totalRewardsApr,
           rewardSymbol: primaryRewardSymbol,
-          whitelisted: vaultInfo.whitelisted ?? false,
           status: 'active',
           curator: curatorName || curatorAddress || 'Unknown Curator',
           curatorAddress: curatorAddress,
@@ -286,7 +282,6 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
       liquidityBreakdown: basic.liquidityBreakdown,
       sharePrice: basic.sharePrice || 1,
       sharePriceUsd: basic.sharePriceUsd || 0,
-      whitelisted: basic.whitelisted ?? false,
       timelockDuration: basic.timelockDuration || 0,
       guardianAddress: basic.guardianAddress || '',
       oracleAddress: basic.oracleAddress || '',
@@ -299,8 +294,6 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
       managementFee: basic.managementFee || 0.0,
       description: basic.description || 'High-yield lending vault optimized for stablecoin deposits with automated market allocation.',
       strategy: basic.strategy,
-      kind: basic.kind,
-      underlyingAddress: basic.underlyingAddress,
       isCurated: basic.isCurated ?? isCuratedVaultAddress(address),
     };
   }, [vaultData]);

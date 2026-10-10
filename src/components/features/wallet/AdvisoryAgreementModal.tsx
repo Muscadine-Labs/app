@@ -81,7 +81,7 @@ export function AdvisoryAgreementModal() {
           </p>
 
           <p className="text-xs sm:text-sm text-[var(--foreground)] leading-relaxed">
-            Unless your wallet is whitelisted, the vaults shown by default are fee wrappers that deposit into Muscadine’s underlying Morpho vaults. A wrapper may charge a performance fee.{' '}
+            The vaults listed here are Muscadine’s curated Morpho vaults. Deposits open when a vault’s send-assets gate allows your wallet. Withdrawals stay open for shares you already hold.{' '}
             <a
               href="https://analytics.muscadine.xyz"
               target="_blank"

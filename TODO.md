@@ -1,9 +1,6 @@
 **To Work on Today:**
 
-- remove wrapper vaults
-
 **To work on another day:**
-
 
 **Future (optional):**
 - Have multichain for viewing such as with stocks, vaults like robinhood chain. With the actual functions on settings be able to switch the chain.

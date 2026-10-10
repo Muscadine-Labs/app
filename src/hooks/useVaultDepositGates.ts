@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo } from 'react';
+import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAccount, usePublicClient } from 'wagmi';
 import { BASE_CHAIN_ID } from '@/lib/constants';
@@ -19,9 +19,8 @@ const REGISTRY_VAULTS = getRegistryVaultList();
  * Deposit access read from each vault's send-assets gate on Base.
  * Receive-shares is abated on every registry vault, so it is not read.
  *
- * Underlying deposits open only after a successful read says yes (send-assets
- * gate unset, or the wallet passes it). Wrapper deposits stay open unless a
- * successful read says the wallet or the wrapper's liquidity adapter is blocked.
+ * Deposits open only after a successful read says yes (send-assets gate unset,
+ * or the wallet passes it).
  */
 export function useVaultDepositGates() {
   const { address } = useAccount();
@@ -47,26 +46,13 @@ export function useVaultDepositGates() {
   const gates = vaultQuery.data;
   const walletAccess = walletKey ? walletQuery.data : undefined;
 
-  const {
-    eligibleUnderlyingAddresses,
-    blockedWrapperAddresses,
-    canDepositEveryUnderlying,
-    wrappersAcceptDeposits,
-  } = useMemo(
+  const { eligibleVaultAddresses } = useMemo(
     () => resolveDepositEligibility(REGISTRY_VAULTS, gates, walletAccess),
     [gates, walletAccess]
   );
 
-  const isWrapperDepositBlocked = useCallback(
-    (vaultAddress: string) => blockedWrapperAddresses.has(vaultAddress.toLowerCase()),
-    [blockedWrapperAddresses]
-  );
-
   return {
-    eligibleUnderlyingAddresses,
-    isWrapperDepositBlocked,
-    canDepositEveryUnderlying,
-    wrappersAcceptDeposits,
+    eligibleVaultAddresses,
     isResolving: vaultQuery.isLoading || (Boolean(address) && walletQuery.isLoading),
   };
 }

@@ -23,7 +23,6 @@ import {
 } from '@/lib/force-withdraw-v2';
 import { formatAssetAmount, formatBigIntForInput } from '@/lib/formatter';
 import { BASE_CHAIN_ID, POST_TX_BALANCE_REFRESH_DELAY_MS } from '@/lib/constants';
-import { getRegistryVaultList } from '@/lib/vaults';
 import {
   depositToVaultV2,
   withdrawFromVaultV2,
@@ -101,7 +100,6 @@ export function TransactionFlow({
     expectedOutLabel: string | null;
     forceWithdrawAvailable: boolean;
     mayLeaveShareDust: boolean;
-    isWrapperExit: boolean;
   } | null>(null);
   const [isCheckingLiquidity, setIsCheckingLiquidity] = useState(false);
   const currentStepRef = useRef(0);
@@ -660,14 +658,7 @@ export function TransactionFlow({
                 })();
 
               setLiquidityWarningContext({
-                morphoVaultUrl: (() => {
-                  const registryVault = getRegistryVaultList().find(
-                    (vault) =>
-                      vault.address.toLowerCase() === vaultAccount.address.toLowerCase()
-                  );
-                  if (registryVault?.kind === 'wrapper') return null;
-                  return getMorphoVaultUrl(BASE_CHAIN_ID, vaultAccount.address);
-                })(),
+                morphoVaultUrl: getMorphoVaultUrl(BASE_CHAIN_ID, vaultAccount.address),
                 requestedAmountLabel: formatAssetAmount(
                   requested,
                   assetToUse.decimals,
@@ -697,7 +688,6 @@ export function TransactionFlow({
                 forceWithdrawAvailable: Boolean(forceOk && forcePlan),
                 mayLeaveShareDust:
                   shouldUseWithdrawAll && Boolean(forcePlan && forcePlan.exitMode === 'withdraw'),
-                isWrapperExit: Boolean(forcePlan?.bundlerCalls?.length),
               });
               setLiquidityWarningOpen(true);
               return;
@@ -877,7 +867,6 @@ export function TransactionFlow({
           expectedOutLabel={liquidityWarningContext.expectedOutLabel}
           forceWithdrawAvailable={liquidityWarningContext.forceWithdrawAvailable}
           mayLeaveShareDust={liquidityWarningContext.mayLeaveShareDust}
-          isWrapperExit={liquidityWarningContext.isWrapperExit}
           isPreparingForce={isExecuting}
         />
       )}

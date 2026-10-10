@@ -1,13 +1,12 @@
 /**
  * Transaction utilities for V2 vaults.
  * Deposits, withdraws, and redeems are direct ERC-4626 and pay the vault asset.
- * Wrapper force exits use Bundler3 to force-deallocate the child, then withdraw the wrapper.
+ * Force exits use vault.multicall.
  */
 
 import { type Address, type PublicClient, type WalletClient, type TransactionReceipt, parseUnits, formatUnits, getAddress } from 'viem';
 import { builderWriteOpts } from './builder-code';
-import { executeBundler3Multicall } from './bundler3';
-import { BASE_WETH_ADDRESS, GENERAL_ADAPTER_ADDRESS } from './constants';
+import { BASE_WETH_ADDRESS } from './constants';
 import {
   VaultDepositBlockedError,
   readVaultDepositBlocker,
@@ -600,8 +599,7 @@ export async function redeemFromVaultV2(
 
 /**
  * Force withdraw when instant liquidity is insufficient.
- * Underlyings: vault.multicall. Wrappers: one Bundler3 bundle of child
- * forceDeallocate, then wrapper withdraw. Pays the vault asset.
+ * Force-deallocate illiquid supply, then withdraw or redeem. Pays the vault asset.
  */
 export async function forceWithdrawFromVaultV2(
   publicClient: PublicClient,
@@ -644,85 +642,34 @@ export async function forceWithdrawFromVaultV2(
   }
   plan = freshPlan;
 
-  const useBundler = Boolean(plan.bundlerCalls && plan.bundlerCalls.length > 0);
-  if (
-    plan.expectedAssetsOut <= BigInt(0) ||
-    (!useBundler && plan.multicallArgs.length === 0)
-  ) {
+  if (plan.expectedAssetsOut <= BigInt(0) || plan.multicallArgs.length === 0) {
     throw new Error('Invalid force withdraw plan.');
   }
 
-  // Vault V2 shares approve directly (no USDC-style reset to 0).
-  let needsShareApproval = false;
-  const sharesToApprove = plan.sharesToApprove ?? BigInt(0);
-  if (useBundler && sharesToApprove > BigInt(0)) {
-    const shareAllowance = (await publicClient.readContract({
-      address: plan.vaultAddress,
-      abi: ERC20_ABI,
-      functionName: 'allowance',
-      args: [userAddress, GENERAL_ADAPTER_ADDRESS],
-    })) as bigint;
-    needsShareApproval = shareAllowance < sharesToApprove;
-  }
-
-  const planLabels: string[] = [];
-  if (needsShareApproval) planLabels.push('Approve shares');
-  planLabels.push('Force withdraw');
-  const totalSteps = planLabels.length;
-  emitTransactionPlan(onProgress, planLabels);
-
-  let forceStep = 0;
-  if (needsShareApproval) {
-    await ensureApproval(
-      publicClient,
-      walletClient,
-      plan.vaultAddress,
-      GENERAL_ADAPTER_ADDRESS,
-      sharesToApprove,
-      userAddress,
-      onProgress,
-      0,
-      totalSteps,
-      { approve: 'Approve shares' },
-      false
-    );
-    forceStep = 1;
-  }
+  emitTransactionPlan(onProgress, ['Force withdraw']);
 
   onProgress?.({
     type: 'confirming',
-    stepIndex: forceStep,
-    totalSteps,
+    stepIndex: 0,
+    totalSteps: 1,
     stepLabel: 'Force withdraw',
     txHash: '',
   });
 
-  const forceHash = useBundler
-    ? await executeBundler3Multicall(
-        publicClient,
-        walletClient,
-        plan.bundlerCalls ?? [],
-        {
-          onProgress,
-          stepIndex: forceStep,
-          totalSteps,
-          stepLabel: 'Force withdraw',
-        }
-      )
-    : await walletClient.writeContract({
-        address: plan.vaultAddress,
-        abi: VAULT_V2_FORCE_ABI,
-        functionName: 'multicall',
-        args: [plan.multicallArgs],
-        account: walletClient.account,
-        chain: undefined,
-        ...builderWriteOpts(),
-      });
+  const forceHash = await walletClient.writeContract({
+    address: plan.vaultAddress,
+    abi: VAULT_V2_FORCE_ABI,
+    functionName: 'multicall',
+    args: [plan.multicallArgs],
+    account: walletClient.account,
+    chain: undefined,
+    ...builderWriteOpts(),
+  });
 
   onProgress?.({
     type: 'confirming',
-    stepIndex: forceStep,
-    totalSteps,
+    stepIndex: 0,
+    totalSteps: 1,
     stepLabel: 'Force withdraw',
     txHash: forceHash,
   });

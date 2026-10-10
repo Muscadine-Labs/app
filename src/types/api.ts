@@ -42,39 +42,13 @@ export interface TransactionResponse {
   error?: string;
 }
 
-// GraphQL Transaction Item
-export interface GraphQLTransactionItem {
-  hash: string;
-  timestamp: number;
-  type: string;
-  blockNumber?: number;
-  chain?: {
-    id: string;
-    network: string;
-  };
-  user?: {
-    address: string;
-  };
-  data?: {
-    shares?: string;
-    assets?: string;
-    assetsUsd?: number;
-    vault?: {
-      address: string;
-    };
-  };
-}
-
 export interface GraphQLTransactionsData {
-  transactions?: {
-    items: GraphQLTransactionItem[];
-  };
   vaultV2transactions?: {
     items: GraphQLV2TransactionItem[];
   };
 }
 
-// V2 Transaction Item (different structure from V1)
+// V2 Transaction Item
 export interface GraphQLV2TransactionItem {
   txHash: string;
   timestamp: number;
@@ -94,44 +68,6 @@ export interface GraphQLV2TransactionItem {
     from?: string;
     to?: string;
   };
-}
-
-// Allocation Types
-export interface AllocationMarket {
-  uniqueKey?: string;
-  loanAsset?: {
-    symbol?: string;
-    address?: string;
-  };
-  collateralAsset?: {
-    symbol?: string;
-    address?: string;
-  };
-}
-
-export interface Allocation {
-  market?: AllocationMarket;
-  supplyAssetsUsd?: string;
-}
-
-// History Types
-export interface HistoryDataPoint {
-  x: number;
-  y: number;
-}
-
-export interface HistoryResponse {
-  history: Array<{
-    timestamp: number;
-    date: string;
-    totalAssetsUsd: number;
-    apy: number;
-    netApy: number;
-  }>;
-  period: string;
-  cached: boolean;
-  timestamp: number;
-  error?: string;
 }
 
 // Alchemy API Types

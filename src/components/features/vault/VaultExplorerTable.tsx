@@ -8,8 +8,7 @@ import { Vault, getVaultLogo } from '@/types/vault';
 import type { MorphoVaultData } from '@/types/vault';
 import { useVaultData } from '@/contexts/VaultDataContext';
 import { useWallet } from '@/contexts/WalletContext';
-import { useVaultKind } from '@/contexts/VaultKindContext';
-import { VaultNameWithWrapper } from '@/components/features/vault/VaultNameWithWrapper';
+import { VaultName } from '@/components/features/vault/VaultName';
 import {
   getVaultRoute,
   hasOnChainVaultShares,
@@ -288,7 +287,7 @@ function VaultExplorerMobileCard({ vault, showYourPosition }: VaultExplorerRowPr
     if (!isCurated) return;
     router.push(getVaultRoute(vault.address));
   };
-  const wrapperProps = isCurated
+  const rowProps = isCurated
     ? {
         role: 'button' as const,
         tabIndex: 0,
@@ -302,12 +301,12 @@ function VaultExplorerMobileCard({ vault, showYourPosition }: VaultExplorerRowPr
       };
 
   return (
-    <div {...wrapperProps}>
+    <div {...rowProps}>
       <div className="flex items-start gap-3 mb-3">
         <VaultLogo vault={vault} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap min-w-0">
-            <VaultNameWithWrapper name={vault.name} kind={vault.kind} address={vault.address} />
+            <VaultName name={vault.name} />
             <span className="inline-flex rounded-md bg-[var(--surface-elevated)] px-2 py-0.5 text-[10px] font-medium text-[var(--foreground-secondary)]">
               Base
             </span>
@@ -373,14 +372,12 @@ function DashboardVaultMobileCard({
   positionUsd,
   loading,
   vaultData,
-  showKindMark,
 }: {
   vault: Vault;
   positionAssets?: string;
   positionUsd: number;
   loading: boolean;
   vaultData: MorphoVaultData | null;
-  showKindMark: boolean;
 }) {
   const router = useRouter();
   const { address } = useAccount();
@@ -391,7 +388,7 @@ function DashboardVaultMobileCard({
     if (!isCurated) return;
     router.push(getVaultRoute(vault.address));
   };
-  const wrapperProps = isCurated
+  const rowProps = isCurated
     ? {
         role: 'button' as const,
         tabIndex: 0,
@@ -406,16 +403,11 @@ function DashboardVaultMobileCard({
       };
 
   return (
-    <div {...wrapperProps}>
+    <div {...rowProps}>
       <div className="flex items-start gap-2.5 mb-2">
         <VaultLogo vault={vault} />
         <div className="min-w-0 flex-1">
-          <VaultNameWithWrapper
-            name={vault.name}
-            kind={vault.kind}
-            showKindMark={showKindMark}
-            lines={2}
-          />
+          <VaultName name={vault.name} lines={2} />
           <VaultShareLabel vault={vault} />
           <span className="text-[10px] text-[var(--foreground-muted)] block">
             {isCurated ? 'Whitelisted' : 'External'}
@@ -606,7 +598,7 @@ function VaultExplorerRow({ vault, showYourPosition }: VaultExplorerRowProps) {
           <VaultLogo vault={vault} />
           <div className="min-w-0">
             <div className="flex items-center gap-2 min-w-0">
-              <VaultNameWithWrapper name={vault.name} kind={vault.kind} address={vault.address} />
+              <VaultName name={vault.name} />
               {!isCurated ? (
                 <span className="shrink-0 text-[10px] text-[var(--foreground-muted)]">
                   External
@@ -827,7 +819,6 @@ export function DashboardVaultTable({
   const { morphoHoldings } = useWallet();
   const { getVaultData, isLoading } = useVaultData();
   const { address } = useAccount();
-  const { kindMarkAddresses } = useVaultKind();
 
   if (!isMounted) {
     return (
@@ -894,7 +885,6 @@ export function DashboardVaultTable({
               positionUsd={positionUsd}
               loading={loading}
               vaultData={vaultData}
-              showKindMark={kindMarkAddresses.has(vault.address.toLowerCase())}
             />
           );
         })}
@@ -944,12 +934,7 @@ export function DashboardVaultTable({
                   <div className="flex items-start gap-2 min-w-0">
                     <VaultLogo vault={vault} size={28} />
                     <div className="min-w-0 flex-1">
-                      <VaultNameWithWrapper
-                        name={vault.name}
-                        kind={vault.kind}
-                        showKindMark={kindMarkAddresses.has(vault.address.toLowerCase())}
-                        lines={2}
-                      />
+                      <VaultName name={vault.name} lines={2} />
                       <VaultShareLabel vault={vault} />
                     </div>
                   </div>

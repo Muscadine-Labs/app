@@ -9,13 +9,11 @@ import {
   isCuratedVaultAddress,
   isValidEthereumAddress,
   resolveVaultForPage,
-  getVaultRoute,
 } from '@/lib/vault-utils';
 import {
   canDepositToVault,
-  resolveUnderlyingVaultPageAccess,
+  resolveVaultPageAccess,
 } from '@/lib/vault-access';
-import { findWrapperForUnderlying } from '@/lib/vaults';
 import { useVaultDataFetch } from '@/hooks/useVaultDataFetch';
 import { useVaultDepositGates } from '@/hooks/useVaultDepositGates';
 import { useWallet } from '@/contexts/WalletContext';
@@ -114,8 +112,7 @@ export default function VaultV2Page() {
   const { status: walletStatus, address: walletAddress } = useAccount();
   const { morphoHoldings } = useWallet();
   const {
-    eligibleUnderlyingAddresses,
-    isWrapperDepositBlocked,
+    eligibleVaultAddresses,
     isResolving: gatesResolving,
   } = useVaultDepositGates();
   const depositedAddresses = useMemo(
@@ -123,11 +120,11 @@ export default function VaultV2Page() {
     [morphoHoldings.positions]
   );
 
-  const underlyingAccess = useMemo(() => {
-    if (!vault || vault.kind !== 'underlying') return 'allowed' as const;
-    return resolveUnderlyingVaultPageAccess({
+  const pageAccess = useMemo(() => {
+    if (!vault) return 'denied' as const;
+    return resolveVaultPageAccess({
       vaultAddress: vault.address,
-      eligibleUnderlyingAddresses,
+      eligibleVaultAddresses,
       depositedAddresses,
       walletStatus,
       walletAddress,
@@ -136,7 +133,7 @@ export default function VaultV2Page() {
     });
   }, [
     vault,
-    eligibleUnderlyingAddresses,
+    eligibleVaultAddresses,
     depositedAddresses,
     walletStatus,
     walletAddress,
@@ -144,20 +141,15 @@ export default function VaultV2Page() {
     gatesResolving,
   ]);
 
-  const shouldFetchVaultData =
-    !!vault && (vault.kind !== 'underlying' || underlyingAccess !== 'denied');
+  const shouldFetchVaultData = !!vault && pageAccess !== 'denied';
 
   const { vaultData, isLoading, hasError, refetch, errorMessage } = useVaultDataFetch(
     shouldFetchVaultData ? vault : null
   );
 
   const canDeposit = canDepositToVault({
-    vaultKind: vault?.kind,
     vaultAddress: vault?.address ?? '',
-    eligibleUnderlyingAddresses,
-    wrapperDepositBlocked: vault
-      ? isWrapperDepositBlocked(vault.address)
-      : false,
+    eligibleVaultAddresses,
   });
 
   useEffect(() => {
@@ -168,11 +160,10 @@ export default function VaultV2Page() {
   }, [address, router]);
 
   useEffect(() => {
-    if (!vault || vault.kind !== 'underlying') return;
-    if (underlyingAccess !== 'denied') return;
-    const wrapper = findWrapperForUnderlying(vault.address);
-    router.replace(wrapper ? getVaultRoute(wrapper.address) : '/vaults');
-  }, [vault, underlyingAccess, router]);
+    if (!vault) return;
+    if (pageAccess !== 'denied') return;
+    router.replace('/vaults');
+  }, [vault, pageAccess, router]);
 
   const showMobileSticky = activeTab === 'overview';
   const pageShellClassName = `w-full bg-[var(--background)] flex flex-col p-4 sm:p-6 md:p-8 ${
@@ -183,12 +174,12 @@ export default function VaultV2Page() {
     return <VaultPageSkeleton className={pageShellClassName} />;
   }
 
-  if (vault.kind === 'underlying' && underlyingAccess === 'denied') {
+  if (pageAccess === 'denied') {
     return null;
   }
 
   const showLoadingSkeleton =
-    (vault.kind === 'underlying' && underlyingAccess === 'pending') ||
+    (pageAccess === 'pending') ||
     (isLoading && !vaultData);
 
   if (showLoadingSkeleton) {

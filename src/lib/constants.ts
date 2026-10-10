@@ -37,10 +37,6 @@ export const MORPHO_FORCE_DEALLOCATE_DOCS_URL =
   'https://docs.morpho.org/learn/concepts/vault-v2/#1-in-kind-redemptions-with-forcedeallocate' as const;
 /** Morpho protocol disclaimer (integrator UX requirement). */
 export const MORPHO_DISCLAIMER_URL = 'https://morpho.org/disclaimers' as const;
-/** Morpho Bundler3 on Base — wrapper force exits (child deallocate, then wrapper withdraw). */
-export const BUNDLER3_ADDRESS = '0x6BFd8137e702540E7A42B74178A4a49Ba43920C4' as const;
-/** Morpho GeneralAdapter1 on Base (wrapper ERC-4626 exit via Bundler3). */
-export const GENERAL_ADAPTER_ADDRESS = '0xb98c948CFA24072e58935BC004a8A7b376AE746A' as const;
 
 // Cache durations (in milliseconds)
 export const CACHE_DURATION_PRICES = 10 * 60 * 1000; // 10 minutes

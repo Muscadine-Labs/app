@@ -8,8 +8,6 @@
  *
  * - Market adapter ids: adapter, collateral token, market. The allocation change is the deposit plus
  *   interest since the last allocation on that market.
- * - Vault adapter (fee wrapper → child vault) ids: adapter only. The deposit then enters the child,
- *   so the child's own liquidity adapter caps also apply.
  * - No liquidity adapter: deposits stay idle and no cap applies.
  *
  * Vault V2 `maxDeposit` always returns 0, so it cannot be used.
@@ -35,9 +33,6 @@ export const DEPOSIT_CAP_BUFFER_BPS = BigInt(10);
 
 /** Query key prefix for deposit capacity reads. */
 export const DEPOSIT_CAPACITY_QUERY_KEY = ['vault-deposit-capacity'] as const;
-
-/** Wrapper → child is one hop. The limit only stops a misconfigured adapter loop. */
-const MAX_VAULT_DEPTH = 3;
 
 const VAULT_CAPS_ABI = [
   {
@@ -120,37 +115,6 @@ const MARKET_ADAPTER_ABI = [
   },
 ] as const;
 
-const VAULT_ADAPTER_ABI = [
-  {
-    type: 'function',
-    name: 'morphoVaultV1',
-    stateMutability: 'view',
-    inputs: [],
-    outputs: [{ name: '', type: 'address' }],
-  },
-  {
-    type: 'function',
-    name: 'ids',
-    stateMutability: 'view',
-    inputs: [],
-    outputs: [{ name: '', type: 'bytes32[]' }],
-  },
-  {
-    type: 'function',
-    name: 'allocation',
-    stateMutability: 'view',
-    inputs: [],
-    outputs: [{ name: '', type: 'uint256' }],
-  },
-  {
-    type: 'function',
-    name: 'realAssets',
-    stateMutability: 'view',
-    inputs: [],
-    outputs: [{ name: '', type: 'uint256' }],
-  },
-] as const;
-
 const MARKET_PARAMS_ABI = parseAbiParameters(
   'address loanToken, address collateralToken, address oracle, address irm, uint256 lltv'
 );
@@ -220,13 +184,8 @@ async function readIdsHeadroom(
 
 async function readHeadroom(
   publicClient: PublicClient,
-  vault: Address,
-  depth: number
+  vault: Address
 ): Promise<bigint | null> {
-  if (depth >= MAX_VAULT_DEPTH) {
-    throw new Error(`Deposit capacity: vault nesting deeper than ${MAX_VAULT_DEPTH} at ${vault}`);
-  }
-
   const [liquidityAdapterRaw, liquidityData, accrued] = await publicClient.multicall({
     allowFailure: false,
     contracts: [
@@ -278,21 +237,7 @@ async function readHeadroom(
     );
   }
 
-  // `realAssets` is `previewRedeem(child.balanceOf(adapter))`, the value `allocate` books.
-  const [childRaw, ids, bookedAllocation, childAssets] = await publicClient.multicall({
-    allowFailure: false,
-    contracts: [
-      { address: liquidityAdapter, abi: VAULT_ADAPTER_ABI, functionName: 'morphoVaultV1' },
-      { address: liquidityAdapter, abi: VAULT_ADAPTER_ABI, functionName: 'ids' },
-      { address: liquidityAdapter, abi: VAULT_ADAPTER_ABI, functionName: 'allocation' },
-      { address: liquidityAdapter, abi: VAULT_ADAPTER_ABI, functionName: 'realAssets' },
-    ],
-  });
-  const [ownHeadroom, childHeadroom] = await Promise.all([
-    readIdsHeadroom(publicClient, vault, ids, firstTotalAssets, childAssets - bookedAllocation),
-    readHeadroom(publicClient, getAddress(childRaw), depth + 1),
-  ]);
-  return childHeadroom === null ? ownHeadroom : minBigInt(ownHeadroom, childHeadroom);
+  return null;
 }
 
 /**
@@ -303,7 +248,7 @@ export async function readVaultDepositCapacity(
   publicClient: PublicClient,
   vaultAddress: Address
 ): Promise<bigint | null> {
-  return readHeadroom(publicClient, getAddress(vaultAddress), 0);
+  return readHeadroom(publicClient, getAddress(vaultAddress));
 }
 
 /**

@@ -4,7 +4,6 @@ import Image from 'next/image';
 import { useToast } from '@/contexts/ToastContext';
 import { getVaultLogo } from '@/types/vault';
 import { MorphoVaultData } from '@/types/vault';
-import { VaultKindMark } from './VaultKindMark';
 
 interface VaultHeroProps {
   vaultData: MorphoVaultData;
@@ -31,7 +30,6 @@ export default function VaultHero({ vaultData }: VaultHeroProps) {
           title={`Click to copy address: ${vaultData.address}`}
         >
           <span className="break-words">{vaultData.name}</span>
-          <VaultKindMark kind={vaultData.kind} address={vaultData.address} />
         </h1>
         <div className="flex items-center gap-2 mt-1">
           <div className="w-5 h-5 rounded-full bg-white flex items-center justify-center overflow-hidden shrink-0">

@@ -1,11 +1,9 @@
 import {
   VaultDefinition,
-  VaultKind,
   VaultStrategy,
-  findWrapperForUnderlying,
   getRegistryVaultList,
 } from '@/lib/vaults';
-import { isUnderlyingVisible } from '@/lib/vault-access';
+import { isRegistryVaultVisible } from '@/lib/vault-access';
 import { Vault } from '@/types/vault';
 import {
   DEFAULT_MORPHO_ASSET_SYMBOL,
@@ -30,7 +28,6 @@ export interface WalletMorphoPosition {
     symbol?: string;
     vaultSymbol?: string;
     strategy?: VaultStrategy;
-    kind?: VaultKind;
     isCurated?: boolean;
     state?: {
       sharePriceUsd?: number;
@@ -146,8 +143,6 @@ export function registryDefinitionToVault(vault: VaultDefinition): Vault {
     chainId: vault.chainId,
     version: vault.version,
     strategy: vault.strategy,
-    kind: vault.kind,
-    underlyingAddress: vault.underlyingAddress,
     isCurated: true,
   };
 }
@@ -193,8 +188,6 @@ export function createExternalVaultStub(
 
 export type VaultWalletFilterMode = 'all' | 'inWallet' | 'inWalletAndWhitelisted';
 
-export type VaultKindFilter = 'underlying' | 'wrappers';
-
 export function getDepositedVaultAddressSet(
   positions: WalletMorphoPosition[]
 ): Set<string> {
@@ -205,118 +198,18 @@ export function getDepositedVaultAddressSet(
   );
 }
 
-/**
- * Dashboard Your Vaults: one row per held side of a wrapper/underlying pair.
- * Both appear only when the wallet holds shares in both contracts.
- */
-export function filterDashboardDepositedVaults(
-  vaults: Vault[],
-  depositedAddresses: ReadonlySet<string>
-): Vault[] {
-  const drop = new Set<string>();
-
-  for (const def of getRegistryVaultList()) {
-    if (def.kind !== 'wrapper' || !def.underlyingAddress) continue;
-    const wrapperKey = def.address.toLowerCase();
-    const underlyingKey = def.underlyingAddress.toLowerCase();
-    const hasWrapper = depositedAddresses.has(wrapperKey);
-    const hasUnderlying = depositedAddresses.has(underlyingKey);
-
-    if (hasWrapper && hasUnderlying) continue;
-    if (hasWrapper) drop.add(underlyingKey);
-    if (hasUnderlying) drop.add(wrapperKey);
-  }
-
-  return vaults.filter((vault) => !drop.has(vault.address.toLowerCase()));
-}
-
-function holdsWrapperOfPair(
-  vault: Vault,
-  depositedAddresses: ReadonlySet<string>
-): boolean {
-  if (vault.kind === 'wrapper') {
-    return depositedAddresses.has(vault.address.toLowerCase());
-  }
-  const wrapper = findWrapperForUnderlying(vault.address);
-  return wrapper ? depositedAddresses.has(wrapper.address.toLowerCase()) : false;
-}
-
-/**
- * Settings switch for wallets that can deposit into every underlying (default
- * Underlying) or hold underlying shares (default Wrappers, Underlying view-only).
- * Hidden when every wrapper is blocked.
- */
-export function resolveVaultKindFilter(options: {
-  canDepositEveryUnderlying: boolean;
-  wrappersAcceptDeposits: boolean;
-  holdsUnderlying: boolean;
-  manualKind: VaultKindFilter | null;
-}): { kindFilter: VaultKindFilter; canSwitchKinds: boolean } {
-  const canSwitchKinds =
-    (options.canDepositEveryUnderlying || options.holdsUnderlying) &&
-    options.wrappersAcceptDeposits;
-  const defaultKind: VaultKindFilter = options.canDepositEveryUnderlying
-    ? 'underlying'
-    : 'wrappers';
-  return {
-    kindFilter: canSwitchKinds ? (options.manualKind ?? defaultKind) : defaultKind,
-    canSwitchKinds,
-  };
-}
-
-/**
- * Kind pills only where the list mixes wrappers and underlyings.
- * A mixed list labels every vault. A list of one kind stays unlabeled.
- */
-export function selectVaultKindMarkAddresses(listedVaults: readonly Vault[]): Set<string> {
-  let hasWrapper = false;
-  let hasUnderlying = false;
-  for (const vault of listedVaults) {
-    if (vault.kind === 'wrapper') hasWrapper = true;
-    else if (vault.kind === 'underlying') hasUnderlying = true;
-    if (hasWrapper && hasUnderlying) break;
-  }
-  if (!hasWrapper || !hasUnderlying) return new Set();
-
-  const marks = new Set<string>();
-  for (const vault of listedVaults) {
-    if (vault.kind === 'wrapper' || vault.kind === 'underlying') {
-      marks.add(vault.address.toLowerCase());
-    }
-  }
-  return marks;
-}
-
-/** Registry vaults for the explorer: wrappers always; underlyings by live gate or shares. */
+/** Registry vaults the explorer lists: deposit-eligible, or held so the owner can exit. */
 export function selectRegistryVaultsForExplorer(options: {
-  kindFilter: VaultKindFilter;
   depositedAddresses: ReadonlySet<string>;
-  eligibleUnderlyingAddresses: ReadonlySet<string>;
-  /** Underlyings the wrappers list also shows (wallet can deposit without the switch). */
-  wrapperListUnderlyingAddresses: ReadonlySet<string>;
+  eligibleVaultAddresses: ReadonlySet<string>;
 }): Vault[] {
-  const accessible = getAllRegistryVaults().filter((vault) =>
-    isUnderlyingVisible({
-      vaultKind: vault.kind,
+  return getAllRegistryVaults().filter((vault) =>
+    isRegistryVaultVisible({
       vaultAddress: vault.address,
-      eligibleUnderlyingAddresses: options.eligibleUnderlyingAddresses,
+      eligibleVaultAddresses: options.eligibleVaultAddresses,
       depositedAddresses: options.depositedAddresses,
     })
   );
-
-  if (options.kindFilter === 'wrappers') {
-    return accessible.filter((vault) => {
-      if (vault.kind === 'wrapper') return true;
-      const key = vault.address.toLowerCase();
-      if (options.depositedAddresses.has(key)) return true;
-      if (options.wrapperListUnderlyingAddresses.has(key)) return true;
-      return holdsWrapperOfPair(vault, options.depositedAddresses);
-    });
-  }
-  return accessible.filter((vault) => {
-    if (vault.kind === 'underlying') return true;
-    return options.depositedAddresses.has(vault.address.toLowerCase());
-  });
 }
 
 export function dedupeVaultsByAddress(vaults: Vault[]): Vault[] {
@@ -381,16 +274,6 @@ export function resolveVaultForPage(address: string): Vault | null {
   if (registryVault?.version === 'v2') return registryVault;
 
   return null;
-}
-
-/** Vault write/read product surface is v2 only. */
-export function getVaultVersion(
-  _address?: string,
-  _hint?: 'v1' | 'v2'
-): 'v2' {
-  void _address;
-  void _hint;
-  return 'v2';
 }
 
 export function getVaultRoute(address: string): string {
