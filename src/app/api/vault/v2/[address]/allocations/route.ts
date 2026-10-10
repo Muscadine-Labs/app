@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { logger } from '@/lib/logger';
 import { isValidEthereumAddress } from '@/lib/vault-utils';
 import { isValidChainId, MORPHO_RATE_LIMIT_BODY } from '@/lib/api-utils';
-import { MORPHO_GRAPHQL_REVALIDATE_SECONDS } from '@/lib/constants';
+import { BASE_CHAIN_ID, MORPHO_GRAPHQL_REVALIDATE_SECONDS } from '@/lib/constants';
 import { fetchVaultV2AllocationData } from '@/lib/vault-v2-allocations';
 
 export async function GET(
@@ -10,7 +10,7 @@ export async function GET(
   { params }: { params: Promise<{ address: string }> }
 ) {
   const { searchParams } = new URL(request.url);
-  const chainIdParam = searchParams.get('chainId') || '8453';
+  const chainIdParam = searchParams.get('chainId') || String(BASE_CHAIN_ID);
 
   let address: string | undefined;
   try {

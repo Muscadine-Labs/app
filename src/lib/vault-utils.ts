@@ -264,29 +264,25 @@ export function resolveVaultKindFilter(options: {
   };
 }
 
-function pairCounterpartAddress(vault: Vault): string | null {
-  if (vault.kind === 'wrapper') return vault.underlyingAddress?.toLowerCase() ?? null;
-  if (vault.kind === 'underlying') {
-    return findWrapperForUnderlying(vault.address)?.address.toLowerCase() ?? null;
-  }
-  return null;
-}
-
 /**
- * Kind pills only where kinds mix. A vault listed outside the current kind is
- * labeled, and so is the other side of its pair. A list of one kind stays unlabeled.
+ * Kind pills only where the list mixes wrappers and underlyings.
+ * A mixed list labels every vault. A list of one kind stays unlabeled.
  */
-export function selectVaultKindMarkAddresses(options: {
-  listedVaults: readonly Vault[];
-  kindFilter: VaultKindFilter;
-}): Set<string> {
-  const listKind: VaultKind = options.kindFilter === 'underlying' ? 'underlying' : 'wrapper';
+export function selectVaultKindMarkAddresses(listedVaults: readonly Vault[]): Set<string> {
+  let hasWrapper = false;
+  let hasUnderlying = false;
+  for (const vault of listedVaults) {
+    if (vault.kind === 'wrapper') hasWrapper = true;
+    else if (vault.kind === 'underlying') hasUnderlying = true;
+    if (hasWrapper && hasUnderlying) break;
+  }
+  if (!hasWrapper || !hasUnderlying) return new Set();
+
   const marks = new Set<string>();
-  for (const vault of options.listedVaults) {
-    if (!vault.kind || vault.kind === listKind) continue;
-    marks.add(vault.address.toLowerCase());
-    const counterpart = pairCounterpartAddress(vault);
-    if (counterpart) marks.add(counterpart);
+  for (const vault of listedVaults) {
+    if (vault.kind === 'wrapper' || vault.kind === 'underlying') {
+      marks.add(vault.address.toLowerCase());
+    }
   }
   return marks;
 }

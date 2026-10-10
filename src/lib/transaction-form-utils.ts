@@ -1,4 +1,5 @@
-import { TOKEN_ADDRESSES_LOWER, type TokenBalance } from '@/contexts/WalletContext';
+import type { TokenBalance } from '@/contexts/WalletContext';
+import { TOKEN_ADDRESSES_LOWER } from '@/lib/constants';
 import { findVaultByAddress } from '@/lib/vault-utils';
 import type { Account } from '@/types/vault';
 

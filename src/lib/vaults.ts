@@ -1,3 +1,5 @@
+import { BASE_CHAIN_ID } from '@/lib/constants';
+
 export type VaultVersion = 'v2';
 
 /** Product strategy — Prime (default) or Frontier. */
@@ -24,7 +26,7 @@ export interface VaultDefinition {
   underlyingAddress?: string;
 }
 
-const BASE = 8453;
+const BASE = BASE_CHAIN_ID;
 
 const USDC_PRIME_WRAPPER = '0x036A01eFdDC87F6634FFDE0533EE528b90fc7A45';
 const USDC_FRONTIER_WRAPPER = '0x54D8417bD21C86A7806b58f5aa2e2E0bB88B856A';

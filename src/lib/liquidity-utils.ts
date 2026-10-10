@@ -5,17 +5,12 @@ import {
   type WalletClient,
 } from 'viem';
 import { builderWriteOpts } from './builder-code';
-import { BASE_CHAIN_ID } from './constants';
+import { BASE_CHAIN_ID, getMorphoChainSlug } from './constants';
 import { ERC4626_ABI } from './abis';
 import type { VaultLiquidityBreakdown } from '@/types/vault';
 
-const CHAIN_SLUG: Record<number, string> = {
-  8453: 'base',
-  1: 'ethereum',
-};
-
 export function getMorphoVaultUrl(chainId: number, vaultAddress: string): string {
-  const network = CHAIN_SLUG[chainId] ?? 'base';
+  const network = getMorphoChainSlug(chainId);
   return `https://app.morpho.org/${network}/vault/${vaultAddress}`;
 }
 

@@ -6,7 +6,7 @@ import { useVaultKind } from '@/contexts/VaultKindContext';
 const KIND_MARK_CLASS =
   'shrink-0 inline-flex rounded-md bg-[var(--surface-elevated)] px-1.5 py-0.5 text-[10px] font-medium leading-none text-[var(--foreground-muted)] whitespace-nowrap';
 
-/** Kind pill, shown only where the vault list mixes wrappers and underlyings. */
+/** Kind pill. A mixed list labels every vault; a single-kind list labels none. */
 export function VaultKindMark({
   kind,
   address,
@@ -25,6 +25,8 @@ export function VaultKindMark({
   if (!showKind) return null;
 
   return (
-    <span className={KIND_MARK_CLASS}>{kind === 'wrapper' ? 'wrapper' : 'underlying'}</span>
+    <span className={KIND_MARK_CLASS}>
+      {kind === 'wrapper' ? 'wrapper vault' : 'underlying'}
+    </span>
   );
 }

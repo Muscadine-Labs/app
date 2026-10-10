@@ -6,7 +6,7 @@ import { formatUnits } from 'viem';
 import { useTransactionState } from '@/contexts/TransactionContext';
 import { useWallet } from '@/contexts/WalletContext';
 import { useVaultData } from '@/contexts/VaultDataContext';
-import { ETH_GAS_RESERVE_WEI, BASE_CHAIN_ID } from '@/lib/constants';
+import { BASE_CHAIN_ID } from '@/lib/constants';
 import { formatBigIntForInput } from '@/lib/formatter';
 import { ERC4626_ABI } from '@/lib/abis';
 import { getAssetDecimalsForSymbol } from '@/lib/asset-decimals';
@@ -16,7 +16,6 @@ import {
   getTokenBalanceRaw,
   isWethVault,
 } from '@/lib/transaction-form-utils';
-import { useVaultDepositGates } from '@/hooks/useVaultDepositGates';
 import { useVaultDepositCapacity } from '@/hooks/useVaultDepositCapacity';
 import type { VaultAccount, WalletAccount } from '@/types/vault';
 
@@ -76,20 +75,16 @@ export function useScopedVaultTransaction({
   const { isConnected } = useAccount();
   const { tokenBalances, morphoHoldings, refreshBalances } = useWallet();
   const { fetchVaultData } = useVaultData();
-  const { allowsNativeEthDeposit } = useVaultDepositGates();
-  const nativeEthAllowed = allowsNativeEthDeposit(vaultAddress);
   const {
     fromAccount,
     toAccount,
     amount,
     status,
     derivedAsset,
-    preferredAsset,
     setFromAccount,
     setToAccount,
     setAmount,
     setStatus,
-    setPreferredAsset,
     reset,
   } = useTransactionState();
 
@@ -147,47 +142,18 @@ export function useScopedVaultTransaction({
       if (tab === 'deposit') {
         setFromAccount(walletAccount);
         setToAccount(vaultAccount);
-        if (isWethVault(vaultAddress, vaultSymbol)) {
-          setPreferredAsset('WETH');
-        } else {
-          setPreferredAsset(undefined);
-        }
       } else {
         setFromAccount(vaultAccount);
         setToAccount(walletAccount);
-        if (isWethVault(vaultAddress, vaultSymbol)) {
-          setPreferredAsset('WETH');
-        } else {
-          setPreferredAsset(undefined);
-        }
       }
     },
     [
       vaultAccount,
       walletAccount,
-      vaultAddress,
-      vaultSymbol,
       setFromAccount,
       setToAccount,
-      setPreferredAsset,
     ]
   );
-
-  useEffect(() => {
-    if (effectiveActiveTab !== 'deposit') return;
-    if (!isWethVault(vaultAddress, vaultSymbol)) return;
-    if (nativeEthAllowed) return;
-    if (preferredAsset === 'ETH' || preferredAsset === 'ALL') {
-      setPreferredAsset('WETH');
-    }
-  }, [
-    effectiveActiveTab,
-    vaultAddress,
-    vaultSymbol,
-    nativeEthAllowed,
-    preferredAsset,
-    setPreferredAsset,
-  ]);
 
   useEffect(() => {
     if (vaultKeyRef.current !== vaultAddress) {
@@ -296,44 +262,13 @@ export function useScopedVaultTransaction({
     isExactAssetAmountPending,
   ]);
 
-  const getWrappableEthRaw = useCallback((): bigint => {
-    const ethWei = getTokenBalanceRaw('ETH', tokenBalances);
-    return ethWei > ETH_GAS_RESERVE_WEI ? ethWei - ETH_GAS_RESERVE_WEI : BigInt(0);
-  }, [tokenBalances]);
-
-  const combinedEthWethRaw = useMemo(
-    () => getTokenBalanceRaw('WETH', tokenBalances) + getWrappableEthRaw(),
-    [tokenBalances, getWrappableEthRaw]
-  );
-
-  const isWethVaultEthDeposit = useMemo(() => {
-    if (effectiveActiveTab !== 'deposit') return false;
-    if (!nativeEthAllowed) return false;
-    const assetPreference = preferredAsset || 'WETH';
-    return (
-      isWethVault(vaultAddress, vaultSymbol) &&
-      (assetPreference === 'ETH' || assetPreference === 'ALL')
-    );
-  }, [effectiveActiveTab, nativeEthAllowed, vaultAddress, vaultSymbol, preferredAsset]);
-
   const maxAmountRaw = useMemo((): bigint | null => {
     if (!derivedAsset) return null;
 
     if (effectiveActiveTab === 'deposit') {
-      if (isWethVault(vaultAddress, vaultSymbol)) {
-        const assetPreference = preferredAsset || 'WETH';
-        if (assetPreference === 'ETH') return getWrappableEthRaw();
-        if (assetPreference === 'WETH') {
-          return getTokenBalanceRaw('WETH', tokenBalances);
-        }
-        return combinedEthWethRaw;
-      }
-
-      if (derivedAsset.symbol === 'ETH') return getWrappableEthRaw();
-      if (derivedAsset.symbol === 'WETH') {
+      if (isWethVault(vaultAddress, vaultSymbol) || derivedAsset.symbol === 'WETH') {
         return getTokenBalanceRaw('WETH', tokenBalances);
       }
-
       return getTokenBalanceRaw(derivedAsset.symbol, tokenBalances);
     }
 
@@ -348,13 +283,10 @@ export function useScopedVaultTransaction({
     effectiveActiveTab,
     vaultAddress,
     vaultSymbol,
-    preferredAsset,
     tokenBalances,
     vaultShareBalanceBn,
     exactAssetAmount,
     isExactAssetAmountPending,
-    combinedEthWethRaw,
-    getWrappableEthRaw,
   ]);
 
   const maxAmount = useMemo((): number | null => {
@@ -545,9 +477,6 @@ export function useScopedVaultTransaction({
     exceedsDepositCap,
     depositCapAppliedRaw: depositCapApplied,
     isCheckingDepositCap,
-    preferredAsset,
-    setPreferredAsset,
-    isWethVaultEthDeposit,
     derivedAsset,
     fromAccount,
     toAccount,

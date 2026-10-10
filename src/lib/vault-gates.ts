@@ -1,23 +1,15 @@
 import { getAddress, zeroAddress, type Address, type PublicClient } from 'viem';
-import { GENERAL_ADAPTER_ADDRESS } from '@/lib/constants';
-import { allowsNativeEthVaultDeposit } from '@/lib/vault-access';
 import type { VaultDefinition } from '@/lib/vaults';
 
 /**
- * Vault V2 deposit gates. `enter` requires `canReceiveShares(onBehalf)` and
- * `canSendAssets(msg.sender)`; both return true when the gate is unset.
+ * Vault V2 send-assets gate. `enter` also calls `canReceiveShares(onBehalf)`,
+ * which is abated on every registry vault, so the app does not read it.
+ * `canSendAssets` returns true when `sendAssetsGate` is unset.
  */
 export const VAULT_GATE_ABI = [
   {
     type: 'function',
     name: 'sendAssetsGate',
-    stateMutability: 'view',
-    inputs: [],
-    outputs: [{ name: '', type: 'address' }],
-  },
-  {
-    type: 'function',
-    name: 'receiveSharesGate',
     stateMutability: 'view',
     inputs: [],
     outputs: [{ name: '', type: 'address' }],
@@ -32,13 +24,6 @@ export const VAULT_GATE_ABI = [
   {
     type: 'function',
     name: 'canSendAssets',
-    stateMutability: 'view',
-    inputs: [{ name: 'account', type: 'address' }],
-    outputs: [{ name: '', type: 'bool' }],
-  },
-  {
-    type: 'function',
-    name: 'canReceiveShares',
     stateMutability: 'view',
     inputs: [{ name: 'account', type: 'address' }],
     outputs: [{ name: '', type: 'bool' }],
@@ -59,11 +44,9 @@ const MORPHO_VAULT_V1_ADAPTER_ABI = [
 export type GateCheck = boolean | null;
 
 export interface VaultGateStatus {
-  /** Neither deposit gate is set, so any wallet can deposit. */
+  /** `sendAssetsGate` is unset, so any wallet can deposit. */
   open: GateCheck;
-  /** GeneralAdapter1 can send assets (Bundler3 ETH wrap deposit). */
-  bundlerCanDeposit: GateCheck;
-  /** Wrapper only: its liquidity adapter can still deposit into the child vault. */
+  /** Wrapper only: its liquidity adapter can still send assets into the child vault. */
   adapterCanDeposit: GateCheck;
 }
 
@@ -84,12 +67,6 @@ function asAddress(item: MulticallItem | undefined): Address | null {
   } catch {
     return null;
   }
-}
-
-function bothTrue(a: GateCheck, b: GateCheck): GateCheck {
-  if (a === false || b === false) return false;
-  if (a === null || b === null) return null;
-  return true;
 }
 
 interface AdapterRoute {
@@ -125,24 +102,16 @@ async function readAdapterDepositAccess(
 
   const checks = (await publicClient.multicall({
     allowFailure: true,
-    contracts: withChild.flatMap((route) => [
-      {
-        address: route.child,
-        abi: VAULT_GATE_ABI,
-        functionName: 'canSendAssets' as const,
-        args: [route.adapter] as const,
-      },
-      {
-        address: route.child,
-        abi: VAULT_GATE_ABI,
-        functionName: 'canReceiveShares' as const,
-        args: [route.adapter] as const,
-      },
-    ]),
+    contracts: withChild.map((route) => ({
+      address: route.child,
+      abi: VAULT_GATE_ABI,
+      functionName: 'canSendAssets' as const,
+      args: [route.adapter] as const,
+    })),
   })) as MulticallItem[];
 
   withChild.forEach((route, i) => {
-    access.set(route.key, bothTrue(asBool(checks[i * 2]), asBool(checks[i * 2 + 1])));
+    access.set(route.key, asBool(checks[i]));
   });
   return access;
 }
@@ -152,20 +121,13 @@ export async function readVaultGateStatus(
   publicClient: PublicClient,
   vaults: readonly VaultDefinition[]
 ): Promise<Record<string, VaultGateStatus>> {
-  const stride = 4;
+  const stride = 2;
   const results = (await publicClient.multicall({
     allowFailure: true,
     contracts: vaults.flatMap((vault) => {
       const address = getAddress(vault.address);
       return [
         { address, abi: VAULT_GATE_ABI, functionName: 'sendAssetsGate' as const },
-        { address, abi: VAULT_GATE_ABI, functionName: 'receiveSharesGate' as const },
-        {
-          address,
-          abi: VAULT_GATE_ABI,
-          functionName: 'canSendAssets' as const,
-          args: [GENERAL_ADAPTER_ADDRESS] as const,
-        },
         { address, abi: VAULT_GATE_ABI, functionName: 'liquidityAdapter' as const },
       ];
     }),
@@ -177,13 +139,9 @@ export async function readVaultGateStatus(
   vaults.forEach((vault, i) => {
     const key = vault.address.toLowerCase();
     const sendAssetsGate = asAddress(results[i * stride]);
-    const receiveSharesGate = asAddress(results[i * stride + 1]);
-    const liquidityAdapter = asAddress(results[i * stride + 3]);
+    const liquidityAdapter = asAddress(results[i * stride + 1]);
 
-    const open =
-      sendAssetsGate === null || receiveSharesGate === null
-        ? null
-        : sendAssetsGate === zeroAddress && receiveSharesGate === zeroAddress;
+    const open = sendAssetsGate === null ? null : sendAssetsGate === zeroAddress;
 
     let adapterCanDeposit: GateCheck = null;
     if (vault.kind === 'wrapper') {
@@ -196,7 +154,6 @@ export async function readVaultGateStatus(
 
     status[key] = {
       open,
-      bundlerCanDeposit: asBool(results[i * stride + 2]),
       adapterCanDeposit,
     };
   });
@@ -213,7 +170,7 @@ export async function readVaultGateStatus(
   return status;
 }
 
-/** Per-vault result of `canSendAssets(wallet) && canReceiveShares(wallet)`. */
+/** Per-vault result of `canSendAssets(wallet)`. */
 export async function readWalletDepositAccess(
   publicClient: PublicClient,
   vaults: readonly VaultDefinition[],
@@ -221,31 +178,17 @@ export async function readWalletDepositAccess(
 ): Promise<Record<string, GateCheck>> {
   const results = (await publicClient.multicall({
     allowFailure: true,
-    contracts: vaults.flatMap((vault) => {
-      const address = getAddress(vault.address);
-      return [
-        {
-          address,
-          abi: VAULT_GATE_ABI,
-          functionName: 'canSendAssets' as const,
-          args: [wallet] as const,
-        },
-        {
-          address,
-          abi: VAULT_GATE_ABI,
-          functionName: 'canReceiveShares' as const,
-          args: [wallet] as const,
-        },
-      ];
-    }),
+    contracts: vaults.map((vault) => ({
+      address: getAddress(vault.address),
+      abi: VAULT_GATE_ABI,
+      functionName: 'canSendAssets' as const,
+      args: [wallet] as const,
+    })),
   })) as MulticallItem[];
 
   const access: Record<string, GateCheck> = {};
   vaults.forEach((vault, i) => {
-    access[vault.address.toLowerCase()] = bothTrue(
-      asBool(results[i * 2]),
-      asBool(results[i * 2 + 1])
-    );
+    access[vault.address.toLowerCase()] = asBool(results[i]);
   });
   return access;
 }
@@ -259,8 +202,8 @@ export interface DepositEligibility {
 }
 
 /**
- * Underlying: eligible only on a successful yes (wallet passes, or the vault has no gate).
- * Wrapper: blocked only on a successful no (wallet or liquidity adapter).
+ * Underlying: eligible only on a successful yes (wallet can send assets, or the send-assets gate is unset).
+ * Wrapper: blocked only on a successful no (wallet or liquidity adapter cannot send assets).
  */
 export function resolveDepositEligibility(
   vaults: readonly VaultDefinition[],
@@ -325,7 +268,7 @@ export async function readVaultDepositBlocker(
   wallet: Address
 ): Promise<DepositBlocker | null> {
   try {
-    const [send, receive, adapter] = (await publicClient.multicall({
+    const [send, adapter] = (await publicClient.multicall({
       allowFailure: true,
       contracts: [
         {
@@ -334,17 +277,11 @@ export async function readVaultDepositBlocker(
           functionName: 'canSendAssets',
           args: [wallet],
         },
-        {
-          address: vaultAddress,
-          abi: VAULT_GATE_ABI,
-          functionName: 'canReceiveShares',
-          args: [wallet],
-        },
         { address: vaultAddress, abi: VAULT_GATE_ABI, functionName: 'liquidityAdapter' },
       ],
     })) as MulticallItem[];
 
-    if (bothTrue(asBool(send), asBool(receive)) === false) return 'wallet';
+    if (asBool(send) === false) return 'wallet';
 
     const liquidityAdapter = asAddress(adapter);
     if (!liquidityAdapter || liquidityAdapter === zeroAddress) return null;
@@ -357,19 +294,3 @@ export async function readVaultDepositBlocker(
   }
 }
 
-/** Bundler3 ETH wrap deposits send assets from GeneralAdapter1, so the vault gate must allow it. */
-export async function readBundlerCanDeposit(
-  publicClient: PublicClient,
-  vaultAddress: Address
-): Promise<boolean> {
-  try {
-    return await publicClient.readContract({
-      address: vaultAddress,
-      abi: VAULT_GATE_ABI,
-      functionName: 'canSendAssets',
-      args: [GENERAL_ADAPTER_ADDRESS],
-    });
-  } catch {
-    return allowsNativeEthVaultDeposit(vaultAddress);
-  }
-}

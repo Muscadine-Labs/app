@@ -37,7 +37,7 @@ export async function GET(
   { params }: { params: Promise<{ address: string }> }
 ) {
   const { searchParams } = new URL(request.url);
-  const chainIdParam = searchParams.get('chainId') || '8453';
+  const chainIdParam = searchParams.get('chainId') || String(BASE_CHAIN_ID);
   
   let address: string | undefined;
   try {

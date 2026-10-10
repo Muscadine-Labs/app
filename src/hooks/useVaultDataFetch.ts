@@ -1,6 +1,7 @@
 import { useEffect, useCallback, useRef, useMemo } from 'react';
 import { useVaultData } from '../contexts/VaultDataContext';
 import { Vault } from '../types/vault';
+import { BASE_CHAIN_ID } from '../lib/constants';
 
 interface UseVaultDataFetchOptions {
   autoFetch?: boolean;
@@ -12,7 +13,7 @@ function vaultPreloadKey(vault: Vault): string {
 }
 
 export function useVaultDataFetch(vault: Vault | null, options: UseVaultDataFetchOptions = {}) {
-  const { autoFetch = true, chainId = 8453 } = options;
+  const { autoFetch = true, chainId = BASE_CHAIN_ID } = options;
   const {
     fetchVaultData,
     getVaultData,

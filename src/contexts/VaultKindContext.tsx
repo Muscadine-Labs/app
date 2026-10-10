@@ -96,12 +96,8 @@ export function VaultKindProvider({ children }: { children: ReactNode }) {
   );
 
   const kindMarkAddresses = useMemo(
-    () =>
-      selectVaultKindMarkAddresses({
-        listedVaults: explorerRegistryVaults,
-        kindFilter,
-      }),
-    [explorerRegistryVaults, kindFilter]
+    () => selectVaultKindMarkAddresses(explorerRegistryVaults),
+    [explorerRegistryVaults]
   );
 
   useEffect(() => {

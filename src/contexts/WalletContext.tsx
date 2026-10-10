@@ -7,7 +7,12 @@ import { formatUnits } from 'viem';
 import type { AlchemyTokenBalancesResponse, AlchemyTokenMetadataResponse, AlchemyTokenBalance } from '@/types/api';
 import { formatCurrency } from '@/lib/formatter';
 import { logger } from '@/lib/logger';
-import { POST_TX_BALANCE_REFRESH_DELAY_MS } from '@/lib/constants';
+import {
+  BASE_CHAIN_ID,
+  POST_TX_BALANCE_REFRESH_DELAY_MS,
+  TOKEN_ADDRESSES,
+  TOKEN_ADDRESSES_LOWER,
+} from '@/lib/constants';
 import { findVaultByAddress } from '@/lib/vault-utils';
 import type { VaultKind, VaultStrategy } from '@/lib/vaults';
 
@@ -71,24 +76,6 @@ interface WalletContextType {
 
 const WalletContext = createContext<WalletContextType | undefined>(undefined);
 
-// Major token addresses on Base
-export const TOKEN_ADDRESSES = {
-  USDC: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', // Circle USD Coin on Base
-  cbBTC: '0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf', // Coinbase Wrapped BTC on Base
-  WETH: '0x4200000000000000000000000000000000000006', // Wrapped ETH on Base
-  cbETH: '0x2Ae3F1Ec7F1F5012CFEab0185bfc7aa3cf0DEc22', // Coinbase Wrapped ETH on Base
-  wstETH: '0xc1CBa3fCea344f92D9239c08C0568f6F2F0ee452', // Wrapped Lido staked ETH on Base
-} as const;
-
-// Pre-compute lowercased addresses for efficient comparisons (avoid repeated .toLowerCase() calls)
-export const TOKEN_ADDRESSES_LOWER = {
-  USDC: TOKEN_ADDRESSES.USDC.toLowerCase(),
-  cbBTC: TOKEN_ADDRESSES.cbBTC.toLowerCase(),
-  WETH: TOKEN_ADDRESSES.WETH.toLowerCase(),
-  cbETH: TOKEN_ADDRESSES.cbETH.toLowerCase(),
-  wstETH: TOKEN_ADDRESSES.wstETH.toLowerCase(),
-} as const;
-
 /** Symbols whose USD price must only apply to the canonical Base address. */
 const MAJOR_SYMBOL_PRICES = new Set([
   'ETH',
@@ -98,9 +85,6 @@ const MAJOR_SYMBOL_PRICES = new Set([
   'DAI',
   'CBBTC',
   'BTC',
-  'CBETH',
-  'WSTETH',
-  'STETH',
   'WBTC',
 ]);
 
@@ -115,11 +99,8 @@ function resolveTokenUsdPrice(
   if (addressLower === TOKEN_ADDRESSES_LOWER.WETH) {
     return tokenPrices.weth || tokenPrices.eth || 0;
   }
-  if (addressLower === TOKEN_ADDRESSES_LOWER.cbETH) return tokenPrices.cbeth || 0;
-  if (addressLower === TOKEN_ADDRESSES_LOWER.wstETH) return tokenPrices.wsteth || 0;
 
   const symbol = token.symbol.trim().toUpperCase();
-  if (symbol === 'STETH') return tokenPrices.steth || 0;
   if (MAJOR_SYMBOL_PRICES.has(symbol)) return 0;
   const mapped = tokenPrices[symbol.toLowerCase()];
   return typeof mapped === 'number' && Number.isFinite(mapped) ? mapped : 0;
@@ -141,8 +122,6 @@ const KNOWN_TOKEN_METADATA: Record<string, { decimals: number; symbol: string; n
   [TOKEN_ADDRESSES.USDC.toLowerCase()]: { decimals: 6, symbol: 'USDC', name: 'USD Coin' },
   [TOKEN_ADDRESSES.cbBTC.toLowerCase()]: { decimals: 8, symbol: 'cbBTC', name: 'Coinbase Wrapped BTC' },
   [TOKEN_ADDRESSES.WETH.toLowerCase()]: { decimals: 18, symbol: 'WETH', name: 'Wrapped Ether' },
-  [TOKEN_ADDRESSES.cbETH.toLowerCase()]: { decimals: 18, symbol: 'cbETH', name: 'Coinbase Wrapped ETH' },
-  [TOKEN_ADDRESSES.wstETH.toLowerCase()]: { decimals: 18, symbol: 'wstETH', name: 'Wrapped Lido Staked ETH' },
 };
 
 // ERC20 ABI for balanceOf, decimals, and symbol
@@ -174,24 +153,18 @@ const WAGMI_FALLBACK_NONE = {
   usdc: false,
   cbbtc: false,
   weth: false,
-  cbeth: false,
-  wsteth: false,
 };
 
 const WAGMI_FALLBACK_ALL = {
   usdc: true,
   cbbtc: true,
   weth: true,
-  cbeth: true,
-  wsteth: true,
 };
 
 const MAJOR_TOKEN_ADDRESSES = [
   TOKEN_ADDRESSES.USDC,
   TOKEN_ADDRESSES.cbBTC,
   TOKEN_ADDRESSES.WETH,
-  TOKEN_ADDRESSES.cbETH,
-  TOKEN_ADDRESSES.wstETH,
 ] as const;
 
 const MAJOR_TOKEN_ADDRESS_SET = new Set(
@@ -295,9 +268,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     usdc: boolean;
     cbbtc: boolean;
     weth: boolean;
-    cbeth: boolean;
-    wsteth: boolean;
-  }>({ usdc: false, cbbtc: false, weth: false, cbeth: false, wsteth: false });
+  }>({ usdc: false, cbbtc: false, weth: false });
 
   // Get token balances for major tokens (fallback only)
   const { data: usdcBalance } = useReadContract({
@@ -324,22 +295,6 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     query: { enabled: !!address && needsWagmiFallback.weth }
   });
 
-  const { data: cbethBalance } = useReadContract({
-    address: TOKEN_ADDRESSES.cbETH,
-    abi: ERC20_ABI,
-    functionName: 'balanceOf',
-    args: address ? [address as `0x${string}`] : undefined,
-    query: { enabled: !!address && needsWagmiFallback.cbeth }
-  });
-
-  const { data: wstethBalance } = useReadContract({
-    address: TOKEN_ADDRESSES.wstETH,
-    abi: ERC20_ABI,
-    functionName: 'balanceOf',
-    args: address ? [address as `0x${string}`] : undefined,
-    query: { enabled: !!address && needsWagmiFallback.wsteth }
-  });
-
   // Get token decimals (fallback only - Alchemy provides decimals)
   const { data: usdcDecimals } = useReadContract({
     address: TOKEN_ADDRESSES.USDC,
@@ -360,20 +315,6 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     abi: ERC20_ABI,
     functionName: 'decimals',
     query: { enabled: !!address && needsWagmiFallback.weth }
-  });
-
-  const { data: cbethDecimals } = useReadContract({
-    address: TOKEN_ADDRESSES.cbETH,
-    abi: ERC20_ABI,
-    functionName: 'decimals',
-    query: { enabled: !!address && needsWagmiFallback.cbeth }
-  });
-
-  const { data: wstethDecimals } = useReadContract({
-    address: TOKEN_ADDRESSES.wstETH,
-    abi: ERC20_ABI,
-    functionName: 'decimals',
-    query: { enabled: !!address && needsWagmiFallback.wsteth }
   });
 
   // Fetch token prices dynamically
@@ -566,7 +507,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
         : {}),
     }));
 
-    const url = `/api/user/morpho-positions?address=${encodeURIComponent(requestedAddress)}&chainId=8453&includeEmpty=true`;
+    const url = `/api/user/morpho-positions?address=${encodeURIComponent(requestedAddress)}&chainId=${BASE_CHAIN_ID}&includeEmpty=true`;
     // Server already retries Morpho; keep client retries light and only when retryable.
     const maxAttempts = 2;
     const retryDelayMs = 750;
@@ -728,7 +669,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     if (!walletAddress) return;
     const fetchId = ++walletDataFetchIdRef.current;
 
-    const symbols = ['ETH', 'USDC', 'CBBTC', 'CBETH', 'WSTETH', 'STETH', 'WETH'];
+    const symbols = ['ETH', 'USDC', 'CBBTC', 'WETH'];
 
     const [, tokenResult, prices, morphoStatus] = await Promise.all([
       refetchEthBalance?.() ?? Promise.resolve(),
@@ -902,14 +843,6 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   const wethDecimalsValue = wethDecimals || 18;
   const wethFormatted = wethBalance ? formatUnits(wethBalance, wethDecimalsValue) : '0';
   const wethUsdValue = parseFloat(wethFormatted) * (tokenPrices.weth || tokenPrices.eth || 0);
-  
-  const cbethDecimalsValue = cbethDecimals || 18;
-  const cbethFormatted = cbethBalance ? formatUnits(cbethBalance, cbethDecimalsValue) : '0';
-  const cbethUsdValue = parseFloat(cbethFormatted) * (tokenPrices.cbeth || 0);
-  
-  const wstethDecimalsValue = wstethDecimals || 18;
-  const wstethFormatted = wstethBalance ? formatUnits(wstethBalance, wstethDecimalsValue) : '0';
-  const wstethUsdValue = parseFloat(wstethFormatted) * (tokenPrices.wsteth || 0);
 
   // Build token balances array - combine ETH, manually fetched tokens, and Alchemy tokens
   // Calculate USD values for Alchemy tokens
@@ -960,22 +893,6 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       balance: wethBalance,
       formatted: wethFormatted.toString(),
       usdValue: wethUsdValue,
-    }] : []),
-    ...(cbethBalance && cbethBalance > BigInt(0) && !alchemyBalancesWithPrices.find(t => t.address.toLowerCase() === TOKEN_ADDRESSES_LOWER.cbETH) ? [{
-      address: TOKEN_ADDRESSES.cbETH,
-      symbol: 'cbETH',
-      decimals: cbethDecimalsValue,
-      balance: cbethBalance,
-      formatted: cbethFormatted.toString(),
-      usdValue: cbethUsdValue,
-    }] : []),
-    ...(wstethBalance && wstethBalance > BigInt(0) && !alchemyBalancesWithPrices.find(t => t.address.toLowerCase() === TOKEN_ADDRESSES_LOWER.wstETH) ? [{
-      address: TOKEN_ADDRESSES.wstETH,
-      symbol: 'wstETH',
-      decimals: wstethDecimalsValue,
-      balance: wstethBalance,
-      formatted: wstethFormatted.toString(),
-      usdValue: wstethUsdValue,
     }] : []),
   ];
 

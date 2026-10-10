@@ -9,7 +9,6 @@ import {
   useScopedVaultTransaction,
   type VaultTransactionTab,
 } from '@/hooks/useScopedVaultTransaction';
-import { ETH_GAS_RESERVE } from '@/lib/constants';
 import {
   formatAssetAmount,
   formatAssetBalance,
@@ -19,8 +18,6 @@ import {
 } from '@/lib/formatter';
 import { usePrices } from '@/contexts/PriceContext';
 import { ConnectButton } from '@/components/features/wallet';
-import { isWethVault } from '@/lib/transaction-form-utils';
-import { useVaultDepositGates } from '@/hooks/useVaultDepositGates';
 import { parseTransactionAmount } from '@/lib/liquidity-utils';
 import {
   buildPastEarningsRows,
@@ -103,7 +100,6 @@ export function VaultTransactPanel({
   canDeposit,
 }: VaultTransactPanelProps) {
   const { btc: btcPrice, eth: ethPrice } = usePrices();
-  const { allowsNativeEthDeposit } = useVaultDepositGates();
   const [rewardsModeOverride, setRewardsModeOverride] = useState<RewardsMode | null>(
     null
   );
@@ -145,7 +141,6 @@ export function VaultTransactPanel({
     !canDeposit ||
     vaultData.status === 'paused' ||
     vaultData.status === 'deprecated';
-  const allowEthDeposit = allowsNativeEthDeposit(vaultData.address);
 
   const inputUsd = amountUsdValue(
     tx.amount,
@@ -275,34 +270,6 @@ export function VaultTransactPanel({
                 {tx.effectiveActiveTab === 'deposit' ? 'Deposit' : 'Withdraw'} {vaultData.symbol}
               </p>
               <div className="flex items-center gap-2">
-                {isWethVault(vaultData.address, vaultData.symbol) &&
-                  tx.effectiveActiveTab === 'deposit' &&
-                  allowEthDeposit && (
-                    <select
-                      value={tx.preferredAsset || 'WETH'}
-                      onChange={(e) =>
-                        tx.setPreferredAsset(e.target.value as 'ETH' | 'WETH' | 'ALL')
-                      }
-                      className="text-xs px-2 py-1 bg-[var(--surface-elevated)] border border-[var(--border-subtle)] rounded text-[var(--foreground-muted)] focus:outline-none cursor-pointer"
-                    >
-                      <option value="WETH">WETH</option>
-                      <option value="ETH">ETH</option>
-                      <option value="ALL">ETH + WETH</option>
-                    </select>
-                  )}
-                {isWethVault(vaultData.address, vaultData.symbol) &&
-                  tx.effectiveActiveTab === 'withdraw' && (
-                    <select
-                      value={tx.preferredAsset || 'WETH'}
-                      onChange={(e) =>
-                        tx.setPreferredAsset(e.target.value as 'ETH' | 'WETH')
-                      }
-                      className="text-xs px-2 py-1 bg-[var(--surface-elevated)] border border-[var(--border-subtle)] rounded text-[var(--foreground-muted)] focus:outline-none cursor-pointer"
-                    >
-                      <option value="WETH">WETH</option>
-                      <option value="ETH">ETH</option>
-                    </select>
-                  )}
                 <Image
                   src={logo}
                   alt={vaultData.symbol}
@@ -342,11 +309,6 @@ export function VaultTransactPanel({
               </div>
             </div>
 
-            {tx.isWethVaultEthDeposit && (
-              <p className="mt-2 text-xs text-[var(--foreground-muted)]">
-                {ETH_GAS_RESERVE} ETH is left in your wallet for gas.
-              </p>
-            )}
             {tx.exceedsBalance && (
               <p className="mt-2 text-xs text-[var(--warning)]">
                 Amount exceeds available balance.
