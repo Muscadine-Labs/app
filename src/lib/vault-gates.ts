@@ -26,11 +26,6 @@ export const VAULT_GATE_ABI = [
 /** `null` means the read failed; callers pick a safe default. */
 export type GateCheck = boolean | null;
 
-export interface VaultGateStatus {
-  /** `sendAssetsGate` is unset, so any wallet can deposit. */
-  open: GateCheck;
-}
-
 type MulticallItem =
   | { status: 'success'; result: unknown }
   | { status: 'failure'; error: Error };
@@ -50,11 +45,11 @@ function asAddress(item: MulticallItem | undefined): Address | null {
   }
 }
 
-/** Wallet-independent gate state for every registry vault. */
+/** Per-vault: `sendAssetsGate` is unset, so any wallet can deposit. Wallet-independent. */
 export async function readVaultGateStatus(
   publicClient: PublicClient,
   vaults: readonly VaultDefinition[]
-): Promise<Record<string, VaultGateStatus>> {
+): Promise<Record<string, GateCheck>> {
   const results = (await publicClient.multicall({
     allowFailure: true,
     contracts: vaults.map((vault) => ({
@@ -64,14 +59,13 @@ export async function readVaultGateStatus(
     })),
   })) as MulticallItem[];
 
-  const status: Record<string, VaultGateStatus> = {};
+  const open: Record<string, GateCheck> = {};
   vaults.forEach((vault, i) => {
     const sendAssetsGate = asAddress(results[i]);
-    status[vault.address.toLowerCase()] = {
-      open: sendAssetsGate === null ? null : sendAssetsGate === zeroAddress,
-    };
+    open[vault.address.toLowerCase()] =
+      sendAssetsGate === null ? null : sendAssetsGate === zeroAddress;
   });
-  return status;
+  return open;
 }
 
 /** Per-vault result of `canSendAssets(wallet)`. */
@@ -97,40 +91,29 @@ export async function readWalletDepositAccess(
   return access;
 }
 
-export interface DepositEligibility {
-  eligibleVaultAddresses: Set<string>;
-}
-
 /**
+ * Registry vault addresses (lowercase) this wallet can deposit into.
  * Eligible only on a successful yes (wallet can send assets, or the send-assets gate is unset).
  */
 export function resolveDepositEligibility(
   vaults: readonly VaultDefinition[],
-  gates: Record<string, VaultGateStatus> | undefined,
+  gatesOpen: Record<string, GateCheck> | undefined,
   walletAccess: Record<string, GateCheck> | undefined
-): DepositEligibility {
-  const eligibleVaultAddresses = new Set<string>();
-
+): Set<string> {
+  const eligible = new Set<string>();
   for (const vault of vaults) {
     const key = vault.address.toLowerCase();
-    const walletAllowed = walletAccess?.[key] ?? null;
-    const gate = gates?.[key];
-    if (walletAllowed === true || gate?.open === true) eligibleVaultAddresses.add(key);
+    if (walletAccess?.[key] === true || gatesOpen?.[key] === true) eligible.add(key);
   }
-
-  return {
-    eligibleVaultAddresses,
-  };
+  return eligible;
 }
-
-export type DepositBlocker = 'wallet';
 
 /** Query key prefix for the vault and wallet gate reads. */
 export const VAULT_DEPOSIT_GATES_QUERY_KEY = ['vault-deposit-gates'] as const;
 
 /** The send-time gate read said no; the cached gate state is stale. */
 export class VaultDepositBlockedError extends Error {
-  constructor(readonly blocker: DepositBlocker) {
+  constructor() {
     super('Deposits to this vault are limited to approved wallets. Withdrawals stay open.');
     this.name = 'VaultDepositBlockedError';
   }
@@ -140,28 +123,20 @@ export class VaultDepositBlockedError extends Error {
  * Fresh read right before a deposit, so a gate change since the cached read
  * fails before any approval. Only a successful no blocks.
  */
-export async function readVaultDepositBlocker(
+export async function isWalletDepositBlocked(
   publicClient: PublicClient,
   vaultAddress: Address,
   wallet: Address
-): Promise<DepositBlocker | null> {
+): Promise<boolean> {
   try {
-    const [send] = (await publicClient.multicall({
-      allowFailure: true,
-      contracts: [
-        {
-          address: vaultAddress,
-          abi: VAULT_GATE_ABI,
-          functionName: 'canSendAssets',
-          args: [wallet],
-        },
-      ],
-    })) as MulticallItem[];
-
-    if (asBool(send) === false) return 'wallet';
-    return null;
+    const canSend = await publicClient.readContract({
+      address: vaultAddress,
+      abi: VAULT_GATE_ABI,
+      functionName: 'canSendAssets',
+      args: [wallet],
+    });
+    return canSend === false;
   } catch {
-    return null;
+    return false;
   }
 }
-

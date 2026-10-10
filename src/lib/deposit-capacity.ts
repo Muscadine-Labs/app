@@ -9,6 +9,7 @@
  * - Market adapter ids: adapter, collateral token, market. The allocation change is the deposit plus
  *   interest since the last allocation on that market.
  * - No liquidity adapter: deposits stay idle and no cap applies.
+ * - Any other adapter (empty `liquidityData`): not read here (`null`); the chain still enforces caps.
  *
  * Vault V2 `maxDeposit` always returns 0, so it cannot be used.
  */
@@ -182,10 +183,15 @@ async function readIdsHeadroom(
   return headroom ?? ZERO;
 }
 
-async function readHeadroom(
+/**
+ * Most assets a deposit can add before a cap reverts it, at the current block.
+ * `null` means no cap applies. Throws when a read fails; callers must not treat that as "full".
+ */
+export async function readVaultDepositCapacity(
   publicClient: PublicClient,
-  vault: Address
+  vaultAddress: Address
 ): Promise<bigint | null> {
+  const vault = getAddress(vaultAddress);
   const [liquidityAdapterRaw, liquidityData, accrued] = await publicClient.multicall({
     allowFailure: false,
     contracts: [
@@ -196,59 +202,38 @@ async function readHeadroom(
   });
 
   const liquidityAdapter = getAddress(liquidityAdapterRaw);
-  if (liquidityAdapter === zeroAddress) return null;
-  const firstTotalAssets = accrued[0];
+  // Registry vaults route deposits to a Blue market adapter; anything else leaves the cap to the chain.
+  if (liquidityAdapter === zeroAddress || liquidityData === '0x') return null;
 
-  if (liquidityData !== '0x') {
-    const [loanToken, collateralToken, oracle, irm, lltv] = decodeAbiParameters(
-      MARKET_PARAMS_ABI,
-      liquidityData
-    );
-    const marketParams = { loanToken, collateralToken, oracle, irm, lltv };
-    const [ids, bookedAllocation, expectedAssets] = await publicClient.multicall({
-      allowFailure: false,
-      contracts: [
-        {
-          address: liquidityAdapter,
-          abi: MARKET_ADAPTER_ABI,
-          functionName: 'ids',
-          args: [marketParams],
-        },
-        {
-          address: liquidityAdapter,
-          abi: MARKET_ADAPTER_ABI,
-          functionName: 'allocation',
-          args: [marketParams],
-        },
-        {
-          address: liquidityAdapter,
-          abi: MARKET_ADAPTER_ABI,
-          functionName: 'expectedSupplyAssets',
-          args: [keccak256(liquidityData)],
-        },
-      ],
-    });
-    return readIdsHeadroom(
-      publicClient,
-      vault,
-      ids,
-      firstTotalAssets,
-      expectedAssets - bookedAllocation
-    );
-  }
-
-  return null;
-}
-
-/**
- * Most assets a deposit can add before a cap reverts it, at the current block.
- * `null` means no cap applies. Throws when a read fails; callers must not treat that as "full".
- */
-export async function readVaultDepositCapacity(
-  publicClient: PublicClient,
-  vaultAddress: Address
-): Promise<bigint | null> {
-  return readHeadroom(publicClient, getAddress(vaultAddress));
+  const [loanToken, collateralToken, oracle, irm, lltv] = decodeAbiParameters(
+    MARKET_PARAMS_ABI,
+    liquidityData
+  );
+  const marketParams = { loanToken, collateralToken, oracle, irm, lltv };
+  const [ids, bookedAllocation, expectedAssets] = await publicClient.multicall({
+    allowFailure: false,
+    contracts: [
+      {
+        address: liquidityAdapter,
+        abi: MARKET_ADAPTER_ABI,
+        functionName: 'ids',
+        args: [marketParams],
+      },
+      {
+        address: liquidityAdapter,
+        abi: MARKET_ADAPTER_ABI,
+        functionName: 'allocation',
+        args: [marketParams],
+      },
+      {
+        address: liquidityAdapter,
+        abi: MARKET_ADAPTER_ABI,
+        functionName: 'expectedSupplyAssets',
+        args: [keccak256(liquidityData)],
+      },
+    ],
+  });
+  return readIdsHeadroom(publicClient, vault, ids, accrued[0], expectedAssets - bookedAllocation);
 }
 
 /**

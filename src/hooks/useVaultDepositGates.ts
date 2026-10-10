@@ -43,12 +43,12 @@ export function useVaultDepositGates() {
     queryFn: () => readWalletDepositAccess(publicClient!, REGISTRY_VAULTS, address!),
   });
 
-  const gates = vaultQuery.data;
+  const gatesOpen = vaultQuery.data;
   const walletAccess = walletKey ? walletQuery.data : undefined;
 
-  const { eligibleVaultAddresses } = useMemo(
-    () => resolveDepositEligibility(REGISTRY_VAULTS, gates, walletAccess),
-    [gates, walletAccess]
+  const eligibleVaultAddresses = useMemo(
+    () => resolveDepositEligibility(REGISTRY_VAULTS, gatesOpen, walletAccess),
+    [gatesOpen, walletAccess]
   );
 
   return {

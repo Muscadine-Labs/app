@@ -225,17 +225,15 @@ function parseMarketRowsFromAdapters(
 
       const marketSizeUsd = Number(market.state?.supplyAssetsUsd ?? 0);
       const liquidityUsd = Number(market.state?.liquidityAssetsUsd ?? 0);
-      const rowId = marketId;
-
-      const existing = byMarketId.get(rowId);
+      const existing = byMarketId.get(marketId);
       if (existing) {
         existing.allocatedUsd += allocatedUsd;
         existing.allocatedAssetsRaw = addRawAmounts(existing.allocatedAssetsRaw, allocatedAssetsRaw);
         continue;
       }
 
-      byMarketId.set(rowId, {
-        id: rowId,
+      byMarketId.set(marketId, {
+        id: marketId,
         kind: 'market',
         marketId,
         name: formatMorphoMarketName(collateralSymbol, loanSymbol),

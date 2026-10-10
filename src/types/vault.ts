@@ -124,8 +124,6 @@ export const getVaultLogo = (symbol: string): string => {
 };
 
 // Account types for transaction flow
-export type AccountType = 'wallet' | 'vault';
-
 export interface WalletAccount {
     type: 'wallet';
     address: 'wallet';

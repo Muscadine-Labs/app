@@ -120,5 +120,3 @@ function VaultExplorerContent({
 export default function VaultExplorer(props: VaultExplorerProps) {
   return <VaultExplorerContent {...props} />;
 }
-
-export { getDefaultExplorerFilters as DEFAULT_FILTERS };

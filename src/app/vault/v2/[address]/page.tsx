@@ -10,10 +10,7 @@ import {
   isValidEthereumAddress,
   resolveVaultForPage,
 } from '@/lib/vault-utils';
-import {
-  canDepositToVault,
-  resolveVaultPageAccess,
-} from '@/lib/vault-access';
+import { resolveVaultPageAccess } from '@/lib/vault-access';
 import { useVaultDataFetch } from '@/hooks/useVaultDataFetch';
 import { useVaultDepositGates } from '@/hooks/useVaultDepositGates';
 import { useWallet } from '@/contexts/WalletContext';
@@ -141,16 +138,11 @@ export default function VaultV2Page() {
     gatesResolving,
   ]);
 
-  const shouldFetchVaultData = !!vault && pageAccess !== 'denied';
-
   const { vaultData, isLoading, hasError, refetch, errorMessage } = useVaultDataFetch(
-    shouldFetchVaultData ? vault : null
+    pageAccess !== 'denied' ? vault : null
   );
 
-  const canDeposit = canDepositToVault({
-    vaultAddress: vault?.address ?? '',
-    eligibleVaultAddresses,
-  });
+  const canDeposit = !!vault && eligibleVaultAddresses.has(vault.address.toLowerCase());
 
   useEffect(() => {
     if (!address) return;
@@ -160,9 +152,7 @@ export default function VaultV2Page() {
   }, [address, router]);
 
   useEffect(() => {
-    if (!vault) return;
-    if (pageAccess !== 'denied') return;
-    router.replace('/vaults');
+    if (vault && pageAccess === 'denied') router.replace('/vaults');
   }, [vault, pageAccess, router]);
 
   const showMobileSticky = activeTab === 'overview';
@@ -178,9 +168,7 @@ export default function VaultV2Page() {
     return null;
   }
 
-  const showLoadingSkeleton =
-    (pageAccess === 'pending') ||
-    (isLoading && !vaultData);
+  const showLoadingSkeleton = pageAccess === 'pending' || (isLoading && !vaultData);
 
   if (showLoadingSkeleton) {
     return <VaultPageSkeleton className={pageShellClassName} />;

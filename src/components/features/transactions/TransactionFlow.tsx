@@ -463,7 +463,6 @@ export function TransactionFlow({
             publicClient as PublicClient,
             walletClient as WalletClient,
             vaultAddr,
-            assetToUse.decimals,
             onProgress
           );
         } else {

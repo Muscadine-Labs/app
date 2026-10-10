@@ -32,16 +32,6 @@ export interface Transaction {
   assetsUsd?: number;
 }
 
-export interface TransactionResponse {
-  transactions: Transaction[];
-  deposits: Transaction[];
-  withdrawals: Transaction[];
-  events: Transaction[];
-  cached: boolean;
-  timestamp: number;
-  error?: string;
-}
-
 export interface GraphQLTransactionsData {
   vaultV2transactions?: {
     items: GraphQLV2TransactionItem[];

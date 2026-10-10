@@ -4,7 +4,7 @@ Comprehensive context for AI assistants and developers. This is the canonical �
 
 **Product:** **Muscadine Vaults** — web app for curated Morpho vaults on **Base (chain id 8453)** — deposit, withdraw, portfolio view, vault analytics. **v2 Prime and Frontier** vaults for USDC, cbBTC, and WETH. **v1 MetaMorpho removed** from registry and codebase (v2-only writes).
 
-**Version:** `package.json` → `1.4.5`
+**Version:** `package.json` → `1.4.6`
 
 ---
 
@@ -196,7 +196,7 @@ This is **not** in-kind redemption. In-kind (`vault.inKindRedeem` → VaultExitB
 **Approvals:**
 
 - Direct deposit: spender is the **vault**.
-- USDC-style reset-to-zero may run before a new ERC-20 asset approval when needed. Vault V2 share approvals never reset first (`ensureApproval(..., resetFirst = false)`).
+- USDC-style reset-to-zero runs before a new ERC-20 asset approval when a smaller allowance is already set. `depositToVaultV2` reads balance + allowance in one multicall and throws a readable error when the amount exceeds the wallet balance.
 
 **Progress:** `TransactionProgressCallback` — `approving` for approvals, `confirming` for the vault tx (do not treat approval hash as final success).
 
@@ -533,7 +533,7 @@ Optional later: [Base Notifications API](https://docs.base.org/apps/technical-gu
 There is no allowlist in the app. `useVaultDepositGates` reads every registry vault on Base as soon as the app loads, and again for the wallet as soon as it connects. It calls `canSendAssets(wallet)`, the same check `deposit` runs for the sender. `canReceiveShares` is abated on every registry vault, so the app does not read it. `canSendAssets` returns true when `sendAssetsGate` is unset, so removing or swapping that gate needs no app change or redeploy.
 
 - **Deposit:** opens only after a successful read says yes. A vault with `sendAssetsGate` unset is open to everyone, including disconnected visitors. While the read loads, the vault page waits and deposits stay off. A failed read keeps it closed. A wallet that cannot deposit can still open a vault it holds shares in; deposit is disabled and withdraw stays open.
-- **Send-time check:** `depositToVaultV2` re-reads `canSendAssets` (`readVaultDepositBlocker`) before any approval. A successful no throws `VaultDepositBlockedError`, and `TransactionFlow` refreshes the gate queries so the button disables. A failed read does not block. Gate queries also refetch on window focus.
+- **Send-time check:** `depositToVaultV2` re-reads `canSendAssets` (`isWalletDepositBlocked`) before any approval. A successful no throws `VaultDepositBlockedError`, and `TransactionFlow` refreshes the gate queries so the button disables. A failed read does not block. Gate queries also refetch on window focus.
 - **Explorer list:** a vault is listed when the wallet can deposit or holds shares. While the gate reads load, the explorer shows a skeleton. The rule is `resolveDepositEligibility` in `vault-gates.ts`.
 
 | Piece | Location |
@@ -601,7 +601,7 @@ Do not bump without checking compatibility:
 | Package | Constraint |
 |---------|------------|
 | `wagmi` | Stay on **2.x** — Reown AppKit requirement |
-| `eslint` | **10.x** (`eslint-config-next` 16 peer is `>=9`; lint passes on 10.12.0) |
+| `eslint` | Stay on **9.x** until `eslint-plugin-react` / `jsx-a11y` / `import` (bundled by `eslint-config-next` 16) accept ESLint 10 — their peer ranges stop at 9 and `npm ls` reports the tree invalid on 10 |
 | `ox` | Stay on **0.14.x** — `ox@1` is a breaking rewrite; used for ERC-8021 builder codes |
 | `valtio` | Keep a **root** `valtio` (2.x) — Reown AppKit / WalletConnect must resolve `valtio/vanilla` under Turbopack |
 | `@morpho-org/*-wagmi` 4.x | Often requires wagmi 3 |

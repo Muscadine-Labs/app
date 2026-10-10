@@ -30,9 +30,9 @@ import {
 } from 'viem';
 import { logger } from '@/lib/logger';
 
-export const FORCE_DEALLOCATE_WAD = BigInt(10) ** BigInt(18);
+const FORCE_DEALLOCATE_WAD = BigInt(10) ** BigInt(18);
 
-export type MorphoMarketParams = {
+type MorphoMarketParams = {
   loanToken: Address;
   collateralToken: Address;
   oracle: Address;
@@ -40,9 +40,9 @@ export type MorphoMarketParams = {
   lltv: bigint;
 };
 
-export type ForceDeallocationStep = {
+type ForceDeallocationStep = {
   adapter: Address;
-  /** Adapter-specific deallocate payload (Blue market params, or `0x` for vault adapters). */
+  /** Deallocate payload: abi-encoded Blue market params. */
   data: Hex;
   amount: bigint;
   penaltyWad: bigint;
@@ -53,14 +53,12 @@ export type ForceWithdrawPlan = {
   vaultAddress: Address;
   requestedAssets: bigint;
   instantLiquidityAssets: bigint;
-  assetsToDeallocate: bigint;
   /** Assets user receives on withdraw exit (equals requested when liquidity covers). Penalty is share burn. */
   expectedAssetsOut: bigint;
   /** Total penalty burned as shares (asset-equivalent), summed across steps. */
   estimatedPenaltyAssets: bigint;
   /** Max penalty rate across adapters actually used in this plan (WAD). */
   maxPenaltyWad: bigint;
-  deallocations: ForceDeallocationStep[];
   /** `redeem` on MAX exits (no share dust); otherwise `withdraw(assets)`. */
   exitMode: 'withdraw' | 'redeem';
   /** Inner calls for vault.multicall (forceDeallocate… + withdraw|redeem). */
@@ -79,24 +77,6 @@ export class ForceWithdrawShortfallError extends Error {
 }
 
 const VAULT_V2_FORCE_ABI = [
-  {
-    name: 'accrueInterest',
-    type: 'function',
-    stateMutability: 'nonpayable',
-    inputs: [],
-    outputs: [],
-  },
-  {
-    name: 'accrueInterestView',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [],
-    outputs: [
-      { name: '', type: 'uint256' },
-      { name: '', type: 'uint256' },
-      { name: '', type: 'uint256' },
-    ],
-  },
   {
     name: 'adaptersLength',
     type: 'function',
@@ -179,13 +159,6 @@ const VAULT_V2_FORCE_ABI = [
     stateMutability: 'view',
     inputs: [],
     outputs: [{ name: '', type: 'bytes' }],
-  },
-  {
-    name: 'previewRedeem',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [{ name: 'shares', type: 'uint256' }],
-    outputs: [{ name: '', type: 'uint256' }],
   },
   {
     name: 'previewWithdraw',
@@ -610,8 +583,7 @@ export async function planForceWithdrawV2(
 
   // Free the full illiquid shortfall into idle. Penalty burns shares (not withdraw assets);
   // size liquidity 1:1 with shortfall. Prefer low-penalty slots (already sorted).
-  const assetsToDeallocate = shortfall;
-  let remaining = assetsToDeallocate;
+  let remaining = shortfall;
   const deallocations: ForceDeallocationStep[] = [];
   let estimatedPenaltyAssets = BigInt(0);
   let maxPenaltyWad = BigInt(0);
@@ -640,7 +612,6 @@ export async function planForceWithdrawV2(
 
   // User receives the requested amount; penalty is paid in shares.
   const expectedAssetsOut = requestedAssets;
-  if (expectedAssetsOut === BigInt(0)) return null;
 
   let exitMode: 'withdraw' | 'redeem' = 'withdraw';
   let multicallArgs: Hex[];
@@ -654,17 +625,19 @@ export async function planForceWithdrawV2(
     })) as bigint;
 
     // Each forceDeallocate burns previewWithdraw(penaltyAssets) shares mid-multicall.
-    let penaltyShares = BigInt(0);
-    for (const step of deallocations) {
-      if (step.penaltyAssets === BigInt(0)) continue;
-      const sharesForPenalty = (await publicClient.readContract({
-        address: normalizedVault,
-        abi: VAULT_V2_FORCE_ABI,
-        functionName: 'previewWithdraw',
-        args: [step.penaltyAssets],
-      })) as bigint;
-      penaltyShares += sharesForPenalty;
-    }
+    const penaltySharesPerStep = await Promise.all(
+      deallocations
+        .filter((step) => step.penaltyAssets > BigInt(0))
+        .map((step) =>
+          publicClient.readContract({
+            address: normalizedVault,
+            abi: VAULT_V2_FORCE_ABI,
+            functionName: 'previewWithdraw',
+            args: [step.penaltyAssets],
+          })
+        )
+    );
+    const penaltyShares = penaltySharesPerStep.reduce((sum, shares) => sum + shares, BigInt(0));
 
     if (penaltyShares >= userShares) {
       logger.warn('Force redeem exit would burn all shares as penalty; falling back to withdraw', {
@@ -722,11 +695,9 @@ export async function planForceWithdrawV2(
     vaultAddress: normalizedVault,
     requestedAssets,
     instantLiquidityAssets,
-    assetsToDeallocate,
     expectedAssetsOut,
     estimatedPenaltyAssets,
     maxPenaltyWad,
-    deallocations,
     exitMode,
     multicallArgs,
   };

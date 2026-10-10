@@ -3,7 +3,6 @@ import {
   VaultStrategy,
   getRegistryVaultList,
 } from '@/lib/vaults';
-import { isRegistryVaultVisible } from '@/lib/vault-access';
 import { Vault } from '@/types/vault';
 import {
   DEFAULT_MORPHO_ASSET_SYMBOL,
@@ -203,13 +202,10 @@ export function selectRegistryVaultsForExplorer(options: {
   depositedAddresses: ReadonlySet<string>;
   eligibleVaultAddresses: ReadonlySet<string>;
 }): Vault[] {
-  return getAllRegistryVaults().filter((vault) =>
-    isRegistryVaultVisible({
-      vaultAddress: vault.address,
-      eligibleVaultAddresses: options.eligibleVaultAddresses,
-      depositedAddresses: options.depositedAddresses,
-    })
-  );
+  return getAllRegistryVaults().filter((vault) => {
+    const key = vault.address.toLowerCase();
+    return options.eligibleVaultAddresses.has(key) || options.depositedAddresses.has(key);
+  });
 }
 
 export function dedupeVaultsByAddress(vaults: Vault[]): Vault[] {
