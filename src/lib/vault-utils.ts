@@ -3,7 +3,6 @@ import {
   VaultKind,
   VaultStrategy,
   findWrapperForUnderlying,
-  getPairedVaultAddress,
   getRegistryVaultList,
 } from '@/lib/vaults';
 import { isUnderlyingVisible } from '@/lib/vault-access';
@@ -229,35 +228,6 @@ export function filterDashboardDepositedVaults(
   }
 
   return vaults.filter((vault) => !drop.has(vault.address.toLowerCase()));
-}
-
-/**
- * Profit on the other contract of a pair, when that contract has no shares.
- * The dashboard hides that row, so the row that is shown has to carry it.
- * When both sides are held, each row keeps its own profit.
- */
-export function closedPairEarnedPnl(
-  positions: readonly WalletMorphoPosition[],
-  vaultAddress: string
-): { pnlRaw: string; pnlUsd: number } | null {
-  const pairAddress = getPairedVaultAddress(vaultAddress);
-  if (!pairAddress) return null;
-  const pair = positions.find(
-    (position) => position.vault.address.toLowerCase() === pairAddress.toLowerCase()
-  );
-  if (!pair || hasOnChainVaultShares(pair) || !pair.pnlRaw) return null;
-  let pnlRaw: bigint;
-  try {
-    pnlRaw = BigInt(pair.pnlRaw);
-  } catch {
-    return null;
-  }
-  // A loss on the closed contract must not shrink the open row. The vault page
-  // floors each side at zero. Skip the pair when the dollar figure is missing.
-  if (pnlRaw <= BigInt(0) || pair.pnlUsd === undefined || !(pair.pnlUsd > 0)) {
-    return null;
-  }
-  return { pnlRaw: pnlRaw.toString(), pnlUsd: pair.pnlUsd };
 }
 
 function holdsWrapperOfPair(

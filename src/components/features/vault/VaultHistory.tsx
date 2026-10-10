@@ -11,7 +11,6 @@ import {
   formatTransactionTypeLabel,
   transactionTypeDotClass,
 } from '@/lib/transaction-labels';
-import { getProductVaultAddresses } from '@/lib/vaults';
 
 interface VaultHistoryProps {
   vaultData: MorphoVaultData;
@@ -32,29 +31,12 @@ export default function VaultHistory({ vaultData }: VaultHistoryProps) {
       setLoading(true);
       try {
         if (address && showUserOnly) {
-          const version = vaultData.version ?? 'v2';
-          const responses = await Promise.all(
-            getProductVaultAddresses(vaultData.address).map((vaultAddress) =>
-              fetch(
-                `/api/vault/${version}/${vaultAddress}/activity?chainId=${vaultData.chainId}&userAddress=${address}`,
-                { signal: abortController.signal }
-              )
-            )
+          const userResponse = await fetch(
+            `/api/vault/${vaultData.version}/${vaultData.address}/activity?chainId=${vaultData.chainId}&userAddress=${address}`,
+            { signal: abortController.signal }
           );
-          if (responses.some((response) => !response.ok)) {
-            throw new Error('Failed to fetch vault activity');
-          }
-          const payloads = await Promise.all(responses.map((response) => response.json()));
-          if (payloads.some((payload) => payload?.error)) {
-            throw new Error('Failed to fetch vault activity');
-          }
-          if (abortController.signal.aborted) return;
-          const merged = payloads
-            .flatMap((payload) =>
-              Array.isArray(payload.transactions) ? (payload.transactions as Transaction[]) : []
-            )
-            .sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
-          setUserTransactions(merged);
+          const userResponseData = await userResponse.json();
+          setUserTransactions(userResponseData.transactions || []);
           return;
         }
 
@@ -76,13 +58,11 @@ export default function VaultHistory({ vaultData }: VaultHistoryProps) {
 
         const responses = await Promise.all(requests);
         const allData = await responses[0].json();
-        if (abortController.signal.aborted) return;
         setTransactions(allData.transactions || []);
         setAllActivityLoaded(true);
 
         if (responses[1]) {
           const userResponseData = await responses[1].json();
-          if (abortController.signal.aborted) return;
           setUserTransactions(userResponseData.transactions || []);
         } else {
           setUserTransactions([]);
@@ -200,7 +180,7 @@ export default function VaultHistory({ vaultData }: VaultHistoryProps) {
           <div className="space-y-2">
             {recentTransactions.map((tx) => (
               <div
-                key={`${tx.id ?? ''}-${tx.transactionHash ?? ''}-${tx.type}-${tx.timestamp}`}
+                key={tx.id || tx.transactionHash}
                 className="flex items-center justify-between p-4 bg-[var(--surface-elevated)] rounded-lg border border-[var(--border-subtle)] hover:border-[var(--border)] transition-colors"
               >
                 <div className="flex items-center gap-4 flex-1">

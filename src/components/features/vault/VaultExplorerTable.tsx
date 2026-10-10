@@ -12,7 +12,6 @@ import { useVaultKind } from '@/contexts/VaultKindContext';
 import { VaultNameWithWrapper } from '@/components/features/vault/VaultNameWithWrapper';
 import {
   getVaultRoute,
-  closedPairEarnedPnl,
   hasOnChainVaultShares,
   isCuratedVaultAddress,
   resolvePositionAssetsUsd,
@@ -246,36 +245,12 @@ function EarnedInterestCell({
 
   if (!hasWalletPosition) return zeroValue;
 
-  const ownRaw =
+  const earnedInterestRaw =
     walletPosition.pnlRaw ??
     (hookData.isLoading ? undefined : hookData.earnedInterestRaw || '0');
-  const ownUsd =
+  const earnedInterestUsd =
     walletPosition.pnlUsd ??
     (hookData.isLoading ? undefined : hookData.earnedInterestUsd);
-  const flooredOwnRaw = (() => {
-    if (ownRaw === undefined) return undefined;
-    try {
-      const value = BigInt(ownRaw);
-      return value > BigInt(0) ? value.toString() : '0';
-    } catch {
-      return '0';
-    }
-  })();
-  const flooredOwnUsd = ownUsd === undefined ? undefined : Math.max(0, ownUsd);
-  const closedPair = closedPairEarnedPnl(morphoHoldings.positions, vault.address);
-  const earnedInterestRaw = (() => {
-    if (flooredOwnRaw === undefined) return undefined;
-    if (!closedPair) return flooredOwnRaw;
-    try {
-      return (BigInt(flooredOwnRaw) + BigInt(closedPair.pnlRaw)).toString();
-    } catch {
-      return flooredOwnRaw;
-    }
-  })();
-  const earnedInterestUsd =
-    flooredOwnUsd === undefined
-      ? undefined
-      : flooredOwnUsd + (closedPair?.pnlUsd ?? 0);
 
   if (earnedInterestRaw === undefined || earnedInterestUsd === undefined) {
     return <Skeleton width="4rem" height="1rem" className={skeletonClass} />;

@@ -143,23 +143,6 @@ export function findWrapperForUnderlying(
   );
 }
 
-/** The other contract in a wrapper/underlying pair, if this address is one of them. */
-export function getPairedVaultAddress(address: string): string | undefined {
-  const key = address.toLowerCase();
-  const vault = getRegistryVaultList().find(
-    (item) => item.address.toLowerCase() === key
-  );
-  if (!vault) return undefined;
-  if (vault.kind === 'wrapper') return vault.underlyingAddress;
-  return findWrapperForUnderlying(vault.address)?.address;
-}
-
-/** This vault plus its wrapper or underlying, so a product page can cover both. */
-export function getProductVaultAddresses(address: string): string[] {
-  const pair = getPairedVaultAddress(address);
-  return pair ? [address, pair] : [address];
-}
-
 export function isUnderlyingVaultAddress(address: string): boolean {
   const key = address.toLowerCase();
   return getRegistryVaultList().some(

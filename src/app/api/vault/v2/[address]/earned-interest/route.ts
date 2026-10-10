@@ -210,23 +210,20 @@ export async function GET(
       });
     };
 
-    // Morpho keeps lifetime pnl after a full withdraw. A closed wrapper or
-    // underlying still has to count, or a move between the two drops that profit.
-    if (position?.pnl !== undefined && position.pnl !== null) {
+    // Fast path: Morpho pnl when user still has a position.
+    if (hasPosition && position?.pnl !== undefined && position.pnl !== null) {
       const earned = positiveEarnedFromPnl(position.pnl, position.pnlUsd, assetDecimals);
-      if (hasPosition || earned.earnedInterestRaw !== '0') {
-        return NextResponse.json({
-          ...earned,
-          assetDecimals,
-          source: 'morpho-pnl',
-          hasDeposited: true,
-          currentAssets: morphoAmountToDecimal(position.assets, assetDecimals),
-          currentAssetsUsd: position.assetsUsd,
-        });
-      }
+      return NextResponse.json({
+        ...earned,
+        assetDecimals,
+        source: 'morpho-pnl',
+        hasDeposited: true,
+        currentAssets: morphoAmountToDecimal(position.assets, assetDecimals),
+        currentAssetsUsd: position.assetsUsd,
+      });
     }
 
-    // Activity fallback when Morpho has no pnl.
+    // Activity fallback — only when pnl is unavailable or position was closed.
     let activityData: Awaited<ReturnType<typeof fetchVaultV2ActivityData>> | null = null;
     try {
       activityData = await fetchVaultV2ActivityData(vaultAddress, chainId, userAddress);
