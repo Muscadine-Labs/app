@@ -46,9 +46,6 @@ function VaultShareLabel({ vault }: { vault: Vault }) {
   return (
     <span className="block text-[10px] text-[var(--foreground-muted)]">
       {vault.vaultSymbol || vault.symbol}
-      {vault.withdrawOnly ? (
-        <span className="text-[var(--warning)]"> · Withdraw only</span>
-      ) : null}
     </span>
   );
 }

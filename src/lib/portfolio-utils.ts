@@ -73,7 +73,7 @@ function heldAmountIsPositive(assets: number, assetsUsd: number, assetsRaw: bigi
 }
 
 /**
- * Sum a registry vault's and its legacy wrapper's position series.
+ * Sum a registry vault's and its retired wrapper's position series.
  * A series keeps its last value until its next point. When that next point is
  * zero and the other contract is already positive, the stale balance is left
  * out, so a move does not draw both contracts at once. A zero that only exists

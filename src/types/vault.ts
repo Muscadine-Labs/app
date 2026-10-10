@@ -27,10 +27,6 @@ export interface Vault {
     strategy?: VaultStrategy;
     /** True when vault is in the Muscadine registry (has a detail page). */
     isCurated?: boolean;
-    /** Legacy fee wrapper: withdraw only, shown only to holders. */
-    withdrawOnly?: boolean;
-    /** Legacy wrapper only: the registry vault it deposits into. */
-    underlyingAddress?: string;
     
     // Financial Metrics
     totalValueLocked?: number; // TVL in USD

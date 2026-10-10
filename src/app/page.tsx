@@ -20,6 +20,7 @@ import {
 } from '@/lib/vault-utils';
 import { Vault } from '@/types/vault';
 import { BASE_CHAIN_ID } from '@/lib/constants';
+import { isRetiredWrapperAddress } from '@/lib/vaults';
 import type { VaultStrategy } from '@/lib/vaults';
 import { Skeleton } from '@/components/ui/Skeleton';
 
@@ -88,7 +89,9 @@ export default function Home() {
     const vaults: Vault[] = morphoHoldings.positions
       .filter(
         (position) =>
-          position.version === 'v2' && hasOnChainVaultShares(position)
+          position.version === 'v2' &&
+          hasOnChainVaultShares(position) &&
+          !isRetiredWrapperAddress(position.vault.address)
       )
       .map((position) => {
         const curated = findVaultByAddress(position.vault.address);
