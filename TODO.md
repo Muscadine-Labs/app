@@ -1,5 +1,7 @@
 **To Work on Today:**
 
+- see if we should add morpho bundler contracts for eth deposits / withdraws.
+- 
 **To work on another day:**
 
 **Future (optional):**
