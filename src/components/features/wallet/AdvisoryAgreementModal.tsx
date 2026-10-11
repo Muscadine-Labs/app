@@ -81,7 +81,7 @@ export function AdvisoryAgreementModal() {
           </p>
 
           <p className="text-xs sm:text-sm text-[var(--foreground)] leading-relaxed">
-            The vaults listed here are Muscadine’s curated Morpho vaults. Deposits open when a vault’s send-assets gate allows your wallet. Withdrawals stay open for shares you already hold.{' '}
+            The vaults listed here are Muscadine’s curated Morpho vaults. Deposits open when a vault’s send-assets gate allows your wallet. Withdrawals stay open for shares you already hold. Vaults may or may not have a small preformace fee. {' '}
             <a
               href="https://analytics.muscadine.xyz"
               target="_blank"
