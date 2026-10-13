@@ -32,6 +32,7 @@ import { formatUnits } from 'viem';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useIsClient } from '@/hooks/useClientOnly';
 import { useVaultEarnedInterest } from '@/hooks/useVaultEarnedInterest';
+import { useVaultDepositGates } from '@/hooks/useVaultDepositGates';
 import { resolveAssetDecimals } from '@/lib/asset-decimals';
 import {
   resolveTotalUnderlyingLiquidityAssets,
@@ -345,7 +346,12 @@ function EarnedInterestCell({
   );
 }
 
-function VaultExplorerMobileCard({ vault, showYourPosition, showKind }: VaultExplorerRowProps) {
+function VaultExplorerMobileCard({
+  vault,
+  showYourPosition,
+  showKind,
+  restricted,
+}: VaultExplorerRowProps) {
   const router = useRouter();
   const { getVaultData, isLoading } = useVaultData();
   const vaultData = getVaultData(vault.address);
@@ -376,6 +382,7 @@ function VaultExplorerMobileCard({ vault, showYourPosition, showKind }: VaultExp
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap min-w-0">
             <VaultName name={vault.name} kind={vault.kind} showKind={showKind} />
+            {restricted ? <RestrictedMark /> : null}
             <span className="inline-flex rounded-md bg-[var(--surface-elevated)] px-2 py-0.5 text-[10px] font-medium text-[var(--foreground-secondary)]">
               Base
             </span>
@@ -637,9 +644,22 @@ interface VaultExplorerRowProps {
   showYourPosition: boolean;
   /** Label Wrapper / Underlying (both contracts of the pair are listed). */
   showKind?: boolean;
+  /** Listed, but this wallet cannot deposit (send-assets gate says no). */
+  restricted?: boolean;
 }
 
-function VaultExplorerRow({ vault, showYourPosition, showKind }: VaultExplorerRowProps) {
+function RestrictedMark() {
+  return (
+    <span
+      className="shrink-0 inline-flex rounded-md bg-[var(--surface-elevated)] px-1.5 py-0.5 text-[10px] font-medium leading-none text-[var(--warning)] whitespace-nowrap"
+      title="Deposits are limited to approved wallets. Withdrawals stay open."
+    >
+      Approved wallets only
+    </span>
+  );
+}
+
+function VaultExplorerRow({ vault, showYourPosition, showKind, restricted }: VaultExplorerRowProps) {
   const router = useRouter();
   const { getVaultData, isLoading } = useVaultData();
   const vaultData = getVaultData(vault.address);
@@ -679,6 +699,7 @@ function VaultExplorerRow({ vault, showYourPosition, showKind }: VaultExplorerRo
           <div className="min-w-0">
             <div className="flex items-center gap-2 min-w-0">
               <VaultName name={vault.name} kind={vault.kind} showKind={showKind} />
+              {restricted ? <RestrictedMark /> : null}
               {!isCurated ? (
                 <span className="shrink-0 text-[10px] text-[var(--foreground-muted)]">
                   External
@@ -748,6 +769,8 @@ export default function VaultExplorerTable({
   const { isConnected } = useAccount();
   const showYourPosition = isConnected;
   const kindMarks = useMemo(() => selectVaultKindMarkAddresses(vaults), [vaults]);
+  const { blockedVaultAddresses } = useVaultDepositGates();
+  const isRestricted = (vault: Vault) => blockedVaultAddresses.has(vault.address.toLowerCase());
 
   if (!isMounted) {
     return (
@@ -774,6 +797,7 @@ export default function VaultExplorerTable({
             vault={vault}
             showYourPosition={showYourPosition}
             showKind={kindMarks.has(vault.address.toLowerCase())}
+            restricted={isRestricted(vault)}
           />
         ))}
       </div>
@@ -801,6 +825,7 @@ export default function VaultExplorerTable({
               vault={vault}
               showYourPosition={showYourPosition}
               showKind={kindMarks.has(vault.address.toLowerCase())}
+              restricted={isRestricted(vault)}
             />
           ))}
         </tbody>

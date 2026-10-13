@@ -14,6 +14,7 @@ import {
   useRole,
 } from '@floating-ui/react';
 import type { VaultStrategy } from '@/lib/vaults';
+import type { VaultKindMode } from '@/lib/vault-utils';
 
 interface FilterDropdownProps {
   label: string;
@@ -237,6 +238,130 @@ function WalletFilterControl({
   );
 }
 
+const KIND_MODE_OPTIONS: Array<{
+  value: VaultKindMode;
+  label: string;
+  short: string;
+  description: string;
+}> = [
+  {
+    value: 'recommended',
+    label: 'Recommended',
+    short: 'Recommended',
+    description: 'The vault you can deposit into for each asset',
+  },
+  {
+    value: 'wrappers',
+    label: 'Switch to Wrapper Vaults',
+    short: 'Wrappers',
+    description: 'Fee wrappers that deposit into the underlying vaults',
+  },
+  {
+    value: 'all',
+    label: 'Show All Vaults',
+    short: 'All vaults',
+    description: 'Every wrapper and underlying vault',
+  },
+];
+
+/** Advanced: which contracts of each wrapper / underlying pair the list shows. */
+function AdvancedFilterControl({
+  value,
+  onChange,
+}: {
+  value: VaultKindMode;
+  onChange: (value: VaultKindMode) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const isActive = value !== 'recommended';
+  const selected =
+    KIND_MODE_OPTIONS.find((option) => option.value === value) ?? KIND_MODE_OPTIONS[0];
+
+  const { refs, floatingStyles, context } = useFloating({
+    open,
+    onOpenChange: setOpen,
+    placement: 'bottom-start',
+    middleware: [offset(6), flip(), shift({ padding: 8 })],
+    whileElementsMounted: autoUpdate,
+  });
+
+  const click = useClick(context);
+  const dismiss = useDismiss(context);
+  const role = useRole(context, { role: 'menu' });
+  const { getReferenceProps, getFloatingProps } = useInteractions([click, dismiss, role]);
+
+  return (
+    <>
+      <button
+        type="button"
+        ref={refs.setReference}
+        {...getReferenceProps()}
+        className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-2 min-h-[36px] text-xs transition-colors cursor-pointer touch-manipulation shrink-0 ${
+          isActive
+            ? 'border-[var(--primary)] bg-[var(--primary-subtle)] text-[var(--primary)]'
+            : 'border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] hover:bg-[var(--surface-hover)]'
+        }`}
+      >
+        <span className={isActive ? '' : 'text-[var(--foreground-secondary)]'}>Advanced</span>
+        {isActive ? <span className="whitespace-nowrap">{selected.short}</span> : null}
+        <svg
+          className={`w-3 h-3 transition-transform ${open ? 'rotate-180' : ''} ${
+            isActive ? '' : 'text-[var(--foreground-secondary)]'
+          }`}
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+          strokeWidth="2"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {open && (
+        <FloatingPortal>
+          <div
+            ref={refs.setFloating}
+            style={floatingStyles}
+            {...getFloatingProps()}
+            className="z-[9999] w-60 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] py-1 shadow-lg"
+          >
+            {KIND_MODE_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                role="menuitemradio"
+                aria-checked={option.value === value}
+                onClick={() => {
+                  onChange(option.value);
+                  setOpen(false);
+                }}
+                className={`w-full px-3 py-2 text-left transition-colors cursor-pointer ${
+                  option.value === value
+                    ? 'bg-[var(--primary-subtle)]'
+                    : 'hover:bg-[var(--surface-hover)]'
+                }`}
+              >
+                <span
+                  className={`block text-xs font-medium ${
+                    option.value === value
+                      ? 'text-[var(--primary)]'
+                      : 'text-[var(--foreground)]'
+                  }`}
+                >
+                  {option.label}
+                </span>
+                <span className="block text-[10px] text-[var(--foreground-muted)] mt-0.5">
+                  {option.description}
+                </span>
+              </button>
+            ))}
+          </div>
+        </FloatingPortal>
+      )}
+    </>
+  );
+}
+
 export interface VaultExplorerFilterState {
   network: VaultNetworkFilter;
   asset: VaultAssetFilter;
@@ -247,6 +372,8 @@ export interface VaultExplorerFilterState {
 interface VaultExplorerFiltersProps {
   filters: VaultExplorerFilterState;
   onFiltersChange: (filters: VaultExplorerFilterState) => void;
+  kindMode: VaultKindMode;
+  onKindModeChange: (mode: VaultKindMode) => void;
 }
 
 export function getDefaultExplorerFilters(): VaultExplorerFilterState {
@@ -261,6 +388,8 @@ export function getDefaultExplorerFilters(): VaultExplorerFilterState {
 export default function VaultExplorerFilters({
   filters,
   onFiltersChange,
+  kindMode,
+  onKindModeChange,
 }: VaultExplorerFiltersProps) {
   const update = (partial: Partial<VaultExplorerFilterState>) => {
     onFiltersChange({ ...filters, ...partial });
@@ -302,6 +431,7 @@ export default function VaultExplorerFilters({
             options={assetOptions}
             onChange={(value) => update({ asset: value as VaultAssetFilter })}
           />
+          <AdvancedFilterControl value={kindMode} onChange={onKindModeChange} />
         </div>
 
         <WalletFilterControl

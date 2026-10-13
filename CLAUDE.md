@@ -140,7 +140,7 @@ Fee wrappers (`kind: 'wrapper'`, `underlyingAddress` = the vault above they depo
 
 **Vault registry fields:** `symbol` (underlying asset), `vaultSymbol` (share token label), `strategy` (`prime` | `frontier`), `kind` (`underlying` | `wrapper`), `underlyingAddress` (wrappers only).
 
-**Wrapper / underlying pairs:** with **Settings → Combine vault data** on **Auto** (default; `CombineVaultDataContext`, stored per browser as `muscadine-combine-vault-data`, `useSyncExternalStore` so SSR renders the default), each wrapper and its underlying vault are one position for display. **Off** shows each contract on its own: no merge, no pair caption, no profit carry, one dashboard row per contract. With Auto, both vault pages merge the pair's position (on-chain balances summed), earned interest, activity and chart (`getProductVaultAddresses`, `mergeVaultPositionSeries` in `portfolio-utils.ts`). When the wallet holds the other contract, My Position says how much sits there and links to it, since withdraws act on the page's own contract. The dashboard chart merges each pair. Your Vaults folds a pair the wallet holds on both sides into one row (the larger side's page, share label `mpUSDC + wmpUSDC`, summed position and profit). A row whose pair has no shares left carries that pair's profit (`closedPairEarnedPnl`), in the explorer too. UI labels are **Wrapper** and **Underlying** (`VaultKindMark`), shown only where a list has both contracts of a pair (`selectVaultKindMarkAddresses`). Planned: a `/vaults` Advanced filter (see `TODO.md`).
+**Wrapper / underlying pairs:** with **Settings → Combine vault data** on **Auto** (default; `CombineVaultDataContext`, stored per browser as `muscadine-combine-vault-data`, `useSyncExternalStore` so SSR renders the default), each wrapper and its underlying vault are one position for display. **Off** shows each contract on its own: no merge, no pair caption, no profit carry, one dashboard row per contract. With Auto, both vault pages merge the pair's position (on-chain balances summed), earned interest, activity and chart (`getProductVaultAddresses`, `mergeVaultPositionSeries` in `portfolio-utils.ts`). When the wallet holds the other contract, My Position says how much sits there and links to it, since withdraws act on the page's own contract. The dashboard chart merges each pair. Your Vaults folds a pair the wallet holds on both sides into one row (the larger side's page, share label `mpUSDC + wmpUSDC`, summed position and profit). A row whose pair has no shares left carries that pair's profit (`closedPairEarnedPnl`), in the explorer too. UI labels are **Wrapper** and **Underlying** (`VaultKindMark`), shown only where a list has both contracts of a pair (`selectVaultKindMarkAddresses`). On a vault page, `VaultPairSwitch` (header) shows **Underlying · 0% fee | Wrapper · 5% fee** and links to the other contract. It appears only when the wallet can deposit into both, holds both, or picked Wrapper / All vaults in the explorer; it is inert while a transaction is in progress.
 
 **Vault page access** (`resolveVaultPageAccess` in `vault-access.ts`) allows a vault the wallet can deposit into, holds, or that the explorer lists for it (`listedVaultAddresses`, so a view-only pair default opens with deposit disabled). It also reads the wallet's share balance on chain, so a holder reaches the page even when the Morpho positions API fails or lags. Once allowed, the page stays open for that wallet so a full withdraw does not redirect away mid-success.
 
@@ -152,7 +152,7 @@ Fee wrappers (`kind: 'wrapper'`, `underlyingAddress` = the vault above they depo
 | `wrappers` | The wrapper |
 | `all` | Both contracts |
 
-Planned: the `/vaults` Advanced filter that sets `kindMode` (see `TODO.md`).
+The `/vaults` **Advanced** filter sets `kindMode`: **Recommended**, **Switch to Wrapper Vaults**, **Show All Vaults**. A listed vault the wallet cannot deposit into gets an **Approved wallets only** pill; that needs a successful read saying no (`blockedVaultAddresses` from `useVaultDepositGates`, `resolveDepositBlocked`), so a failed gate read never shows it.
 
 Explorer filters default to **All** (network, strategy, asset). **No v1/v2 version filter** (v1 removed). There is no developer/over-balance bypass mode.
 
@@ -364,7 +364,7 @@ Adaptive layout (content-sized panels; empty sections omitted):
 | Network | All, Base | Default **All**; `base` filters `chainId === 8453` |
 | Strategy | All, Prime, Frontier | Default **All** (shows Prime + Frontier) |
 | Asset | All, USDC, cbBTC, WETH | Local filter state. |
-| Vaults | Registry vaults the wallet can deposit into or holds | Gate-driven. No kind switch. |
+| Advanced | Recommended, Switch to Wrapper Vaults, Show All Vaults | Sets `kindMode` (see Vault registry). Session only. |
 | Scope | Deposits + whitelisted, In wallet, **Whitelisted** | Default **Deposits + whitelisted**. Wallet modes can list external deposits as **External** (not clickable). |
 
 **Table columns** (`VaultExplorerTable.tsx`): Vault, **Your Position**, **Earned Interest**, **APY / TVL** (compact layout). **Whitelisted** rows navigate to `/vault/v2/{address}`; external rows are display-only.
@@ -557,7 +557,7 @@ There is no allowlist in the app. `useVaultDepositGates` reads every registry va
 
 - **Deposit:** opens only after a successful read says yes. A vault with `sendAssetsGate` unset is open to everyone, including disconnected visitors. While the read loads, the vault page waits and deposits stay off. A failed read keeps it closed. A wallet that cannot deposit can still open a vault it holds shares in; deposit is disabled and withdraw stays open.
 - **Send-time check:** `depositToVaultV2` re-reads `canSendAssets` (`isWalletDepositBlocked`) before any approval. A successful no throws `VaultDepositBlockedError`, and `TransactionFlow` refreshes the gate queries so the button disables. A failed read does not block. Gate queries also refetch on window focus.
-- **Explorer list:** a vault is listed when the wallet can deposit or holds shares. While the gate reads load, the explorer shows a skeleton. The rule is `resolveDepositEligibility` in `vault-gates.ts`.
+- **Explorer list:** held vaults, plus per wrapper / underlying pair what `kindMode` picks (see Vault registry → Explorer visibility). While the gate reads load, the explorer shows a skeleton. Eligibility is `resolveDepositEligibility` in `vault-gates.ts`.
 
 | Piece | Location |
 |-------|----------|

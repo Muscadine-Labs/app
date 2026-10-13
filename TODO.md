@@ -3,9 +3,6 @@
 - see if we should add morpho bundler contracts for eth deposits / withdraws.
 - when a wallet is not connected, still show the vaults on the vault list.
 
-- Wrapper vaults back (phases 1–4 done: combined history, wrappers as registry vaults with deposits and capped withdraws, per-pair defaults with `kindMode`, Combine vault data setting):
-  - Phase 5: /vaults Advanced filter that sets `kindMode` in ExplorerVaultsContext: Recommended / Switch to Wrapper Vaults / Show All Vaults. Pill on listed vaults the wallet cannot deposit into ("Approved wallets only"). Labels "Wrapper" and "Underlying" only in Show All Vaults or when the wallet holds both. Vault page header switch between the pair. (Wrapper fee note and TERMS_VERSION 2.3.0 shipped with phase 2.)
-
 **To work on another day:**
 
 **Future (optional):**

@@ -108,6 +108,26 @@ export function resolveDepositEligibility(
   return eligible;
 }
 
+/**
+ * Registry vault addresses (lowercase) a successful read says this wallet cannot deposit into:
+ * the send-assets gate is set and the wallet does not pass it (or no wallet is connected).
+ * A failed read is never counted as blocked.
+ */
+export function resolveDepositBlocked(
+  vaults: readonly VaultDefinition[],
+  gatesOpen: Record<string, GateCheck> | undefined,
+  walletAccess: Record<string, GateCheck> | undefined,
+  hasWallet: boolean
+): Set<string> {
+  const blocked = new Set<string>();
+  for (const vault of vaults) {
+    const key = vault.address.toLowerCase();
+    if (gatesOpen?.[key] !== false) continue;
+    if (hasWallet ? walletAccess?.[key] === false : true) blocked.add(key);
+  }
+  return blocked;
+}
+
 /** Query key prefix for the vault and wallet gate reads. */
 export const VAULT_DEPOSIT_GATES_QUERY_KEY = ['vault-deposit-gates'] as const;
 

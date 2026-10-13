@@ -8,6 +8,7 @@ import {
   VAULT_DEPOSIT_GATES_QUERY_KEY,
   readVaultGateStatus,
   readWalletDepositAccess,
+  resolveDepositBlocked,
   resolveDepositEligibility,
 } from '@/lib/vault-gates';
 import { getRegistryVaultList } from '@/lib/vaults';
@@ -51,8 +52,15 @@ export function useVaultDepositGates() {
     [gatesOpen, walletAccess]
   );
 
+  const blockedVaultAddresses = useMemo(
+    () => resolveDepositBlocked(REGISTRY_VAULTS, gatesOpen, walletAccess, Boolean(walletKey)),
+    [gatesOpen, walletAccess, walletKey]
+  );
+
   return {
     eligibleVaultAddresses,
+    /** A successful read says this wallet cannot deposit. A failed read is not counted. */
+    blockedVaultAddresses,
     isResolving: vaultQuery.isLoading || (Boolean(address) && walletQuery.isLoading),
   };
 }
