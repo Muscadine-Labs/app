@@ -140,7 +140,14 @@ Fee wrappers (`kind: 'wrapper'`, `underlyingAddress` = the vault above they depo
 
 **Vault registry fields:** `symbol` (underlying asset), `vaultSymbol` (share token label), `strategy` (`prime` | `frontier`), `kind` (`underlying` | `wrapper`), `underlyingAddress` (wrappers only).
 
-**Wrapper / underlying pairs:** with **Settings → Combine vault data** on **Auto** (default; `CombineVaultDataContext`, stored per browser as `muscadine-combine-vault-data`, `useSyncExternalStore` so SSR renders the default), each wrapper and its underlying vault are one position for display. **Off** shows each contract on its own: no merge, no pair caption, no profit carry, one dashboard row per contract. With Auto, both vault pages merge the pair's position (on-chain balances summed), earned interest, activity and chart (`getProductVaultAddresses`, `mergeVaultPositionSeries` in `portfolio-utils.ts`). When the wallet holds the other contract, My Position says how much sits there and links to it, since withdraws act on the page's own contract. The dashboard chart merges each pair. Your Vaults folds a pair the wallet holds on both sides into one row (the larger side's page, share label `mpUSDC + wmpUSDC`, summed position and profit). A row whose pair has no shares left carries that pair's profit (`closedPairEarnedPnl`), in the explorer too. UI labels are **Wrapper** and **Underlying** (`VaultKindMark`), shown only where a list has both contracts of a pair (`selectVaultKindMarkAddresses`). On a vault page, `VaultPairSwitch` (header) shows **Underlying | Wrapper** and links to the other contract. It appears only when the wallet can deposit into or holds the other contract of the pair (so a wallet that can only use the wrapper never sees the underlying offered), and it is inert while a transaction is in progress.
+**Wrapper / underlying pairs (families):** a wrapper and its underlying vault are one family.
+
+- **Lists** (`/vaults` and dashboard Your Vaults, `VaultExplorerTable`): `groupVaultFamilies` in `vault-utils.ts` groups listed vaults. A family with both contracts listed is a parent row (chevron) with the two vaults as indented child rows, like Morpho's market families. The parent shows the combined position and profit, the underlying's deposits / TVL / liquidity (it already holds the wrapper's funds, so adding the wrapper would double count) and the APY range of both. Children show each contract alone and carry the **Wrapper** / **Underlying** labels (`VaultKindMark`, `selectVaultKindMarkAddresses`). A family starts expanded when the wallet holds both contracts; a tap toggles it. Dashboard families sort by combined USD. A single listed contract is a plain row.
+- **Profit carry:** a row whose pair contract has no shares left adds that contract's lifetime profit (`closedPairEarnedPnl`), so a move to the wrapper and back keeps all interest on the row.
+- **Vault page My Position** (`VaultPosition.tsx`): holding one contract (or none) shows the pair as one position, so a user who went underlying → wrapper → underlying sees no gap. Holding both shows this vault, with a **This vault | Combined** toggle. Combined view: summed on-chain balance, merged chart (`mergeVaultPositionSeries` in `portfolio-utils.ts`), summed earned interest with a per-contract split line, a shaded chart band where funds sat in the other contract, and a note linking to it (withdraws act on the page's own contract).
+- **History tab:** your activity always merges both contracts; rows get a Wrapper / Underlying tag when the other contract has activity.
+- **Dashboard chart** always merges each pair.
+- **Header switch:** `VaultPairSwitch` shows **Underlying | Wrapper** and links to the other contract, only when the wallet can deposit into or holds that contract; inert while a transaction is in progress.
 
 **Vault page access** (`resolveVaultPageAccess` in `vault-access.ts`) allows a vault the wallet can deposit into, holds, or that the explorer lists for it (`listedVaultAddresses`, so a view-only pair default opens with deposit disabled). It also reads the wallet's share balance on chain, so a holder reaches the page even when the Morpho positions API fails or lags. Once allowed, the page stays open for that wallet so a full withdraw does not redirect away mid-success.
 
@@ -321,7 +328,7 @@ Morpho GraphQL is **server-only** (`fetchMorphoGraphQL()` in route handlers). Th
 | `/api/user/morpho-positions` | User Morpho v2 positions |
 | `/api/vault/v2/...` | V2 Morpho GraphQL proxies |
 
-**NavBar:** Dashboard → `/`, Vaults → `/vaults`. Settings: theme (light/dark/auto) and Combine vault data (Auto/Off). Right sidebar (`LearnContent`) is Q&A links to Morpho docs (protocol, Vault V2, curator, Blue, Midnight) and [self-custody](https://muscadine.xyz/self-custody).
+**NavBar:** Dashboard → `/`, Vaults → `/vaults`. Settings: theme (light/dark/auto). Right sidebar (`LearnContent`) is Q&A links to Morpho docs (protocol, Vault V2, curator, Blue, Midnight) and [self-custody](https://muscadine.xyz/self-custody).
 
 **App title:** metadata in `layout.tsx` uses **Muscadine Vaults** (`APP_NAME` in `src/lib/base-app.ts`) so Base.dev / Reown AppKit / WalletConnect match.
 
@@ -389,7 +396,7 @@ Chart tabs (order): **APY** → **Total Deposits** → **Share Price** → **All
 
 Provider tree (`src/app/Providers.tsx`):
 
-`ErrorBoundary` → `WagmiProvider` → `QueryClient` → `ThemeProvider` → `CombineVaultDataProvider` → `AdvisoryAgreementProvider` → `ToastProvider` → `WalletProvider` → `VaultDataProvider` → `TransactionProvider` (Reown AppKit initialized via `createAppKit` in `src/config/appkit.ts`; no SIWE/SIWX)
+`ErrorBoundary` → `WagmiProvider` → `QueryClient` → `ThemeProvider` → `AdvisoryAgreementProvider` → `ToastProvider` → `WalletProvider` → `VaultDataProvider` → `TransactionProvider` (Reown AppKit initialized via `createAppKit` in `src/config/appkit.ts`; no SIWE/SIWX)
 
 | Context | File | Role |
 |---------|------|------|
@@ -399,7 +406,6 @@ Provider tree (`src/app/Providers.tsx`):
 | `PriceContext` | `contexts/PriceContext.tsx` | Asset USD prices |
 | `ToastContext` | `contexts/ToastContext.tsx` | Toasts |
 | `ThemeContext` | `contexts/ThemeContext.tsx` | Light/dark |
-| `CombineVaultDataContext` | `contexts/CombineVaultDataContext.tsx` | Settings → Combine vault data (`auto` default / `off`) |
 | `AdvisoryAgreementContext` | `contexts/AdvisoryAgreementContext.tsx` | Legal modal gating |
 
 ### Advisory agreement (`AdvisoryAgreementModal.tsx`)

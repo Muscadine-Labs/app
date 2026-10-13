@@ -9,7 +9,6 @@ import { ensureAppKitInit } from '@/lib/appkit-init'
 import { VaultDataProvider } from '../contexts/VaultDataContext'
 import { WalletProvider } from '../contexts/WalletContext'
 import { ExplorerVaultsProvider } from '../contexts/ExplorerVaultsContext'
-import { CombineVaultDataProvider } from '../contexts/CombineVaultDataContext'
 import { TransactionProvider } from '../contexts/TransactionContext'
 import { ToastProvider } from '../contexts/ToastContext'
 import { ThemeProvider, useTheme } from '../contexts/ThemeContext'
@@ -74,7 +73,6 @@ export function Providers({ children, initialState }: Props) {
       >
         <QueryClientProvider client={queryClient}>
           <ThemeProvider>
-            <CombineVaultDataProvider>
             <AppKitThemeSync />
             <AdvisoryAgreementProvider>
                 <ToastProvider>
@@ -90,7 +88,6 @@ export function Providers({ children, initialState }: Props) {
                   </WalletProvider>
                 </ToastProvider>
               </AdvisoryAgreementProvider>
-            </CombineVaultDataProvider>
           </ThemeProvider>
         </QueryClientProvider>
       </WagmiProvider>

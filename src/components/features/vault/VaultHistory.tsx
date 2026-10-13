@@ -11,8 +11,11 @@ import {
   formatTransactionTypeLabel,
   transactionTypeDotClass,
 } from '@/lib/transaction-labels';
-import { getProductVaultAddresses } from '@/lib/vaults';
-import { useCombineVaultData } from '@/contexts/CombineVaultDataContext';
+import { getProductVaultAddresses, type VaultKind } from '@/lib/vaults';
+import { findVaultByAddress } from '@/lib/vault-utils';
+
+/** A user activity row, tagged with the contract it happened on when the pair's activity is merged. */
+type HistoryTransaction = Transaction & { vaultKind?: VaultKind };
 
 interface VaultHistoryProps {
   vaultData: MorphoVaultData;
@@ -20,9 +23,10 @@ interface VaultHistoryProps {
 
 export default function VaultHistory({ vaultData }: VaultHistoryProps) {
   const { address } = useAccount();
-  const { combineVaultData } = useCombineVaultData();
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [userTransactions, setUserTransactions] = useState<Transaction[]>([]);
+  const [transactions, setTransactions] = useState<HistoryTransaction[]>([]);
+  const [userTransactions, setUserTransactions] = useState<HistoryTransaction[]>([]);
+  // Merged list holds rows from both contracts of a pair: label each one.
+  const [labelKinds, setLabelKinds] = useState(false);
   const [loading, setLoading] = useState(true);
   const [showUserOnly, setShowUserOnly] = useState(true);
   const [allActivityLoaded, setAllActivityLoaded] = useState(false);
@@ -35,11 +39,11 @@ export default function VaultHistory({ vaultData }: VaultHistoryProps) {
       try {
         if (address && showUserOnly) {
           const version = vaultData.version ?? 'v2';
+          // Your activity always covers both contracts of a wrapper / underlying pair, so a
+          // move out and back shows in one list.
+          const vaultAddresses = getProductVaultAddresses(vaultData.address);
           const responses = await Promise.all(
-            (combineVaultData
-              ? getProductVaultAddresses(vaultData.address)
-              : [vaultData.address]
-            ).map((vaultAddress) =>
+            vaultAddresses.map((vaultAddress) =>
               fetch(
                 `/api/vault/${version}/${vaultAddress}/activity?chainId=${vaultData.chainId}&userAddress=${address}`,
                 { signal: abortController.signal }
@@ -54,11 +58,17 @@ export default function VaultHistory({ vaultData }: VaultHistoryProps) {
             throw new Error('Failed to fetch vault activity');
           }
           if (abortController.signal.aborted) return;
-          const merged = payloads
-            .flatMap((payload) =>
-              Array.isArray(payload.transactions) ? (payload.transactions as Transaction[]) : []
-            )
+          const perVault = payloads.map((payload, i) => {
+            const kind = findVaultByAddress(vaultAddresses[i])?.kind;
+            const rows = Array.isArray(payload.transactions)
+              ? (payload.transactions as Transaction[])
+              : [];
+            return rows.map((tx): HistoryTransaction => ({ ...tx, vaultKind: kind }));
+          });
+          const merged = perVault
+            .flat()
             .sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
+          setLabelKinds(perVault.length > 1 && (perVault[1]?.length ?? 0) > 0);
           setUserTransactions(merged);
           return;
         }
@@ -83,6 +93,7 @@ export default function VaultHistory({ vaultData }: VaultHistoryProps) {
         const allData = await responses[0].json();
         if (abortController.signal.aborted) return;
         setTransactions(allData.transactions || []);
+        setLabelKinds(false);
         setAllActivityLoaded(true);
 
         if (responses[1]) {
@@ -106,7 +117,7 @@ export default function VaultHistory({ vaultData }: VaultHistoryProps) {
     void fetchActivity();
 
     return () => abortController.abort();
-  }, [vaultData.address, vaultData.chainId, vaultData.version, address, showUserOnly, combineVaultData]);
+  }, [vaultData.address, vaultData.chainId, vaultData.version, address, showUserOnly]);
 
   const getExplorerUrl = (txHash: string) => {
     return `https://basescan.org/tx/${txHash}`;
@@ -229,6 +240,11 @@ export default function VaultHistory({ vaultData }: VaultHistoryProps) {
                           ({formatCurrency(tx.assetsUsd)})
                         </span>
                       )}
+                      {labelKinds && showUserOnly && tx.vaultKind ? (
+                        <span className="inline-flex rounded-md bg-[var(--surface)] px-1.5 py-0.5 text-[10px] font-medium leading-none text-[var(--foreground-muted)]">
+                          {tx.vaultKind === 'wrapper' ? 'Wrapper' : 'Underlying'}
+                        </span>
+                      ) : null}
                     </div>
                     <div className="flex items-center gap-2 mt-1">
                       <span className="text-xs text-[var(--foreground-secondary)]">

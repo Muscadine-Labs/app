@@ -34,9 +34,10 @@ export function computeEarnedInterestFromActivity(options: {
     totalWithdrawals += transactionToRaw(tx.assets);
   }
 
-  const netDeposits =
-    totalDeposits > totalWithdrawals ? totalDeposits - totalWithdrawals : BigInt(0);
-  const earned = currentAssetsRaw - netDeposits;
+  // Lifetime profit = what is held now + everything taken out − everything put in. Floor only
+  // the result: withdrawals can exceed deposits (interest taken out before a smaller
+  // re-deposit, e.g. a move to the wrapper and back), and that interest must still count.
+  const earned = currentAssetsRaw + totalWithdrawals - totalDeposits;
   return earned > BigInt(0) ? earned : BigInt(0);
 }
 

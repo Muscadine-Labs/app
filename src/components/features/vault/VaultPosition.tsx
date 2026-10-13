@@ -25,7 +25,7 @@ import {
 import { logger } from '@/lib/logger';
 import { useToast } from '@/contexts/ToastContext';
 import { usePrices } from '@/contexts/PriceContext';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceArea } from 'recharts';
 import { Button } from '@/components/ui';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { ERC20_BALANCE_ABI, ERC4626_ABI } from '@/lib/abis';
@@ -37,8 +37,7 @@ import { VaultEarningsBreakdown } from './VaultEarningsBreakdown';
 import { VaultTransactPanel } from './VaultTransactPanel';
 import { resolveAssetDecimals } from '@/lib/asset-decimals';
 import { BASE_CHAIN_ID } from '@/lib/constants';
-import { getProductVaultAddresses } from '@/lib/vaults';
-import { useCombineVaultData } from '@/contexts/CombineVaultDataContext';
+import { getPairedVaultAddress } from '@/lib/vaults';
 import { mergeVaultPositionSeries } from '@/lib/portfolio-utils';
 import type { Transaction } from '@/types/api';
 import type { VaultTransactionTab } from '@/hooks/useScopedVaultTransaction';
@@ -143,16 +142,17 @@ export default function VaultPosition({
   const [isTimeFrameMenuOpen, setIsTimeFrameMenuOpen] = useState(false);
   const [userPositionHistory, setUserPositionHistory] = useState<PositionHistoryPoint[]>([]);
   const [hourly30dPositionHistory, setHourly30dPositionHistory] = useState<PositionHistoryPoint[]>([]);
+  // The pair contract's own series, kept to shade the periods funds sat there.
+  const [pairPositionHistory, setPairPositionHistory] = useState<PositionHistoryPoint[]>([]);
+  const [pairHourly30dHistory, setPairHourly30dHistory] = useState<PositionHistoryPoint[]>([]);
   const [activityFlowEvents, setActivityFlowEvents] = useState<ActivityFlowEvent[] | null>(null);
   const [activityLoading, setActivityLoading] = useState(false);
   const [activityError, setActivityError] = useState(false);
 
-  const { combineVaultData } = useCombineVaultData();
-  const productVaultAddresses = useMemo(
-    () => (combineVaultData ? getProductVaultAddresses(vaultData.address) : [vaultData.address]),
-    [combineVaultData, vaultData.address]
-  );
-  const pairedVaultAddress = productVaultAddresses[1];
+  // Holding one side of a wrapper / underlying pair shows the pair as one position, so a
+  // move out and back leaves no gap. Holding both shows this vault, with a Combined toggle.
+  const pairedVaultAddress = getPairedVaultAddress(vaultData.address);
+  const [positionView, setPositionView] = useState<'vault' | 'combined'>('vault');
   const pairVault = useMemo(
     () => (pairedVaultAddress ? findVaultByAddress(pairedVaultAddress) : null),
     [pairedVaultAddress]
@@ -206,10 +206,24 @@ export default function VaultPosition({
   const currentAssetsRaw = pageAssets?.toString();
   const pairCurrentAssetsRaw = pairedVaultAddress ? pairAssets?.toString() : undefined;
 
+  const holdsBoth =
+    !!pairedVaultAddress &&
+    pageAssets !== undefined &&
+    pairAssets !== undefined &&
+    pageAssets > BigInt(0) &&
+    pairAssets > BigInt(0);
+  const showCombined = !!pairedVaultAddress && (!holdsBoth || positionView === 'combined');
+  const productVaultAddresses = useMemo(
+    () => (showCombined && pairedVaultAddress ? [vaultData.address, pairedVaultAddress] : [vaultData.address]),
+    [showCombined, pairedVaultAddress, vaultData.address]
+  );
+
   const combinedAssets = useMemo(() => {
-    if (pageAssets === undefined || pairAssets === undefined) return undefined;
+    if (pageAssets === undefined) return undefined;
+    if (!showCombined) return pageAssets;
+    if (pairAssets === undefined) return undefined;
     return pageAssets + pairAssets;
-  }, [pageAssets, pairAssets]);
+  }, [pageAssets, pairAssets, showCombined]);
 
   const pageEarnedInterest = useVaultEarnedInterest(
     isConnected ? vaultData.address : undefined,
@@ -222,7 +236,7 @@ export default function VaultPosition({
     pairCurrentAssetsRaw
   );
   const earnedInterest = useMemo(() => {
-    if (!pairedVaultAddress) return pageEarnedInterest;
+    if (!pairedVaultAddress || !showCombined) return pageEarnedInterest;
     const isLoading = pageEarnedInterest.isLoading || pairEarnedInterest.isLoading;
     if (isLoading) {
       return { ...pageEarnedInterest, isLoading: true, error: null };
@@ -254,7 +268,7 @@ export default function VaultPosition({
       isLoading: false,
       error: null,
     };
-  }, [pairedVaultAddress, pageEarnedInterest, pairEarnedInterest]);
+  }, [pairedVaultAddress, showCombined, pageEarnedInterest, pairEarnedInterest]);
   const interestDecimals = resolveAssetDecimals(
     vaultData.symbol,
     earnedInterest.assetDecimals || vaultData.assetDecimals
@@ -303,6 +317,7 @@ export default function VaultPosition({
       const userAddress = address;
       if (!userAddress) {
         setUserPositionHistory([]);
+        setPairPositionHistory([]);
         setLoading(false);
         positionHistoryLoadedRef.current = false;
         return;
@@ -336,6 +351,7 @@ export default function VaultPosition({
         setUserPositionHistory(
           mergeVaultPositionSeries(histories.filter((history) => history != null))
         );
+        setPairPositionHistory(histories[1] ?? []);
       } catch (error) {
         if (abortController.signal.aborted) return;
         if (error instanceof Error && error.name === 'AbortError') return;
@@ -345,6 +361,7 @@ export default function VaultPosition({
           { vaultAddress: productVaultAddresses[0], userAddress: address, chainId: vaultData.chainId }
         );
         setUserPositionHistory([]);
+        setPairPositionHistory([]);
         showErrorToast('Failed to load position data. Please refresh the page.', 5000);
       } finally {
         if (!abortController.signal.aborted) {
@@ -384,6 +401,7 @@ export default function VaultPosition({
       const userAddress = address;
       if (!userAddress) {
         setHourly30dPositionHistory([]);
+        setPairHourly30dHistory([]);
         return;
       }
       try {
@@ -402,11 +420,14 @@ export default function VaultPosition({
         if (abortController.signal.aborted) return;
         if (histories.some((history) => history == null)) {
           setHourly30dPositionHistory([]);
+          setPairHourly30dHistory([]);
+        setPairHourly30dHistory([]);
           return;
         }
         setHourly30dPositionHistory(
           mergeVaultPositionSeries(histories.filter((history) => history != null))
         );
+        setPairHourly30dHistory(histories[1] ?? []);
       } catch (error) {
         if (error instanceof Error && error.name === 'AbortError') return;
         // Silently fail, will fall back to daily data
@@ -420,6 +441,7 @@ export default function VaultPosition({
           }
         );
         setHourly30dPositionHistory([]);
+        setPairHourly30dHistory([]);
       }
     };
 
@@ -658,6 +680,39 @@ export default function VaultPosition({
     return domain || [0, 100];
   }, [chartData]);
 
+  // Stretches of the chart where funds sat in the pair contract, shaded so a move to the
+  // wrapper (or underlying) and back reads as part of one position. Combined view only.
+  const pairHeldBands = useMemo(() => {
+    if (!showCombined || chartData.length === 0) return [];
+    const pairPoints = [...pairPositionHistory, ...pairHourly30dHistory].sort(
+      (a, b) => a.timestamp - b.timestamp
+    );
+    if (!pairPoints.some((point) => point.assets > 0)) return [];
+
+    const bands: Array<{ x1: number; x2: number }> = [];
+    let index = 0;
+    let lastAssets = 0;
+    let bandStart: number | null = null;
+    let bandEnd = 0;
+    for (const point of chartData) {
+      while (index < pairPoints.length && pairPoints[index].timestamp <= point.timestamp) {
+        lastAssets = pairPoints[index].assets;
+        index++;
+      }
+      if (lastAssets > 0) {
+        if (bandStart === null) bandStart = point.timestamp;
+        bandEnd = point.timestamp;
+      } else if (bandStart !== null) {
+        bands.push({ x1: bandStart, x2: bandEnd });
+        bandStart = null;
+      }
+    }
+    if (bandStart !== null) bands.push({ x1: bandStart, x2: bandEnd });
+    return bands;
+  }, [showCombined, chartData, pairPositionHistory, pairHourly30dHistory]);
+
+  const pairKindLabel = pairVault?.kind === 'wrapper' ? 'Wrapper' : 'Underlying';
+
   // Helper function to calculate chart ticks based on time frame
   const getChartTicks = useMemo(() => {
     if (chartData.length === 0) return undefined;
@@ -723,6 +778,37 @@ export default function VaultPosition({
   }, [selectedTimeFrame, chartData]);
   
 
+  // Combined earned interest, split by contract, once the pair contract has earned anything.
+  const earnedSplit = useMemo(() => {
+    if (!showCombined || !pairedVaultAddress || !isConnected) return null;
+    if (pageEarnedInterest.isLoading || pairEarnedInterest.isLoading) return null;
+    if (pageEarnedInterest.error || pairEarnedInterest.error) return null;
+    const toBig = (raw: string) => {
+      try {
+        return BigInt(raw || '0');
+      } catch {
+        return BigInt(0);
+      }
+    };
+    const pageRaw = toBig(pageEarnedInterest.earnedInterestRaw);
+    const pairRaw = toBig(pairEarnedInterest.earnedInterestRaw);
+    if (pairRaw <= BigInt(0)) return null;
+    const pageLabel = vaultData.kind === 'wrapper' ? 'Wrapper' : 'Underlying';
+    const format = (raw: bigint) =>
+      formatVaultDetailTokenAmount(raw.toString(), interestDecimals, vaultData.symbol);
+    return `${pageLabel} ${format(pageRaw)} · ${pairKindLabel} ${format(pairRaw)}`;
+  }, [
+    showCombined,
+    pairedVaultAddress,
+    isConnected,
+    pageEarnedInterest,
+    pairEarnedInterest,
+    vaultData.kind,
+    vaultData.symbol,
+    interestDecimals,
+    pairKindLabel,
+  ]);
+
   const formatChartValue = useCallback(
     (value: number) => {
       if (valueType === 'usd') {
@@ -738,7 +824,32 @@ export default function VaultPosition({
       header={
         <div className="flex items-start justify-between gap-6">
           <div className="min-w-0">
-            <p className="text-xs text-[var(--foreground-secondary)] mb-1">Your Position</p>
+            <div className="flex items-center gap-2 mb-1">
+              <p className="text-xs text-[var(--foreground-secondary)]">Your Position</p>
+              {holdsBoth ? (
+                <div
+                  role="group"
+                  aria-label="Position view"
+                  className="inline-flex items-center rounded-md border border-[var(--border-subtle)] p-0.5"
+                >
+                  {(['vault', 'combined'] as const).map((view) => (
+                    <button
+                      key={view}
+                      type="button"
+                      aria-pressed={positionView === view}
+                      onClick={() => setPositionView(view)}
+                      className={`px-2 py-0.5 text-[10px] font-medium rounded transition-colors cursor-pointer ${
+                        positionView === view
+                          ? 'bg-[var(--primary)] text-white'
+                          : 'text-[var(--foreground-secondary)] hover:text-[var(--foreground)]'
+                      }`}
+                    >
+                      {view === 'vault' ? 'This vault' : 'Combined'}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
             {!isConnected ? (
               <p className="text-sm text-[var(--foreground-muted)]">Connect wallet</p>
             ) : positionRawValue === null ? (
@@ -763,7 +874,7 @@ export default function VaultPosition({
                 <p className="text-xs text-[var(--foreground-secondary)] mt-1">
                   {formatPositionUsd(userVaultTotalUsd)}
                 </p>
-                {pairedVaultAddress && pairAssets !== undefined && pairAssets > BigInt(0) ? (
+                {showCombined && pairedVaultAddress && pairAssets !== undefined && pairAssets > BigInt(0) ? (
                   <p className="text-xs text-[var(--foreground-muted)] mt-1">
                     Includes{' '}
                     {formatVaultDetailTokenAmount(
@@ -786,16 +897,23 @@ export default function VaultPosition({
             )}
           </div>
 
-          <VaultEarningsBreakdown
-            symbol={vaultData.symbol}
-            decimals={interestDecimals}
-            allTimeRaw={
-              earnedInterest.error ? '' : earnedInterest.earnedInterestRaw || '0'
-            }
-            allTimeUsd={earnedInterest.error ? 0 : earnedInterest.earnedInterestUsd}
-            isConnected={isConnected}
-            isLoading={earnedInterest.isLoading}
-          />
+          <div className="flex flex-col items-end gap-1 min-w-0">
+            <VaultEarningsBreakdown
+              symbol={vaultData.symbol}
+              decimals={interestDecimals}
+              allTimeRaw={
+                earnedInterest.error ? '' : earnedInterest.earnedInterestRaw || '0'
+              }
+              allTimeUsd={earnedInterest.error ? 0 : earnedInterest.earnedInterestUsd}
+              isConnected={isConnected}
+              isLoading={earnedInterest.isLoading}
+            />
+            {earnedSplit ? (
+              <p className="text-[10px] text-right text-[var(--foreground-muted)] tabular-nums">
+                {earnedSplit}
+              </p>
+            ) : null}
+          </div>
         </div>
       }
       action={
@@ -1051,6 +1169,17 @@ export default function VaultPosition({
                         );
                       }}
                     />
+                    {pairHeldBands.map((band) => (
+                      <ReferenceArea
+                        key={`${band.x1}-${band.x2}`}
+                        x1={band.x1}
+                        x2={band.x2}
+                        fill="var(--foreground-muted)"
+                        fillOpacity={0.08}
+                        stroke="none"
+                        ifOverflow="hidden"
+                      />
+                    ))}
                     <Area
                       type="monotone"
                       dataKey="value"
@@ -1064,6 +1193,13 @@ export default function VaultPosition({
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
+              {pairHeldBands.length > 0 ? (
+                <p className="mt-2 shrink-0 flex items-center gap-1.5 text-[10px] text-[var(--foreground-muted)]">
+                  <span className="inline-block h-2.5 w-2.5 rounded-sm bg-[var(--foreground-muted)] opacity-20" />
+                  Shaded: held in {pairKindLabel}
+                  {pairVault?.vaultSymbol ? ` (${pairVault.vaultSymbol})` : ''}
+                </p>
+              ) : null}
             </div>
           ) : (
             <div className="bg-[var(--surface-elevated)] rounded-lg p-6 text-center">

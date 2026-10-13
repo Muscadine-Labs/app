@@ -431,3 +431,37 @@ export function selectVaultKindMarkAddresses(listedVaults: readonly Vault[]): Se
   }
   return marks;
 }
+
+/** A wrapper / underlying pair shown as one family row, or a lone vault. Underlying first. */
+export interface VaultFamily {
+  /** Lowercase underlying address (or the vault's own address when it has no pair). */
+  key: string;
+  members: Vault[];
+}
+
+/** Group listed vaults into families, keeping the list's order of first appearance. */
+export function groupVaultFamilies(vaults: readonly Vault[]): VaultFamily[] {
+  const families: VaultFamily[] = [];
+  const byKey = new Map<string, VaultFamily>();
+  for (const vault of vaults) {
+    const hasPair = getPairedVaultAddress(vault.address) !== undefined;
+    const key = (
+      hasPair && vault.kind === 'wrapper' && vault.underlyingAddress
+        ? vault.underlyingAddress
+        : vault.address
+    ).toLowerCase();
+    let family = byKey.get(key);
+    if (!family) {
+      family = { key, members: [] };
+      byKey.set(key, family);
+      families.push(family);
+    }
+    family.members.push(vault);
+  }
+  for (const family of families) {
+    family.members.sort(
+      (a, b) => (a.kind === 'wrapper' ? 1 : 0) - (b.kind === 'wrapper' ? 1 : 0)
+    );
+  }
+  return families;
+}
