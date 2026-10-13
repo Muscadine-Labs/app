@@ -177,13 +177,16 @@ All vault writes go through **`src/lib/transactionUtilsV2.ts`**. ERC-4626 ops an
 
 | Concern | Source |
 |---------|--------|
-| **Live Morpho positions** | `/api/user/morpho-positions` → `WalletContext` (not per-vault RPC) |
+| **Your balances (registry vaults)** | On chain: `readRegistryVaultBalances` (`lib/onchain-positions.ts`, `balanceOf` + `convertToAssets` multicalls) merged into `WalletContext.morphoHoldings`, priced with live token prices. Vault page position and the withdraw max also read on chain. |
+| **Live Morpho positions** | `/api/user/morpho-positions` → `WalletContext`: profit (`pnl`) and non-registry vaults; registry balances are replaced by the on-chain read |
 | **Liquid balances** | Alchemy + wagmi in `WalletContext` |
 | **Position history (charts)** | `vaultV2PositionByAddress` → `history` via `/api/vault/v2/.../position-history` |
 | **Earned interest** | Morpho `pnl` or activity-based fallback via `/api/vault/v2/.../earned-interest` |
 | **Vault TVL / APY** | `vaultV2ByAddress` via `/api/vault/v2/.../complete` and `history` |
 | **Headline APY** | Morpho `netApy` (current allocation-weighted; fallbacks `apy` / `avgNetApy` / `avgNetApyExcludingRewards`) |
-| **Liquidity in UI** | GraphQL `liquidity` / `liquidityUsd`, not `totalAssets` |
+| **Liquidity in UI** | GraphQL `liquidity` / `liquidityUsd`, not `totalAssets` (wrappers too; the withdraw cap is read on chain at send time) |
+
+**Rule:** anything about the user's own money (position, deposit / withdraw amounts, share balance) comes from on-chain RPC. Vault-level data (deposits, TVL, APY, liquidity, token prices) and every chart come from APIs. Earned interest is Morpho `pnl`, with an activity-based fallback against the on-chain balance.
 
 Share tokens use **18 decimals**; underlying assets use registry decimals (USDC **6**, cbBTC **8**, WETH **18**).
 
@@ -216,7 +219,7 @@ Direct ERC-4626 for deposit, plain withdraw, and redeem. Force exits use vault `
 
 **Force withdraw** (`src/lib/force-withdraw-v2.ts`): when requested assets exceed instant liquidity, plan a cash exit. Warning modal shows estimated penalty, risks, and **Force withdraw**, plus **Open vault on Morpho**. If markets cannot cover the shortfall, the input is capped at the reachable amount. The plan is rebuilt from fresh on-chain reads immediately before it is sent. Instant liquidity for planning is always read on-chain (idle + what the liquidity adapter's route market can pay), never taken from the API.
 
-**Wrappers have no force exit** (it needed Bundler3, which the app does not use). `planForceWithdrawV2` returns `null` when a wrapper withdraw fits its instant liquidity (`readWrapperInstantAssets`: wrapper idle + what its adapter can pull from the underlying now, capped by the wrapper's position there), and otherwise throws `ForceWithdrawShortfallError` so the input is capped. The `complete` route overrides a wrapper's liquidity with the same on-chain read (4s timeout, falls back to Morpho).
+**Wrappers have no force exit** (it needed Bundler3, which the app does not use). `planForceWithdrawV2` returns `null` when a wrapper withdraw fits its instant liquidity (`readWrapperInstantAssets`: wrapper idle + what its adapter can pull from the underlying now, capped by the wrapper's position there), and otherwise throws `ForceWithdrawShortfallError` so the input is capped.
 
 Vault `multicall` of `forceDeallocate` × N + `withdraw` or **`redeem` (MAX)** from Morpho Blue market adapters (`abi.encode(marketParams)`). Planner reads on-chain market cash. The liquidity route market (`liquidityAdapter` + `liquidityData`) is never force-deallocated: it is already counted as instant liquidity, and draining it first makes the final withdraw revert. Vault V2 `maxWithdraw` is never used.
 

@@ -1,9 +1,9 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { useAccount } from 'wagmi';
+import { useAccount, usePublicClient } from 'wagmi';
 import { useBalance, useReadContract } from 'wagmi';
-import { formatUnits } from 'viem';
+import { formatUnits, getAddress, type PublicClient } from 'viem';
 import type { AlchemyTokenBalancesResponse, AlchemyTokenMetadataResponse, AlchemyTokenBalance } from '@/types/api';
 import { formatCurrency } from '@/lib/formatter';
 import { logger } from '@/lib/logger';
@@ -14,7 +14,9 @@ import {
   TOKEN_ADDRESSES_LOWER,
 } from '@/lib/constants';
 import { findVaultByAddress } from '@/lib/vault-utils';
-import type { VaultStrategy } from '@/lib/vaults';
+import { getRegistryVaultList, type VaultStrategy } from '@/lib/vaults';
+import { readRegistryVaultBalances, type OnChainVaultBalance } from '@/lib/onchain-positions';
+import { getAssetDecimalsForSymbol, rawAmountToDecimal } from '@/lib/asset-decimals';
 
 export interface TokenBalance {
   address: string;
@@ -229,11 +231,72 @@ async function requestAlchemyTokenBalances(
   }
 }
 
+/**
+ * Registry vault balances come from the chain: share balance and asset value replace the
+ * Morpho API's (which can lag or fail), and a vault held on chain but missing from the API
+ * gets a row. The API still supplies profit (pnl) and every non-registry vault. USD for a
+ * registry row is filled from live prices later (`assetsUsd` undefined here).
+ */
+function mergeOnChainBalances(
+  apiPositions: VaultPosition[],
+  onChain: Record<string, OnChainVaultBalance> | null
+): VaultPosition[] {
+  if (!onChain) return apiPositions;
+  const seen = new Set<string>();
+  const merged = apiPositions.map((position) => {
+    const key = position.vault.address.toLowerCase();
+    const balance = onChain[key];
+    if (!balance) return position;
+    seen.add(key);
+    return {
+      ...position,
+      shares: balance.shares.toString(),
+      assets: balance.assets.toString(),
+      assetsUsd: balance.assets === BigInt(0) ? 0 : undefined,
+    };
+  });
+  for (const vault of getRegistryVaultList()) {
+    const key = vault.address.toLowerCase();
+    const balance = onChain[key];
+    if (seen.has(key) || !balance || balance.shares === BigInt(0)) continue;
+    merged.push({
+      version: 'v2',
+      vault: {
+        address: vault.address,
+        name: vault.name,
+        symbol: vault.symbol,
+        vaultSymbol: vault.vaultSymbol,
+        strategy: vault.strategy,
+        isCurated: true,
+        state: { sharePriceUsd: 0, totalAssetsUsd: 0, totalSupply: '0' },
+      },
+      shares: balance.shares.toString(),
+      assets: balance.assets.toString(),
+      assetsUsd: undefined,
+      assetDecimals: getAssetDecimalsForSymbol(vault.symbol),
+    });
+  }
+  return merged;
+}
+
+async function readOnChainBalances(
+  publicClient: PublicClient | undefined,
+  wallet: string
+): Promise<Record<string, OnChainVaultBalance> | null> {
+  if (!publicClient) return null;
+  try {
+    return await readRegistryVaultBalances(publicClient, getAddress(wallet));
+  } catch {
+    return null;
+  }
+}
+
 export function WalletProvider({ children }: { children: React.ReactNode }) {
   const { address, isConnected } = useAccount();
+  const publicClient = usePublicClient({ chainId: BASE_CHAIN_ID });
   const [tokenPrices, setTokenPrices] = useState<Record<string, number>>({});
   const [alchemyTokenBalances, setAlchemyTokenBalances] = useState<TokenBalance[]>([]);
-  const [morphoHoldings, setMorphoHoldings] = useState<MorphoHoldings>({
+  const [rawMorphoHoldings, setMorphoHoldings] = useState<MorphoHoldings>({
     totalValueUsd: 0,
     positions: [],
     isLoading: false,
@@ -506,6 +569,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
         : {}),
     }));
 
+    const onChainPromise = readOnChainBalances(publicClient, requestedAddress);
     const url = `/api/user/morpho-positions?address=${encodeURIComponent(requestedAddress)}&chainId=${BASE_CHAIN_ID}&includeEmpty=true`;
     // Server already retries Morpho; keep client retries light and only when retryable.
     const maxAttempts = 2;
@@ -565,10 +629,14 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
           status: morphoResponse.status,
           message,
         });
-        // Keep last successful snapshot for this wallet (already cleared on address change).
-        // Always settle resolvedAddress so underlying pages do not hang on Morpho errors.
+        // Keep last successful snapshot for this wallet (already cleared on address change),
+        // with registry balances from the chain. Always settle resolvedAddress so underlying
+        // pages do not hang on Morpho errors.
+        const onChain = await onChainPromise;
+        if (!isCurrent()) return 'aborted';
         setMorphoHoldings((prev) => ({
           ...prev,
+          positions: mergeOnChainBalances(prev.positions, onChain),
           isLoading: false,
           error: message,
           resolvedAddress: requestedAddress,
@@ -628,14 +696,17 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
         }
       );
 
-      const totalValueUsd = positions.reduce(
+      const onChain = await onChainPromise;
+      if (!isCurrent()) return 'aborted';
+      const mergedPositions = mergeOnChainBalances(positions, onChain);
+      const totalValueUsd = mergedPositions.reduce(
         (sum, position) => sum + (position.assetsUsd ?? 0),
         0
       );
 
       setMorphoHoldings({
         totalValueUsd,
-        positions,
+        positions: mergedPositions,
         isLoading: false,
         error: null,
         resolvedAddress: requestedAddress,
@@ -652,15 +723,18 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       logger.error('Failed to fetch vault positions', err instanceof Error ? err : new Error(String(err)), {
         address: requestedAddress,
       });
+      const onChain = await onChainPromise;
+      if (!isCurrent()) return 'aborted';
       setMorphoHoldings((prev) => ({
         ...prev,
+        positions: mergeOnChainBalances(prev.positions, onChain),
         isLoading: false,
         error: err instanceof Error ? err.message : 'Failed to fetch vault positions',
         resolvedAddress: requestedAddress,
       }));
       return 'retryable';
     }
-  }, []);
+  }, [publicClient]);
 
   const performRefresh = useCallback(async (walletAddress?: string): Promise<void> => {
     if (!walletAddress) return;
@@ -892,6 +966,36 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       usdValue: wethUsdValue,
     }] : []),
   ];
+
+  // Registry rows read on chain carry no USD yet: price them from live token prices.
+  const morphoHoldings = useMemo<MorphoHoldings>(() => {
+    const priceFor = (symbol: string) => {
+      const upper = symbol.toUpperCase();
+      if (upper === 'USDC') return tokenPrices.usdc || 1;
+      if (upper === 'WETH' || upper === 'ETH') return tokenPrices.weth || tokenPrices.eth || 0;
+      if (upper === 'CBBTC' || upper === 'BTC') return tokenPrices.cbbtc || 0;
+      return tokenPrices[symbol.toLowerCase()] || 0;
+    };
+    let changed = false;
+    const positions = rawMorphoHoldings.positions.map((position) => {
+      if (position.assetsUsd !== undefined) return position;
+      changed = true;
+      const decimals = position.assetDecimals ?? getAssetDecimalsForSymbol(position.vault.symbol);
+      let assetsDecimal = 0;
+      try {
+        assetsDecimal = rawAmountToDecimal(BigInt(position.assets ?? '0'), decimals);
+      } catch {
+        assetsDecimal = 0;
+      }
+      return { ...position, assetsUsd: assetsDecimal * priceFor(position.vault.symbol) };
+    });
+    if (!changed) return rawMorphoHoldings;
+    return {
+      ...rawMorphoHoldings,
+      positions,
+      totalValueUsd: positions.reduce((sum, position) => sum + (position.assetsUsd ?? 0), 0),
+    };
+  }, [rawMorphoHoldings, tokenPrices]);
 
   // Remove duplicates, skip Morpho vault share tokens (already in Vaults USD),
   // and drop impostor-priced dust from the liquid total.

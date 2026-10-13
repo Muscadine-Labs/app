@@ -526,7 +526,7 @@ async function readVaultCashLiquidity(
  * What a plain withdraw on a fee wrapper can pay now: its idle cash plus what its liquidity
  * adapter can pull from the underlying vault (capped by the wrapper's position there).
  */
-export async function readWrapperInstantAssets(
+async function readWrapperInstantAssets(
   publicClient: PublicClient,
   wrapper: Address,
   underlying: Address

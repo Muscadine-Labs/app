@@ -8,7 +8,7 @@ import { useWallet } from '@/contexts/WalletContext';
 import { useVaultData } from '@/contexts/VaultDataContext';
 import { BASE_CHAIN_ID } from '@/lib/constants';
 import { formatBigIntForInput } from '@/lib/formatter';
-import { ERC4626_ABI } from '@/lib/abis';
+import { ERC20_BALANCE_ABI, ERC4626_ABI } from '@/lib/abis';
 import { getAssetDecimalsForSymbol } from '@/lib/asset-decimals';
 import { parseTransactionAmount } from '@/lib/liquidity-utils';
 import {
@@ -72,7 +72,7 @@ export function useScopedVaultTransaction({
   isOpen,
   initialTab,
 }: UseScopedVaultTransactionOptions) {
-  const { isConnected } = useAccount();
+  const { isConnected, address: walletAddress } = useAccount();
   const { tokenBalances, morphoHoldings, refreshBalances } = useWallet();
   const { fetchVaultData } = useVaultData();
   const {
@@ -103,7 +103,22 @@ export function useScopedVaultTransaction({
     [morphoHoldings.positions, vaultAddress]
   );
 
-  const vaultShareBalance = vaultPosition?.shares ?? null;
+  // Share balance read on chain, so a withdraw still works when the Morpho positions API
+  // fails or has not indexed this vault yet. Falls back to the API value while it loads.
+  const { data: onChainShares, refetch: refetchOnChainShares } = useReadContract({
+    address: walletAddress ? (vaultAddress as `0x${string}`) : undefined,
+    chainId: BASE_CHAIN_ID,
+    abi: ERC20_BALANCE_ABI,
+    functionName: 'balanceOf',
+    args: walletAddress ? [walletAddress] : undefined,
+    query: { enabled: !!walletAddress },
+  });
+  useEffect(() => {
+    if (walletAddress) void refetchOnChainShares();
+  }, [walletAddress, morphoHoldings.positions, refetchOnChainShares]);
+
+  const vaultShareBalance =
+    onChainShares !== undefined ? onChainShares.toString() : vaultPosition?.shares ?? null;
 
   const vaultShareBalanceBn = useMemo((): bigint | null => {
     if (!vaultShareBalance) return null;
