@@ -8,10 +8,13 @@ import { Vault, getVaultLogo } from '@/types/vault';
 import type { MorphoVaultData } from '@/types/vault';
 import { useVaultData } from '@/contexts/VaultDataContext';
 import { useWallet } from '@/contexts/WalletContext';
+import { useCombineVaultData } from '@/contexts/CombineVaultDataContext';
+import { getPairedVaultAddress } from '@/lib/vaults';
 import { VaultName } from '@/components/features/vault/VaultName';
 import {
   getVaultRoute,
   closedPairEarnedPnl,
+  selectVaultKindMarkAddresses,
   hasOnChainVaultShares,
   isCuratedVaultAddress,
   resolvePositionAssetsUsd,
@@ -29,6 +32,7 @@ import { formatUnits } from 'viem';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useIsClient } from '@/hooks/useClientOnly';
 import { useVaultEarnedInterest } from '@/hooks/useVaultEarnedInterest';
+import { useVaultDepositGates } from '@/hooks/useVaultDepositGates';
 import { resolveAssetDecimals } from '@/lib/asset-decimals';
 import {
   resolveTotalUnderlyingLiquidityAssets,
@@ -189,17 +193,41 @@ function MobileStatBlock({
   );
 }
 
+function flooredPnlRaw(raw: string | undefined): string | undefined {
+  if (raw === undefined) return undefined;
+  try {
+    const value = BigInt(raw);
+    return value > BigInt(0) ? value.toString() : '0';
+  } catch {
+    return '0';
+  }
+}
+
 function EarnedInterestCell({
   vault,
   decimals,
   align = 'end',
+  combinePair = false,
 }: {
   vault: Vault;
   decimals: number;
   align?: 'start' | 'end';
+  /** Dashboard row that stands for both contracts of a held pair: add the pair's profit. */
+  combinePair?: boolean;
 }) {
   const { address } = useAccount();
   const { morphoHoldings } = useWallet();
+  const { combineVaultData } = useCombineVaultData();
+
+  const pairPosition = useMemo(() => {
+    if (!combinePair || !combineVaultData) return null;
+    const pairAddress = getPairedVaultAddress(vault.address)?.toLowerCase();
+    if (!pairAddress) return null;
+    const position = morphoHoldings.positions.find(
+      (item) => item.vault.address.toLowerCase() === pairAddress
+    );
+    return position && hasOnChainVaultShares(position) ? position : null;
+  }, [combinePair, combineVaultData, morphoHoldings.positions, vault.address]);
 
   const walletPosition = useMemo(
     () =>
@@ -222,6 +250,13 @@ function EarnedInterestCell({
       : undefined,
     vault.symbol,
     walletPosition?.assets
+  );
+  const pairHookData = useVaultEarnedInterest(
+    address && pairPosition && pairPosition.pnlRaw === undefined
+      ? pairPosition.vault.address
+      : undefined,
+    vault.symbol,
+    pairPosition?.assets
   );
 
   if (!address) {
@@ -251,17 +286,27 @@ function EarnedInterestCell({
   const ownUsd =
     walletPosition.pnlUsd ??
     (hookData.isLoading ? undefined : hookData.earnedInterestUsd);
-  const flooredOwnRaw = (() => {
-    if (ownRaw === undefined) return undefined;
-    try {
-      const value = BigInt(ownRaw);
-      return value > BigInt(0) ? value.toString() : '0';
-    } catch {
-      return '0';
-    }
-  })();
+  const flooredOwnRaw = flooredPnlRaw(ownRaw);
   const flooredOwnUsd = ownUsd === undefined ? undefined : Math.max(0, ownUsd);
-  const closedPair = closedPairEarnedPnl(morphoHoldings.positions, vault.address);
+  // Combined: a closed pair's profit rides on this row; a held pair folded into this row adds its own.
+  const heldPair = pairPosition
+    ? {
+        pnlRaw: flooredPnlRaw(
+          pairPosition.pnlRaw ??
+            (pairHookData.isLoading ? undefined : pairHookData.earnedInterestRaw || '0')
+        ),
+        pnlUsd:
+          pairPosition.pnlUsd ??
+          (pairHookData.isLoading ? undefined : pairHookData.earnedInterestUsd),
+      }
+    : null;
+  if (heldPair && (heldPair.pnlRaw === undefined || heldPair.pnlUsd === undefined)) {
+    return <Skeleton width="4rem" height="1rem" className={skeletonClass} />;
+  }
+  const closedPair = combineVaultData
+    ? closedPairEarnedPnl(morphoHoldings.positions, vault.address) ??
+      (heldPair ? { pnlRaw: heldPair.pnlRaw!, pnlUsd: Math.max(0, heldPair.pnlUsd!) } : null)
+    : null;
   const earnedInterestRaw = (() => {
     if (flooredOwnRaw === undefined) return undefined;
     if (!closedPair) return flooredOwnRaw;
@@ -301,7 +346,12 @@ function EarnedInterestCell({
   );
 }
 
-function VaultExplorerMobileCard({ vault, showYourPosition }: VaultExplorerRowProps) {
+function VaultExplorerMobileCard({
+  vault,
+  showYourPosition,
+  showKind,
+  restricted,
+}: VaultExplorerRowProps) {
   const router = useRouter();
   const { getVaultData, isLoading } = useVaultData();
   const vaultData = getVaultData(vault.address);
@@ -331,7 +381,8 @@ function VaultExplorerMobileCard({ vault, showYourPosition }: VaultExplorerRowPr
         <VaultLogo vault={vault} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap min-w-0">
-            <VaultName name={vault.name} />
+            <VaultName name={vault.name} kind={vault.kind} showKind={showKind} />
+            {restricted ? <RestrictedMark /> : null}
             <span className="inline-flex rounded-md bg-[var(--surface-elevated)] px-2 py-0.5 text-[10px] font-medium text-[var(--foreground-secondary)]">
               Base
             </span>
@@ -397,8 +448,12 @@ function DashboardVaultMobileCard({
   positionUsd,
   loading,
   vaultData,
+  showKind,
+  combinePair,
 }: {
   vault: Vault;
+  showKind?: boolean;
+  combinePair?: boolean;
   positionAssets?: string;
   positionUsd: number;
   loading: boolean;
@@ -432,7 +487,7 @@ function DashboardVaultMobileCard({
       <div className="flex items-start gap-2.5 mb-2">
         <VaultLogo vault={vault} />
         <div className="min-w-0 flex-1">
-          <VaultName name={vault.name} lines={2} />
+          <VaultName name={vault.name} lines={2} kind={vault.kind} showKind={showKind} />
           <VaultShareLabel vault={vault} />
           <span className="text-[10px] text-[var(--foreground-muted)] block">
             {isCurated ? 'Whitelisted' : 'External'}
@@ -461,7 +516,12 @@ function DashboardVaultMobileCard({
           )}
         </MobileStatBlock>
         <MobileStatBlock label="Earned Interest">
-          <EarnedInterestCell vault={vault} decimals={decimals} align="start" />
+          <EarnedInterestCell
+            vault={vault}
+            decimals={decimals}
+            align="start"
+            combinePair={combinePair}
+          />
         </MobileStatBlock>
         <MobileStatBlock label="APY / TVL">
           {loading || !vaultData ? (
@@ -582,9 +642,24 @@ function PositionCell({
 interface VaultExplorerRowProps {
   vault: Vault;
   showYourPosition: boolean;
+  /** Label Wrapper / Underlying (both contracts of the pair are listed). */
+  showKind?: boolean;
+  /** Listed, but this wallet cannot deposit (send-assets gate says no). */
+  restricted?: boolean;
 }
 
-function VaultExplorerRow({ vault, showYourPosition }: VaultExplorerRowProps) {
+function RestrictedMark() {
+  return (
+    <span
+      className="shrink-0 inline-flex rounded-md bg-[var(--surface-elevated)] px-1.5 py-0.5 text-[10px] font-medium leading-none text-[var(--warning)] whitespace-nowrap"
+      title="Deposits are limited to approved wallets. Withdrawals stay open."
+    >
+      Approved wallets only
+    </span>
+  );
+}
+
+function VaultExplorerRow({ vault, showYourPosition, showKind, restricted }: VaultExplorerRowProps) {
   const router = useRouter();
   const { getVaultData, isLoading } = useVaultData();
   const vaultData = getVaultData(vault.address);
@@ -623,7 +698,8 @@ function VaultExplorerRow({ vault, showYourPosition }: VaultExplorerRowProps) {
           <VaultLogo vault={vault} />
           <div className="min-w-0">
             <div className="flex items-center gap-2 min-w-0">
-              <VaultName name={vault.name} />
+              <VaultName name={vault.name} kind={vault.kind} showKind={showKind} />
+              {restricted ? <RestrictedMark /> : null}
               {!isCurated ? (
                 <span className="shrink-0 text-[10px] text-[var(--foreground-muted)]">
                   External
@@ -692,6 +768,9 @@ export default function VaultExplorerTable({
   const isMounted = useIsClient();
   const { isConnected } = useAccount();
   const showYourPosition = isConnected;
+  const kindMarks = useMemo(() => selectVaultKindMarkAddresses(vaults), [vaults]);
+  const { blockedVaultAddresses } = useVaultDepositGates();
+  const isRestricted = (vault: Vault) => blockedVaultAddresses.has(vault.address.toLowerCase());
 
   if (!isMounted) {
     return (
@@ -717,6 +796,8 @@ export default function VaultExplorerTable({
             key={vault.address}
             vault={vault}
             showYourPosition={showYourPosition}
+            showKind={kindMarks.has(vault.address.toLowerCase())}
+            restricted={isRestricted(vault)}
           />
         ))}
       </div>
@@ -743,6 +824,8 @@ export default function VaultExplorerTable({
               key={vault.address}
               vault={vault}
               showYourPosition={showYourPosition}
+              showKind={kindMarks.has(vault.address.toLowerCase())}
+              restricted={isRestricted(vault)}
             />
           ))}
         </tbody>
@@ -844,6 +927,56 @@ export function DashboardVaultTable({
   const { morphoHoldings } = useWallet();
   const { getVaultData, isLoading } = useVaultData();
   const { address } = useAccount();
+  const { combineVaultData } = useCombineVaultData();
+
+  // Combined: a held wrapper / underlying pair is one row (the larger side, since `vaults`
+  // is sorted by position), showing both contracts' position and profit.
+  const rows = useMemo(() => {
+    const listed = new Set(vaults.map((vault) => vault.address.toLowerCase()));
+    const folded = new Set<string>();
+    const result: Array<{ vault: Vault; pairAddress?: string }> = [];
+    for (const vault of vaults) {
+      const key = vault.address.toLowerCase();
+      if (folded.has(key)) continue;
+      const pairAddress = combineVaultData
+        ? getPairedVaultAddress(vault.address)?.toLowerCase()
+        : undefined;
+      if (pairAddress && listed.has(pairAddress)) {
+        folded.add(pairAddress);
+        const pairSymbol = vaults.find((item) => item.address.toLowerCase() === pairAddress)
+          ?.vaultSymbol;
+        result.push({
+          vault: pairSymbol
+            ? { ...vault, vaultSymbol: `${vault.vaultSymbol ?? vault.symbol} + ${pairSymbol}` }
+            : vault,
+          pairAddress,
+        });
+      } else {
+        result.push({ vault });
+      }
+    }
+    return result;
+  }, [vaults, combineVaultData]);
+  const kindMarks = useMemo(() => selectVaultKindMarkAddresses(rows.map((row) => row.vault)), [rows]);
+
+  const resolveRowPosition = (vault: Vault, pairAddress: string | undefined, decimals: number) => {
+    const find = (target: string) =>
+      morphoHoldings.positions.find(
+        (item) => item.vault.address.toLowerCase() === target.toLowerCase()
+      );
+    const position = find(vault.address);
+    const usdOf = (item: typeof position) =>
+      item ? resolvePositionAssetsUsd(item, { assetDecimals: decimals, symbol: vault.symbol }) : 0;
+    const pair = pairAddress ? find(pairAddress) : undefined;
+    if (!pair) return { position, assets: position?.assets, usd: usdOf(position) };
+    let assets = position?.assets;
+    try {
+      assets = (BigInt(position?.assets ?? '0') + BigInt(pair.assets ?? '0')).toString();
+    } catch {
+      // Keep this contract's amount if either value is malformed.
+    }
+    return { position, assets, usd: usdOf(position) + usdOf(pair) };
+  };
 
   if (!isMounted) {
     return (
@@ -891,25 +1024,22 @@ export function DashboardVaultTable({
     // Container width (not viewport): half-column dashboards stay on cards until wide enough for the table.
     <div className="@container min-w-0">
       <div className="@min-[640px]:hidden">
-        {vaults.map((vault) => {
+        {rows.map(({ vault, pairAddress }) => {
           const vaultData = getVaultData(vault.address) as MorphoVaultData | null;
           const loading = isLoading(vault.address);
-          const position = morphoHoldings.positions.find(
-            (item) => item.vault.address.toLowerCase() === vault.address.toLowerCase()
-          );
           const decimals = resolveAssetDecimals(vault.symbol, vaultData?.assetDecimals);
-          const positionUsd = position
-            ? resolvePositionAssetsUsd(position, { assetDecimals: decimals, symbol: vault.symbol })
-            : 0;
+          const row = resolveRowPosition(vault, pairAddress, decimals);
 
           return (
             <DashboardVaultMobileCard
               key={vault.address}
               vault={vault}
-              positionAssets={position?.assets}
-              positionUsd={positionUsd}
+              positionAssets={row.assets}
+              positionUsd={row.usd}
               loading={loading}
               vaultData={vaultData}
+              showKind={kindMarks.has(vault.address.toLowerCase())}
+              combinePair={!!pairAddress}
             />
           );
         })}
@@ -920,16 +1050,15 @@ export function DashboardVaultTable({
         <DashboardVaultColGroup />
         <DashboardVaultTableHead />
         <tbody>
-          {vaults.map((vault) => {
+          {rows.map(({ vault, pairAddress }) => {
             const vaultData = getVaultData(vault.address) as MorphoVaultData | null;
             const loading = isLoading(vault.address);
-            const position = morphoHoldings.positions.find(
-              (item) => item.vault.address.toLowerCase() === vault.address.toLowerCase()
-            );
             const decimals = resolveAssetDecimals(vault.symbol, vaultData?.assetDecimals);
-            const positionUsd = position
-              ? resolvePositionAssetsUsd(position, { assetDecimals: decimals, symbol: vault.symbol })
-              : 0;
+            const { position, assets: positionAssets, usd: positionUsd } = resolveRowPosition(
+              vault,
+              pairAddress,
+              decimals
+            );
 
             const openVault = () => {
               if (!isCuratedVaultAddress(vault.address)) return;
@@ -959,7 +1088,12 @@ export function DashboardVaultTable({
                   <div className="flex items-start gap-2 min-w-0">
                     <VaultLogo vault={vault} size={28} />
                     <div className="min-w-0 flex-1">
-                      <VaultName name={vault.name} lines={2} />
+                      <VaultName
+                        name={vault.name}
+                        lines={2}
+                        kind={vault.kind}
+                        showKind={kindMarks.has(vault.address.toLowerCase())}
+                      />
                       <VaultShareLabel vault={vault} />
                     </div>
                   </div>
@@ -969,7 +1103,7 @@ export function DashboardVaultTable({
                     <Skeleton width="4.5rem" height="1rem" className="ml-auto" />
                   ) : hasOnChainVaultShares(position) ? (
                     <DashboardTokenValue
-                      rawValue={position?.assets}
+                      rawValue={positionAssets}
                       decimals={decimals}
                       symbol={vault.symbol}
                       usd={positionUsd}
@@ -979,7 +1113,11 @@ export function DashboardVaultTable({
                   )}
                 </td>
                 <td className={DASHBOARD_VALUE_CELL}>
-                  <EarnedInterestCell vault={vault} decimals={decimals} />
+                  <EarnedInterestCell
+                    vault={vault}
+                    decimals={decimals}
+                    combinePair={!!pairAddress}
+                  />
                 </td>
                 <td className={DASHBOARD_VALUE_CELL}>
                   {loading || !vaultData ? (

@@ -12,6 +12,7 @@ import {
   transactionTypeDotClass,
 } from '@/lib/transaction-labels';
 import { getProductVaultAddresses } from '@/lib/vaults';
+import { useCombineVaultData } from '@/contexts/CombineVaultDataContext';
 
 interface VaultHistoryProps {
   vaultData: MorphoVaultData;
@@ -19,6 +20,7 @@ interface VaultHistoryProps {
 
 export default function VaultHistory({ vaultData }: VaultHistoryProps) {
   const { address } = useAccount();
+  const { combineVaultData } = useCombineVaultData();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [userTransactions, setUserTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
@@ -34,7 +36,10 @@ export default function VaultHistory({ vaultData }: VaultHistoryProps) {
         if (address && showUserOnly) {
           const version = vaultData.version ?? 'v2';
           const responses = await Promise.all(
-            getProductVaultAddresses(vaultData.address).map((vaultAddress) =>
+            (combineVaultData
+              ? getProductVaultAddresses(vaultData.address)
+              : [vaultData.address]
+            ).map((vaultAddress) =>
               fetch(
                 `/api/vault/${version}/${vaultAddress}/activity?chainId=${vaultData.chainId}&userAddress=${address}`,
                 { signal: abortController.signal }
@@ -101,7 +106,7 @@ export default function VaultHistory({ vaultData }: VaultHistoryProps) {
     void fetchActivity();
 
     return () => abortController.abort();
-  }, [vaultData.address, vaultData.chainId, vaultData.version, address, showUserOnly]);
+  }, [vaultData.address, vaultData.chainId, vaultData.version, address, showUserOnly, combineVaultData]);
 
   const getExplorerUrl = (txHash: string) => {
     return `https://basescan.org/tx/${txHash}`;

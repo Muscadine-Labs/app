@@ -8,8 +8,9 @@
  *
  * - Market adapter ids: adapter, collateral token, market. The allocation change is the deposit plus
  *   interest since the last allocation on that market.
+ * - Vault adapter (fee wrapper → child vault) ids: adapter only. The deposit then enters the child,
+ *   so the child's own liquidity adapter caps also apply.
  * - No liquidity adapter: deposits stay idle and no cap applies.
- * - Any other adapter (empty `liquidityData`): not read here (`null`); the chain still enforces caps.
  *
  * Vault V2 `maxDeposit` always returns 0, so it cannot be used.
  */
@@ -34,6 +35,9 @@ export const DEPOSIT_CAP_BUFFER_BPS = BigInt(10);
 
 /** Query key prefix for deposit capacity reads. */
 export const DEPOSIT_CAPACITY_QUERY_KEY = ['vault-deposit-capacity'] as const;
+
+/** Wrapper → child is one hop. The limit only stops a misconfigured adapter loop. */
+const MAX_VAULT_DEPTH = 3;
 
 const VAULT_CAPS_ABI = [
   {
@@ -116,6 +120,37 @@ const MARKET_ADAPTER_ABI = [
   },
 ] as const;
 
+const VAULT_ADAPTER_ABI = [
+  {
+    type: 'function',
+    name: 'morphoVaultV1',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'address' }],
+  },
+  {
+    type: 'function',
+    name: 'ids',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'bytes32[]' }],
+  },
+  {
+    type: 'function',
+    name: 'allocation',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+  {
+    type: 'function',
+    name: 'realAssets',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+] as const;
+
 const MARKET_PARAMS_ABI = parseAbiParameters(
   'address loanToken, address collateralToken, address oracle, address irm, uint256 lltv'
 );
@@ -183,15 +218,15 @@ async function readIdsHeadroom(
   return headroom ?? ZERO;
 }
 
-/**
- * Most assets a deposit can add before a cap reverts it, at the current block.
- * `null` means no cap applies. Throws when a read fails; callers must not treat that as "full".
- */
-export async function readVaultDepositCapacity(
+async function readHeadroom(
   publicClient: PublicClient,
-  vaultAddress: Address
+  vault: Address,
+  depth: number
 ): Promise<bigint | null> {
-  const vault = getAddress(vaultAddress);
+  if (depth >= MAX_VAULT_DEPTH) {
+    throw new Error(`Deposit capacity: vault nesting deeper than ${MAX_VAULT_DEPTH} at ${vault}`);
+  }
+
   const [liquidityAdapterRaw, liquidityData, accrued] = await publicClient.multicall({
     allowFailure: false,
     contracts: [
@@ -202,38 +237,73 @@ export async function readVaultDepositCapacity(
   });
 
   const liquidityAdapter = getAddress(liquidityAdapterRaw);
-  // Registry vaults route deposits to a Blue market adapter; anything else leaves the cap to the chain.
-  if (liquidityAdapter === zeroAddress || liquidityData === '0x') return null;
+  if (liquidityAdapter === zeroAddress) return null;
+  const firstTotalAssets = accrued[0];
 
-  const [loanToken, collateralToken, oracle, irm, lltv] = decodeAbiParameters(
-    MARKET_PARAMS_ABI,
-    liquidityData
-  );
-  const marketParams = { loanToken, collateralToken, oracle, irm, lltv };
-  const [ids, bookedAllocation, expectedAssets] = await publicClient.multicall({
+  if (liquidityData !== '0x') {
+    const [loanToken, collateralToken, oracle, irm, lltv] = decodeAbiParameters(
+      MARKET_PARAMS_ABI,
+      liquidityData
+    );
+    const marketParams = { loanToken, collateralToken, oracle, irm, lltv };
+    const [ids, bookedAllocation, expectedAssets] = await publicClient.multicall({
+      allowFailure: false,
+      contracts: [
+        {
+          address: liquidityAdapter,
+          abi: MARKET_ADAPTER_ABI,
+          functionName: 'ids',
+          args: [marketParams],
+        },
+        {
+          address: liquidityAdapter,
+          abi: MARKET_ADAPTER_ABI,
+          functionName: 'allocation',
+          args: [marketParams],
+        },
+        {
+          address: liquidityAdapter,
+          abi: MARKET_ADAPTER_ABI,
+          functionName: 'expectedSupplyAssets',
+          args: [keccak256(liquidityData)],
+        },
+      ],
+    });
+    return readIdsHeadroom(
+      publicClient,
+      vault,
+      ids,
+      firstTotalAssets,
+      expectedAssets - bookedAllocation
+    );
+  }
+
+  // `realAssets` is `previewRedeem(child.balanceOf(adapter))`, the value `allocate` books.
+  const [childRaw, ids, bookedAllocation, childAssets] = await publicClient.multicall({
     allowFailure: false,
     contracts: [
-      {
-        address: liquidityAdapter,
-        abi: MARKET_ADAPTER_ABI,
-        functionName: 'ids',
-        args: [marketParams],
-      },
-      {
-        address: liquidityAdapter,
-        abi: MARKET_ADAPTER_ABI,
-        functionName: 'allocation',
-        args: [marketParams],
-      },
-      {
-        address: liquidityAdapter,
-        abi: MARKET_ADAPTER_ABI,
-        functionName: 'expectedSupplyAssets',
-        args: [keccak256(liquidityData)],
-      },
+      { address: liquidityAdapter, abi: VAULT_ADAPTER_ABI, functionName: 'morphoVaultV1' },
+      { address: liquidityAdapter, abi: VAULT_ADAPTER_ABI, functionName: 'ids' },
+      { address: liquidityAdapter, abi: VAULT_ADAPTER_ABI, functionName: 'allocation' },
+      { address: liquidityAdapter, abi: VAULT_ADAPTER_ABI, functionName: 'realAssets' },
     ],
   });
-  return readIdsHeadroom(publicClient, vault, ids, accrued[0], expectedAssets - bookedAllocation);
+  const [ownHeadroom, childHeadroom] = await Promise.all([
+    readIdsHeadroom(publicClient, vault, ids, firstTotalAssets, childAssets - bookedAllocation),
+    readHeadroom(publicClient, getAddress(childRaw), depth + 1),
+  ]);
+  return childHeadroom === null ? ownHeadroom : minBigInt(ownHeadroom, childHeadroom);
+}
+
+/**
+ * Most assets a deposit can add before a cap reverts it, at the current block.
+ * `null` means no cap applies. Throws when a read fails; callers must not treat that as "full".
+ */
+export async function readVaultDepositCapacity(
+  publicClient: PublicClient,
+  vaultAddress: Address
+): Promise<bigint | null> {
+  return readHeadroom(publicClient, getAddress(vaultAddress), 0);
 }
 
 /**

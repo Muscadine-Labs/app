@@ -1,9 +1,8 @@
 import {
   VaultDefinition,
   VaultStrategy,
-  findRetiredWrapperFor,
+  getPairedVaultAddress,
   getRegistryVaultList,
-  isRetiredWrapperAddress,
 } from '@/lib/vaults';
 import { Vault } from '@/types/vault';
 import {
@@ -144,6 +143,8 @@ export function registryDefinitionToVault(vault: VaultDefinition): Vault {
     chainId: vault.chainId,
     version: vault.version,
     strategy: vault.strategy,
+    kind: vault.kind,
+    underlyingAddress: vault.underlyingAddress,
     isCurated: true,
   };
 }
@@ -200,19 +201,20 @@ export function getDepositedVaultAddressSet(
 }
 
 /**
- * Profit on a registry vault's retired wrapper. Wrappers never get a row, so the
- * registry vault's row carries it.
+ * Profit on the other contract of a wrapper / underlying pair, once that contract has
+ * no shares. Its row is gone, so the row still shown carries it. When both sides are
+ * held, each row keeps its own profit.
  */
 export function closedPairEarnedPnl(
   positions: readonly WalletMorphoPosition[],
   vaultAddress: string
 ): { pnlRaw: string; pnlUsd: number } | null {
-  const pairAddress = findRetiredWrapperFor(vaultAddress)?.address;
+  const pairAddress = getPairedVaultAddress(vaultAddress);
   if (!pairAddress) return null;
   const pair = positions.find(
     (position) => position.vault.address.toLowerCase() === pairAddress.toLowerCase()
   );
-  if (!pair || !pair.pnlRaw) return null;
+  if (!pair || hasOnChainVaultShares(pair) || !pair.pnlRaw) return null;
   let pnlRaw: bigint;
   try {
     pnlRaw = BigInt(pair.pnlRaw);
@@ -227,14 +229,47 @@ export function closedPairEarnedPnl(
   return { pnlRaw: pnlRaw.toString(), pnlUsd: pair.pnlUsd };
 }
 
-/** Registry vaults the explorer lists: deposit-eligible, or held so the owner can exit. */
+/**
+ * Which contracts of each wrapper / underlying pair the explorer lists.
+ * `recommended`: the one the wallet can deposit into (underlying first), else the underlying view-only.
+ * `wrappers`: the wrapper of every pair. `all`: both contracts of every pair.
+ * Held vaults are listed in every mode so the wallet can exit.
+ */
+export type VaultKindMode = 'recommended' | 'wrappers' | 'all';
+
+/**
+ * The contract a pair defaults to for this wallet: the underlying if the wallet can deposit
+ * into it, else the wrapper if it can, else the underlying (view-only).
+ */
+export function resolvePairDefaultAddress(
+  underlyingAddress: string,
+  eligibleVaultAddresses: ReadonlySet<string>
+): string {
+  const underlyingKey = underlyingAddress.toLowerCase();
+  if (eligibleVaultAddresses.has(underlyingKey)) return underlyingKey;
+  const wrapper = getPairedVaultAddress(underlyingAddress)?.toLowerCase();
+  if (wrapper && eligibleVaultAddresses.has(wrapper)) return wrapper;
+  return underlyingKey;
+}
+
+/** Registry vaults the explorer lists for this wallet and mode. */
 export function selectRegistryVaultsForExplorer(options: {
   depositedAddresses: ReadonlySet<string>;
   eligibleVaultAddresses: ReadonlySet<string>;
+  mode?: VaultKindMode;
 }): Vault[] {
+  const mode = options.mode ?? 'recommended';
   return getAllRegistryVaults().filter((vault) => {
     const key = vault.address.toLowerCase();
-    return options.eligibleVaultAddresses.has(key) || options.depositedAddresses.has(key);
+    if (options.depositedAddresses.has(key)) return true;
+    const underlyingAddress = vault.kind === 'wrapper' ? vault.underlyingAddress : vault.address;
+    // A vault with no pair keeps the plain rule: listed when the wallet can deposit.
+    if (!underlyingAddress || !getPairedVaultAddress(vault.address)) {
+      return options.eligibleVaultAddresses.has(key);
+    }
+    if (mode === 'all') return true;
+    if (mode === 'wrappers') return vault.kind === 'wrapper';
+    return resolvePairDefaultAddress(underlyingAddress, options.eligibleVaultAddresses) === key;
   });
 }
 
@@ -266,11 +301,7 @@ export function buildExplorerVaultCandidates(
   );
 
   const externalVaults: Vault[] = activePositions
-    .filter(
-      (position) =>
-        !isCuratedVaultAddress(position.vault.address) &&
-        !isRetiredWrapperAddress(position.vault.address)
-    )
+    .filter((position) => !isCuratedVaultAddress(position.vault.address))
     .map((position) => {
       const symbol = resolveMorphoAssetSymbol({
         assetSymbol: position.vault.symbol,
@@ -385,4 +416,18 @@ export function calculateYAxisDomain(
   }
 
   return [domainMin, domainMax];
+}
+
+/**
+ * Vaults to label Wrapper / Underlying: both contracts of their pair are in the list,
+ * so the names alone would be ambiguous.
+ */
+export function selectVaultKindMarkAddresses(listedVaults: readonly Vault[]): Set<string> {
+  const listed = new Set(listedVaults.map((vault) => vault.address.toLowerCase()));
+  const marks = new Set<string>();
+  for (const vault of listedVaults) {
+    const pair = getPairedVaultAddress(vault.address)?.toLowerCase();
+    if (pair && listed.has(pair)) marks.add(vault.address.toLowerCase());
+  }
+  return marks;
 }

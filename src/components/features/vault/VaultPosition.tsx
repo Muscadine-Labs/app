@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useAccount, useReadContract } from 'wagmi';
+import Link from 'next/link';
 import { MorphoVaultData } from '@/types/vault';
 import {
   formatCurrency,
@@ -12,7 +13,7 @@ import {
   formatVaultChartTokenAmount,
   formatVaultDetailTokenAmount,
 } from '@/lib/formatter';
-import { calculateYAxisDomain } from '@/lib/vault-utils';
+import { calculateYAxisDomain, findVaultByAddress, getVaultRoute } from '@/lib/vault-utils';
 import { rawAmountToDecimal } from '@/lib/asset-decimals';
 import { CHART_MARGIN, getChartYAxisWidth, withLeadingChartTick, VAULT_DETAIL_CHART_HEIGHT_CLASS, VAULT_DETAIL_CHART_MIN_HEIGHT } from '@/lib/chart-utils';
 import {
@@ -37,6 +38,7 @@ import { VaultTransactPanel } from './VaultTransactPanel';
 import { resolveAssetDecimals } from '@/lib/asset-decimals';
 import { BASE_CHAIN_ID } from '@/lib/constants';
 import { getProductVaultAddresses } from '@/lib/vaults';
+import { useCombineVaultData } from '@/contexts/CombineVaultDataContext';
 import { mergeVaultPositionSeries } from '@/lib/portfolio-utils';
 import type { Transaction } from '@/types/api';
 import type { VaultTransactionTab } from '@/hooks/useScopedVaultTransaction';
@@ -145,11 +147,16 @@ export default function VaultPosition({
   const [activityLoading, setActivityLoading] = useState(false);
   const [activityError, setActivityError] = useState(false);
 
+  const { combineVaultData } = useCombineVaultData();
   const productVaultAddresses = useMemo(
-    () => getProductVaultAddresses(vaultData.address),
-    [vaultData.address]
+    () => (combineVaultData ? getProductVaultAddresses(vaultData.address) : [vaultData.address]),
+    [combineVaultData, vaultData.address]
   );
   const pairedVaultAddress = productVaultAddresses[1];
+  const pairVault = useMemo(
+    () => (pairedVaultAddress ? findVaultByAddress(pairedVaultAddress) : null),
+    [pairedVaultAddress]
+  );
 
   const { data: sharesRaw } = useReadContract({
     address: address ? vaultData.address as `0x${string}` : undefined,
@@ -756,6 +763,25 @@ export default function VaultPosition({
                 <p className="text-xs text-[var(--foreground-secondary)] mt-1">
                   {formatPositionUsd(userVaultTotalUsd)}
                 </p>
+                {pairedVaultAddress && pairAssets !== undefined && pairAssets > BigInt(0) ? (
+                  <p className="text-xs text-[var(--foreground-muted)] mt-1">
+                    Includes{' '}
+                    {formatVaultDetailTokenAmount(
+                      pairAssets.toString(),
+                      depositAssetDecimals,
+                      vaultData.symbol
+                    )}{' '}
+                    in{' '}
+                    <Link
+                      href={getVaultRoute(pairedVaultAddress)}
+                      className="text-[var(--primary)] hover:underline"
+                    >
+                      {pairVault?.kind === 'wrapper' ? 'Wrapper' : 'Underlying'}
+                      {pairVault?.vaultSymbol ? ` (${pairVault.vaultSymbol})` : ''}
+                    </Link>
+                    . Withdraw it from that vault.
+                  </p>
+                ) : null}
               </>
             )}
           </div>

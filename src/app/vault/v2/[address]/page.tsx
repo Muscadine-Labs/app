@@ -11,12 +11,14 @@ import {
   resolveVaultForPage,
 } from '@/lib/vault-utils';
 import { resolveVaultPageAccess, type OnChainShareState } from '@/lib/vault-access';
+import { useExplorerVaults } from '@/contexts/ExplorerVaultsContext';
 import { ERC20_BALANCE_ABI } from '@/lib/abis';
 import { BASE_CHAIN_ID } from '@/lib/constants';
 import { useVaultDataFetch } from '@/hooks/useVaultDataFetch';
 import { useVaultDepositGates } from '@/hooks/useVaultDepositGates';
 import { useWallet } from '@/contexts/WalletContext';
 import VaultHero from '@/components/features/vault/VaultHero';
+import { VaultPairSwitch } from '@/components/features/vault/VaultPairSwitch';
 import VaultTabs from '@/components/features/vault/VaultTabs';
 import VaultHistory from '@/components/features/vault/VaultHistory';
 import { Button } from '@/components/ui';
@@ -114,6 +116,7 @@ export default function VaultV2Page() {
     eligibleVaultAddresses,
     isResolving: gatesResolving,
   } = useVaultDepositGates();
+  const { listedVaultAddresses } = useExplorerVaults();
   const depositedAddresses = useMemo(
     () => getDepositedVaultAddressSet(morphoHoldings.positions),
     [morphoHoldings.positions]
@@ -140,6 +143,7 @@ export default function VaultV2Page() {
     return resolveVaultPageAccess({
       vaultAddress: vault.address,
       eligibleVaultAddresses,
+      listedVaultAddresses,
       depositedAddresses,
       walletStatus,
       walletAddress,
@@ -150,6 +154,7 @@ export default function VaultV2Page() {
   }, [
     vault,
     eligibleVaultAddresses,
+    listedVaultAddresses,
     depositedAddresses,
     walletStatus,
     walletAddress,
@@ -237,8 +242,9 @@ export default function VaultV2Page() {
 
   return (
     <div className={pageShellClassName}>
-      <div className="flex-shrink-0 mb-5">
+      <div className="flex-shrink-0 mb-5 flex flex-col gap-3 min-[640px]:flex-row min-[640px]:items-end min-[640px]:justify-between">
         <VaultHero vaultData={vaultData} />
+        <VaultPairSwitch vaultData={vaultData} disabled={transactBusy} />
       </div>
 
       <div className="flex flex-col w-full mx-auto">
