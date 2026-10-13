@@ -132,7 +132,7 @@ The product surface is the four curated Morpho Vault V2 contracts in `src/lib/va
 
 **Vault registry fields:** `symbol` (underlying asset), `vaultSymbol` (share token label), `strategy` (`prime` | `frontier`).
 
-**Retired fee wrappers** (wmpUSDC, wmfUSDC, wmpWETH, wmpcbBTC): depositors migrated to the underlying vaults, and the app has no wrapper code. A wallet that still holds wrapper shares sees them as an External row, like any non-Muscadine vault. Each vault page shows only its own contract. Do not re-add the wrappers.
+**Fee wrappers** (wmpUSDC, wmfUSDC, wmpWETH, wmpcbBTC): `RETIRED_WRAPPERS` in `vaults.ts` maps each wrapper to its underlying vault, so a wallet's history across the pair stays one position: the underlying vault's page merges the wrapper's position, earned interest, activity and chart (`getProductVaultAddresses`, `mergeVaultPositionSeries` in `portfolio-utils.ts`), the dashboard chart merges each pair, and a row whose pair is fully exited carries that pair's profit (`closedPairEarnedPnl`). `isRetiredWrapperAddress` keeps wrapper shares out of dashboard and explorer External rows. Wrappers are not yet vaults in the app (no pages or deposit/withdraw paths); bringing them back as registry vaults with a wrapper/underlying switch is planned work.
 
 **Vault page access** (`resolveVaultPageAccess` in `vault-access.ts`) also reads the wallet's share balance on chain, so a holder reaches the page even when the Morpho positions API fails or lags. Once allowed, the page stays open for that wallet so a full withdraw does not redirect away mid-success.
 
