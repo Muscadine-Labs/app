@@ -8,6 +8,7 @@ import { ConnectButton } from "../features/wallet";
 import { Icon } from "../ui/Icon";
 import { Button } from "../ui/Button";
 import { useTheme } from "@/contexts/ThemeContext";
+import { useCombineVaultData, type CombineVaultDataMode } from "@/contexts/CombineVaultDataContext";
 import { MORPHO_DISCLAIMER_URL } from '@/lib/constants';
 
 interface NavBarProps {
@@ -28,6 +29,7 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
     
     // Settings state with defaults
     const { theme, setTheme } = useTheme();
+    const { mode: combineMode, setMode: setCombineMode } = useCombineVaultData();
 
     const isActive = useCallback((item: NavItem): boolean => {
         if (item.id === 'vaults') {
@@ -355,6 +357,36 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                                 Auto
                                             </button>
                                         </div>
+                                    </div>
+                                    {/* Combine vault data: wrapper + underlying shown as one position */}
+                                    <div className="px-4 mt-3 pt-3 border-t border-[var(--border)]">
+                                        <p className="text-xs text-[var(--foreground-secondary)] mb-1.5">
+                                            Combine vault data
+                                        </p>
+                                        <div className="flex items-center justify-between gap-1">
+                                            {(['auto', 'off'] as CombineVaultDataMode[]).map((option) => (
+                                                <button
+                                                    key={option}
+                                                    type="button"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setCombineMode(option);
+                                                        setIsSettingsOpen(false);
+                                                    }}
+                                                    aria-pressed={combineMode === option}
+                                                    className={`flex-1 py-2 px-2 text-sm rounded-lg transition-colors cursor-pointer ${
+                                                        combineMode === option
+                                                            ? 'bg-[var(--primary)] text-white'
+                                                            : 'text-[var(--foreground)] hover:bg-[var(--surface-hover)]'
+                                                    }`}
+                                                >
+                                                    {option === 'auto' ? 'Auto' : 'Off'}
+                                                </button>
+                                            ))}
+                                        </div>
+                                        <p className="text-[10px] text-[var(--foreground-muted)] mt-1.5 leading-snug">
+                                            Show a wrapper and its underlying vault as one position.
+                                        </p>
                                     </div>
                                     </div>
                                 </>

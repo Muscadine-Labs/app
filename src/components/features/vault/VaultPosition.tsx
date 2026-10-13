@@ -38,6 +38,7 @@ import { VaultTransactPanel } from './VaultTransactPanel';
 import { resolveAssetDecimals } from '@/lib/asset-decimals';
 import { BASE_CHAIN_ID } from '@/lib/constants';
 import { getProductVaultAddresses } from '@/lib/vaults';
+import { useCombineVaultData } from '@/contexts/CombineVaultDataContext';
 import { mergeVaultPositionSeries } from '@/lib/portfolio-utils';
 import type { Transaction } from '@/types/api';
 import type { VaultTransactionTab } from '@/hooks/useScopedVaultTransaction';
@@ -146,9 +147,10 @@ export default function VaultPosition({
   const [activityLoading, setActivityLoading] = useState(false);
   const [activityError, setActivityError] = useState(false);
 
+  const { combineVaultData } = useCombineVaultData();
   const productVaultAddresses = useMemo(
-    () => getProductVaultAddresses(vaultData.address),
-    [vaultData.address]
+    () => (combineVaultData ? getProductVaultAddresses(vaultData.address) : [vaultData.address]),
+    [combineVaultData, vaultData.address]
   );
   const pairedVaultAddress = productVaultAddresses[1];
   const pairVault = useMemo(
