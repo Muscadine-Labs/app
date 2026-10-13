@@ -142,9 +142,17 @@ Fee wrappers (`kind: 'wrapper'`, `underlyingAddress` = the vault above they depo
 
 **Wrapper / underlying pairs:** each wrapper and its underlying vault are one position for display. Both vault pages merge the pair's position (on-chain balances summed), earned interest, activity and chart (`getProductVaultAddresses`, `mergeVaultPositionSeries` in `portfolio-utils.ts`). When the wallet holds the other contract, My Position says how much sits there and links to it, since withdraws act on the page's own contract. The dashboard chart merges each pair, and a row whose pair has no shares left carries that pair's profit (`closedPairEarnedPnl`). UI labels are **Wrapper** and **Underlying** (`VaultKindMark`), shown only where a list has both contracts of a pair (`selectVaultKindMarkAddresses`). Planned: a "Combine vault data" setting (default on) and a `/vaults` Advanced filter (see `TODO.md`).
 
-**Vault page access** (`resolveVaultPageAccess` in `vault-access.ts`) also reads the wallet's share balance on chain, so a holder reaches the page even when the Morpho positions API fails or lags. Once allowed, the page stays open for that wallet so a full withdraw does not redirect away mid-success.
+**Vault page access** (`resolveVaultPageAccess` in `vault-access.ts`) allows a vault the wallet can deposit into, holds, or that the explorer lists for it (`listedVaultAddresses`, so a view-only pair default opens with deposit disabled). It also reads the wallet's share balance on chain, so a holder reaches the page even when the Morpho positions API fails or lags. Once allowed, the page stays open for that wallet so a full withdraw does not redirect away mid-success.
 
-**Explorer visibility** is gate-driven (`useVaultDepositGates`, read from each vault on chain; `selectRegistryVaultsForExplorer`). A held vault is always listed so the wallet can exit. Otherwise each pair lists the contract the wallet can deposit into (send-assets gate unset, or the wallet passes it), preferring the underlying when both are open.
+**Explorer visibility** is gate-driven (`useVaultDepositGates`, read from each vault on chain; `selectRegistryVaultsForExplorer` in `vault-utils.ts`). A held vault is always listed so the wallet can exit. The rest depends on `kindMode` in `ExplorerVaultsContext` (session only, resets when the wallet changes):
+
+| Mode | Each wrapper / underlying pair lists |
+|------|--------------------------------------|
+| `recommended` (default) | `resolvePairDefaultAddress`: the underlying if the wallet can deposit into it, else the wrapper if it can, else the underlying view-only (deposit disabled) |
+| `wrappers` | The wrapper |
+| `all` | Both contracts |
+
+Planned: the `/vaults` Advanced filter that sets `kindMode` (see `TODO.md`).
 
 Explorer filters default to **All** (network, strategy, asset). **No v1/v2 version filter** (v1 removed). There is no developer/over-balance bypass mode.
 

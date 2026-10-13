@@ -230,20 +230,46 @@ export function closedPairEarnedPnl(
 }
 
 /**
- * Registry vaults the explorer lists. A held vault is always listed so the owner can exit.
- * Otherwise each wrapper / underlying pair lists the one the wallet can deposit into,
- * preferring the underlying when both are open.
+ * Which contracts of each wrapper / underlying pair the explorer lists.
+ * `recommended`: the one the wallet can deposit into (underlying first), else the underlying view-only.
+ * `wrappers`: the wrapper of every pair. `all`: both contracts of every pair.
+ * Held vaults are listed in every mode so the wallet can exit.
  */
+export type VaultKindMode = 'recommended' | 'wrappers' | 'all';
+
+/**
+ * The contract a pair defaults to for this wallet: the underlying if the wallet can deposit
+ * into it, else the wrapper if it can, else the underlying (view-only).
+ */
+export function resolvePairDefaultAddress(
+  underlyingAddress: string,
+  eligibleVaultAddresses: ReadonlySet<string>
+): string {
+  const underlyingKey = underlyingAddress.toLowerCase();
+  if (eligibleVaultAddresses.has(underlyingKey)) return underlyingKey;
+  const wrapper = getPairedVaultAddress(underlyingAddress)?.toLowerCase();
+  if (wrapper && eligibleVaultAddresses.has(wrapper)) return wrapper;
+  return underlyingKey;
+}
+
+/** Registry vaults the explorer lists for this wallet and mode. */
 export function selectRegistryVaultsForExplorer(options: {
   depositedAddresses: ReadonlySet<string>;
   eligibleVaultAddresses: ReadonlySet<string>;
+  mode?: VaultKindMode;
 }): Vault[] {
+  const mode = options.mode ?? 'recommended';
   return getAllRegistryVaults().filter((vault) => {
     const key = vault.address.toLowerCase();
     if (options.depositedAddresses.has(key)) return true;
-    if (!options.eligibleVaultAddresses.has(key)) return false;
-    if (vault.kind !== 'wrapper' || !vault.underlyingAddress) return true;
-    return !options.eligibleVaultAddresses.has(vault.underlyingAddress.toLowerCase());
+    const underlyingAddress = vault.kind === 'wrapper' ? vault.underlyingAddress : vault.address;
+    // A vault with no pair keeps the plain rule: listed when the wallet can deposit.
+    if (!underlyingAddress || !getPairedVaultAddress(vault.address)) {
+      return options.eligibleVaultAddresses.has(key);
+    }
+    if (mode === 'all') return true;
+    if (mode === 'wrappers') return vault.kind === 'wrapper';
+    return resolvePairDefaultAddress(underlyingAddress, options.eligibleVaultAddresses) === key;
   });
 }
 
