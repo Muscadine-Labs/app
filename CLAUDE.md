@@ -144,7 +144,7 @@ Fee wrappers (`kind: 'wrapper'`, `underlyingAddress` = the vault above they depo
 
 **Vault page access** (`resolveVaultPageAccess` in `vault-access.ts`) allows a vault the wallet can deposit into, holds, or that the explorer lists for it (`listedVaultAddresses`, so a view-only pair default opens with deposit disabled). It also reads the wallet's share balance on chain, so a holder reaches the page even when the Morpho positions API fails or lags. Once allowed, the page stays open for that wallet so a full withdraw does not redirect away mid-success.
 
-**Explorer visibility** is gate-driven (`useVaultDepositGates`, read from each vault on chain; `selectRegistryVaultsForExplorer` in `vault-utils.ts`). A held vault is always listed so the wallet can exit. The rest depends on `kindMode` in `ExplorerVaultsContext` (session only, resets when the wallet changes):
+**Explorer visibility** is gate-driven (`useVaultDepositGates`, read from each vault on chain; `selectRegistryVaultsForExplorer` in `vault-utils.ts`). A held vault is always listed so the wallet can exit; wrapper balances are also read on chain so a holder still sees the wrapper when the positions API fails. The rest depends on `kindMode` in `ExplorerVaultsContext` (session only, resets when the wallet changes):
 
 | Mode | Each wrapper / underlying pair lists |
 |------|--------------------------------------|

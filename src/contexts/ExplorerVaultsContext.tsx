@@ -1,7 +1,10 @@
 'use client';
 
 import { useContext, useMemo, useState, type ReactNode, createContext } from 'react';
-import { useAccount } from 'wagmi';
+import { useAccount, useReadContracts } from 'wagmi';
+import { ERC20_BALANCE_ABI } from '@/lib/abis';
+import { BASE_CHAIN_ID } from '@/lib/constants';
+import { getRegistryVaultList } from '@/lib/vaults';
 import { useWallet } from '@/contexts/WalletContext';
 import { useVaultDepositGates } from '@/hooks/useVaultDepositGates';
 import {
@@ -23,6 +26,9 @@ interface ExplorerVaultsContextType {
   isResolving: boolean;
 }
 
+/** Wrapper balances are also read on chain, so a holder still finds the exit when the Morpho positions API fails or lags. */
+const WRAPPER_VAULTS = getRegistryVaultList().filter((vault) => vault.kind === 'wrapper');
+
 const ExplorerVaultsContext = createContext<ExplorerVaultsContextType | undefined>(undefined);
 
 export function ExplorerVaultsProvider({ children }: { children: ReactNode }) {
@@ -37,10 +43,29 @@ export function ExplorerVaultsProvider({ children }: { children: ReactNode }) {
   // Not stored: each wallet starts on the recommended list.
   const kindMode = modeState.wallet === walletKey ? modeState.mode : 'recommended';
 
-  const depositedAddresses = useMemo(
-    () => getDepositedVaultAddressSet(morphoHoldings.positions),
-    [morphoHoldings.positions]
-  );
+  const { data: wrapperBalances } = useReadContracts({
+    allowFailure: true,
+    contracts: address
+      ? WRAPPER_VAULTS.map((vault) => ({
+          address: vault.address as `0x${string}`,
+          chainId: BASE_CHAIN_ID,
+          abi: ERC20_BALANCE_ABI,
+          functionName: 'balanceOf' as const,
+          args: [address] as const,
+        }))
+      : [],
+    query: { enabled: !!address },
+  });
+
+  const depositedAddresses = useMemo(() => {
+    const held = getDepositedVaultAddressSet(morphoHoldings.positions);
+    wrapperBalances?.forEach((item, i) => {
+      if (item.status === 'success' && (item.result as bigint) > BigInt(0)) {
+        held.add(WRAPPER_VAULTS[i].address.toLowerCase());
+      }
+    });
+    return held;
+  }, [morphoHoldings.positions, wrapperBalances]);
 
   const explorerRegistryVaults = useMemo(
     () =>
