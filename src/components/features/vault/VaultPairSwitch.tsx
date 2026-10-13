@@ -2,27 +2,15 @@
 
 import Link from 'next/link';
 import { useMemo } from 'react';
-import { useExplorerVaults } from '@/contexts/ExplorerVaultsContext';
 import { useWallet } from '@/contexts/WalletContext';
 import { useVaultDepositGates } from '@/hooks/useVaultDepositGates';
-import { useVaultDataFetch } from '@/hooks/useVaultDataFetch';
-import { formatPercentage } from '@/lib/formatter';
-import {
-  findVaultByAddress,
-  getDepositedVaultAddressSet,
-  getVaultRoute,
-} from '@/lib/vault-utils';
+import { getDepositedVaultAddressSet, getVaultRoute } from '@/lib/vault-utils';
 import { getPairedVaultAddress } from '@/lib/vaults';
 import type { MorphoVaultData } from '@/types/vault';
 
-function feeLabel(performanceFee: number | undefined): string | null {
-  if (performanceFee === undefined) return null;
-  return `${formatPercentage(performanceFee / 100, { decimals: performanceFee % 1 === 0 ? 0 : 2 })} fee`;
-}
-
 /**
- * Underlying | Wrapper switch in the vault header. Shown only when the choice matters to this
- * wallet: it can deposit into both, holds both, or picked Wrapper / All vaults in the explorer.
+ * Underlying | Wrapper switch in the vault header. Each side is offered only when this wallet
+ * can deposit into it or holds shares in it, so the switch shows when both sides qualify.
  * Each side is its own page; the switch links to the other one.
  */
 export function VaultPairSwitch({
@@ -34,36 +22,21 @@ export function VaultPairSwitch({
   disabled?: boolean;
 }) {
   const { eligibleVaultAddresses } = useVaultDepositGates();
-  const { kindMode } = useExplorerVaults();
   const { morphoHoldings } = useWallet();
-
-  const pairAddress = getPairedVaultAddress(vaultData.address);
   const depositedAddresses = useMemo(
     () => getDepositedVaultAddressSet(morphoHoldings.positions),
     [morphoHoldings.positions]
   );
 
-  const visible = (() => {
-    if (!pairAddress) return false;
-    if (kindMode !== 'recommended') return true;
-    const keys = [vaultData.address.toLowerCase(), pairAddress.toLowerCase()];
-    return (
-      keys.every((key) => eligibleVaultAddresses.has(key)) ||
-      keys.every((key) => depositedAddresses.has(key))
-    );
-  })();
+  const pairAddress = getPairedVaultAddress(vaultData.address);
+  if (!pairAddress) return null;
+  const pairKey = pairAddress.toLowerCase();
+  if (!eligibleVaultAddresses.has(pairKey) && !depositedAddresses.has(pairKey)) return null;
 
-  const pairVault = useMemo(
-    () => (visible && pairAddress ? findVaultByAddress(pairAddress) : null),
-    [visible, pairAddress]
-  );
-  const { vaultData: pairData } = useVaultDataFetch(pairVault);
-
-  if (!visible || !pairAddress || !pairVault) return null;
-
+  const pairKind = vaultData.kind === 'wrapper' ? 'underlying' : 'wrapper';
   const sides = [
-    { address: vaultData.address, kind: vaultData.kind, fee: vaultData.performanceFee, current: true },
-    { address: pairAddress, kind: pairVault.kind, fee: pairData?.performanceFee, current: false },
+    { address: vaultData.address, kind: vaultData.kind, current: true },
+    { address: pairAddress, kind: pairKind, current: false },
   ].sort((a, b) => (a.kind === 'underlying' ? 0 : 1) - (b.kind === 'underlying' ? 0 : 1));
 
   return (
@@ -74,15 +47,8 @@ export function VaultPairSwitch({
     >
       {sides.map((side) => {
         const label = side.kind === 'wrapper' ? 'Wrapper' : 'Underlying';
-        const fee = feeLabel(side.fee);
-        const content = (
-          <>
-            <span className="font-medium">{label}</span>
-            {fee ? <span className="opacity-80"> · {fee}</span> : null}
-          </>
-        );
         const className =
-          'px-3 py-1.5 text-xs rounded-md transition-colors touch-manipulation whitespace-nowrap';
+          'px-3 py-1.5 text-xs font-medium rounded-md transition-colors touch-manipulation whitespace-nowrap';
         if (side.current) {
           return (
             <span
@@ -90,7 +56,7 @@ export function VaultPairSwitch({
               aria-current="page"
               className={`${className} bg-[var(--primary)] text-white`}
             >
-              {content}
+              {label}
             </span>
           );
         }
@@ -101,7 +67,7 @@ export function VaultPairSwitch({
               aria-disabled="true"
               className={`${className} text-[var(--foreground-muted)] cursor-not-allowed`}
             >
-              {content}
+              {label}
             </span>
           );
         }
@@ -111,7 +77,7 @@ export function VaultPairSwitch({
             href={getVaultRoute(side.address)}
             className={`${className} text-[var(--foreground-secondary)] hover:text-[var(--foreground)] hover:bg-[var(--surface-hover)]`}
           >
-            {content}
+            {label}
           </Link>
         );
       })}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useContext, useMemo, useState, type ReactNode, createContext } from 'react';
+import { useContext, useEffect, useMemo, useState, type ReactNode, createContext } from 'react';
 import { useAccount, useReadContracts } from 'wagmi';
 import { ERC20_BALANCE_ABI } from '@/lib/abis';
 import { BASE_CHAIN_ID } from '@/lib/constants';
@@ -43,7 +43,7 @@ export function ExplorerVaultsProvider({ children }: { children: ReactNode }) {
   // Not stored: each wallet starts on the recommended list.
   const kindMode = modeState.wallet === walletKey ? modeState.mode : 'recommended';
 
-  const { data: wrapperBalances } = useReadContracts({
+  const { data: wrapperBalances, refetch: refetchWrapperBalances } = useReadContracts({
     allowFailure: true,
     contracts: address
       ? WRAPPER_VAULTS.map((vault) => ({
@@ -56,6 +56,12 @@ export function ExplorerVaultsProvider({ children }: { children: ReactNode }) {
       : [],
     query: { enabled: !!address },
   });
+
+  // Positions refresh after every transaction; re-read wrapper balances with them so a
+  // full wrapper exit (or a new wrapper deposit) updates the list without a reload.
+  useEffect(() => {
+    if (address) void refetchWrapperBalances();
+  }, [address, morphoHoldings.positions, refetchWrapperBalances]);
 
   const depositedAddresses = useMemo(() => {
     const held = getDepositedVaultAddressSet(morphoHoldings.positions);
