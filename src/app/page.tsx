@@ -20,7 +20,6 @@ import {
 } from '@/lib/vault-utils';
 import { Vault } from '@/types/vault';
 import { BASE_CHAIN_ID } from '@/lib/constants';
-import { isRetiredWrapperAddress } from '@/lib/vaults';
 import type { VaultStrategy } from '@/lib/vaults';
 import { Skeleton } from '@/components/ui/Skeleton';
 
@@ -90,8 +89,7 @@ export default function Home() {
       .filter(
         (position) =>
           position.version === 'v2' &&
-          hasOnChainVaultShares(position) &&
-          !isRetiredWrapperAddress(position.vault.address)
+          hasOnChainVaultShares(position)
       )
       .map((position) => {
         const curated = findVaultByAddress(position.vault.address);

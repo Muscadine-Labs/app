@@ -1,8 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { createPublicClient, getAddress, http, type PublicClient } from 'viem';
+import { base } from 'viem/chains';
 import { logger } from '@/lib/logger';
+import { readWrapperInstantAssets } from '@/lib/force-withdraw-v2';
+import { findWrapperDefinition } from '@/lib/vaults';
 import { isValidEthereumAddress } from '@/lib/vault-utils';
 import { isValidChainId, fetchMorphoGraphQL, readMorphoGraphQLResponse, MORPHO_RATE_LIMIT_BODY } from '@/lib/api-utils';
 import { BASE_CHAIN_ID, MORPHO_GRAPHQL_REVALIDATE_SECONDS } from '@/lib/constants';
+
+/** Wrapper liquidity is optional; never let a slow RPC hold up vault metadata. */
+const WRAPPER_LIQUIDITY_TIMEOUT_MS = 4_000;
+
+function getBasePublicClient(): PublicClient {
+  const key = process.env.NEXT_PUBLIC_ALCHEMY_API_KEY?.trim();
+  const url = key ? `https://base-mainnet.g.alchemy.com/v2/${key}` : 'https://mainnet.base.org';
+  return createPublicClient({
+    chain: base,
+    // Reads issued in the same tick go out as one Multicall3 eth_call.
+    batch: { multicall: true },
+    transport: http(url, { timeout: WRAPPER_LIQUIDITY_TIMEOUT_MS, retryCount: 1 }),
+  }) as PublicClient;
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`Timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
 
 export async function GET(
   request: NextRequest,
@@ -204,7 +230,7 @@ export async function GET(
       const morphoBaseApy =
         vault.avgNetApyExcludingRewards ?? vault.avgNetApy ?? morphoAvgNetApy;
 
-      const instantLiquidityRaw = (() => {
+      let instantLiquidityRaw = (() => {
         try {
           return BigInt(vault.liquidity ?? 0);
         } catch {
@@ -218,21 +244,52 @@ export async function GET(
           return BigInt(0);
         }
       })();
-      const deallocatableLiquidityRaw = (() => {
+      let deallocatableLiquidityRaw = (() => {
         try {
           return BigInt(vault.forceDeallocatableLiquidity ?? 0);
         } catch {
           return BigInt(0);
         }
       })();
-      const liquidityAdapterRaw =
+      let liquidityAdapterRaw =
         instantLiquidityRaw > idleLiquidityRaw
           ? instantLiquidityRaw - idleLiquidityRaw
           : BigInt(0);
-      const instantLiquidityUsd = Number(vault.liquidityUsd ?? 0);
+      let instantLiquidityUsd = Number(vault.liquidityUsd ?? 0);
       const idleLiquidityUsd = Number(vault.idleAssetsUsd ?? 0);
-      const deallocatableLiquidityUsd = Number(vault.forceDeallocatableLiquidityUsd ?? 0);
-      const liquidityAdapterUsd = Math.max(0, instantLiquidityUsd - idleLiquidityUsd);
+      let deallocatableLiquidityUsd = Number(vault.forceDeallocatableLiquidityUsd ?? 0);
+      let liquidityAdapterUsd = Math.max(0, instantLiquidityUsd - idleLiquidityUsd);
+
+
+      // A wrapper's Morpho liquidity does not reflect what it can pay. Read it on chain: idle
+      // plus what its adapter can pull from the underlying now. Wrappers have no force exit.
+      const wrapper = address ? findWrapperDefinition(address) : undefined;
+      if (wrapper?.underlyingAddress && chainId === BASE_CHAIN_ID && address) {
+        try {
+          const instant = await withTimeout(
+            readWrapperInstantAssets(
+              getBasePublicClient(),
+              getAddress(address),
+              getAddress(wrapper.underlyingAddress)
+            ),
+            WRAPPER_LIQUIDITY_TIMEOUT_MS
+          );
+          const assetDecimals = Number(vault.asset?.decimals ?? 6);
+          const assetPrice = Number(vault.asset?.price?.usd ?? 0);
+          const toUsd = (assets: bigint) => (Number(assets) / 10 ** assetDecimals) * assetPrice;
+          instantLiquidityRaw = instant;
+          liquidityAdapterRaw = instant > idleLiquidityRaw ? instant - idleLiquidityRaw : BigInt(0);
+          deallocatableLiquidityRaw = BigInt(0);
+          instantLiquidityUsd = toUsd(instant);
+          liquidityAdapterUsd = toUsd(liquidityAdapterRaw);
+          deallocatableLiquidityUsd = 0;
+        } catch (quoteError) {
+          logger.warn('Wrapper liquidity read failed; using Morpho liquidity', {
+            address,
+            error: quoteError instanceof Error ? quoteError.message : String(quoteError),
+          });
+        }
+      }
 
       const totalUnderlyingLiquidityRaw = instantLiquidityRaw + deallocatableLiquidityRaw;
       const totalUnderlyingLiquidityUsd = instantLiquidityUsd + deallocatableLiquidityUsd;

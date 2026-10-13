@@ -12,6 +12,7 @@ import { VaultName } from '@/components/features/vault/VaultName';
 import {
   getVaultRoute,
   closedPairEarnedPnl,
+  selectVaultKindMarkAddresses,
   hasOnChainVaultShares,
   isCuratedVaultAddress,
   resolvePositionAssetsUsd,
@@ -301,7 +302,7 @@ function EarnedInterestCell({
   );
 }
 
-function VaultExplorerMobileCard({ vault, showYourPosition }: VaultExplorerRowProps) {
+function VaultExplorerMobileCard({ vault, showYourPosition, showKind }: VaultExplorerRowProps) {
   const router = useRouter();
   const { getVaultData, isLoading } = useVaultData();
   const vaultData = getVaultData(vault.address);
@@ -331,7 +332,7 @@ function VaultExplorerMobileCard({ vault, showYourPosition }: VaultExplorerRowPr
         <VaultLogo vault={vault} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap min-w-0">
-            <VaultName name={vault.name} />
+            <VaultName name={vault.name} kind={vault.kind} showKind={showKind} />
             <span className="inline-flex rounded-md bg-[var(--surface-elevated)] px-2 py-0.5 text-[10px] font-medium text-[var(--foreground-secondary)]">
               Base
             </span>
@@ -397,8 +398,10 @@ function DashboardVaultMobileCard({
   positionUsd,
   loading,
   vaultData,
+  showKind,
 }: {
   vault: Vault;
+  showKind?: boolean;
   positionAssets?: string;
   positionUsd: number;
   loading: boolean;
@@ -432,7 +435,7 @@ function DashboardVaultMobileCard({
       <div className="flex items-start gap-2.5 mb-2">
         <VaultLogo vault={vault} />
         <div className="min-w-0 flex-1">
-          <VaultName name={vault.name} lines={2} />
+          <VaultName name={vault.name} lines={2} kind={vault.kind} showKind={showKind} />
           <VaultShareLabel vault={vault} />
           <span className="text-[10px] text-[var(--foreground-muted)] block">
             {isCurated ? 'Whitelisted' : 'External'}
@@ -582,9 +585,11 @@ function PositionCell({
 interface VaultExplorerRowProps {
   vault: Vault;
   showYourPosition: boolean;
+  /** Label Wrapper / Underlying (both contracts of the pair are listed). */
+  showKind?: boolean;
 }
 
-function VaultExplorerRow({ vault, showYourPosition }: VaultExplorerRowProps) {
+function VaultExplorerRow({ vault, showYourPosition, showKind }: VaultExplorerRowProps) {
   const router = useRouter();
   const { getVaultData, isLoading } = useVaultData();
   const vaultData = getVaultData(vault.address);
@@ -623,7 +628,7 @@ function VaultExplorerRow({ vault, showYourPosition }: VaultExplorerRowProps) {
           <VaultLogo vault={vault} />
           <div className="min-w-0">
             <div className="flex items-center gap-2 min-w-0">
-              <VaultName name={vault.name} />
+              <VaultName name={vault.name} kind={vault.kind} showKind={showKind} />
               {!isCurated ? (
                 <span className="shrink-0 text-[10px] text-[var(--foreground-muted)]">
                   External
@@ -692,6 +697,7 @@ export default function VaultExplorerTable({
   const isMounted = useIsClient();
   const { isConnected } = useAccount();
   const showYourPosition = isConnected;
+  const kindMarks = useMemo(() => selectVaultKindMarkAddresses(vaults), [vaults]);
 
   if (!isMounted) {
     return (
@@ -717,6 +723,7 @@ export default function VaultExplorerTable({
             key={vault.address}
             vault={vault}
             showYourPosition={showYourPosition}
+            showKind={kindMarks.has(vault.address.toLowerCase())}
           />
         ))}
       </div>
@@ -743,6 +750,7 @@ export default function VaultExplorerTable({
               key={vault.address}
               vault={vault}
               showYourPosition={showYourPosition}
+              showKind={kindMarks.has(vault.address.toLowerCase())}
             />
           ))}
         </tbody>
@@ -844,6 +852,7 @@ export function DashboardVaultTable({
   const { morphoHoldings } = useWallet();
   const { getVaultData, isLoading } = useVaultData();
   const { address } = useAccount();
+  const kindMarks = useMemo(() => selectVaultKindMarkAddresses(vaults), [vaults]);
 
   if (!isMounted) {
     return (
@@ -910,6 +919,7 @@ export function DashboardVaultTable({
               positionUsd={positionUsd}
               loading={loading}
               vaultData={vaultData}
+              showKind={kindMarks.has(vault.address.toLowerCase())}
             />
           );
         })}
@@ -959,7 +969,12 @@ export function DashboardVaultTable({
                   <div className="flex items-start gap-2 min-w-0">
                     <VaultLogo vault={vault} size={28} />
                     <div className="min-w-0 flex-1">
-                      <VaultName name={vault.name} lines={2} />
+                      <VaultName
+                        name={vault.name}
+                        lines={2}
+                        kind={vault.kind}
+                        showKind={kindMarks.has(vault.address.toLowerCase())}
+                      />
                       <VaultShareLabel vault={vault} />
                     </div>
                   </div>

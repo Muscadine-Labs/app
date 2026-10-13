@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useAccount, useReadContract } from 'wagmi';
+import Link from 'next/link';
 import { MorphoVaultData } from '@/types/vault';
 import {
   formatCurrency,
@@ -12,7 +13,7 @@ import {
   formatVaultChartTokenAmount,
   formatVaultDetailTokenAmount,
 } from '@/lib/formatter';
-import { calculateYAxisDomain } from '@/lib/vault-utils';
+import { calculateYAxisDomain, findVaultByAddress, getVaultRoute } from '@/lib/vault-utils';
 import { rawAmountToDecimal } from '@/lib/asset-decimals';
 import { CHART_MARGIN, getChartYAxisWidth, withLeadingChartTick, VAULT_DETAIL_CHART_HEIGHT_CLASS, VAULT_DETAIL_CHART_MIN_HEIGHT } from '@/lib/chart-utils';
 import {
@@ -150,6 +151,10 @@ export default function VaultPosition({
     [vaultData.address]
   );
   const pairedVaultAddress = productVaultAddresses[1];
+  const pairVault = useMemo(
+    () => (pairedVaultAddress ? findVaultByAddress(pairedVaultAddress) : null),
+    [pairedVaultAddress]
+  );
 
   const { data: sharesRaw } = useReadContract({
     address: address ? vaultData.address as `0x${string}` : undefined,
@@ -756,6 +761,25 @@ export default function VaultPosition({
                 <p className="text-xs text-[var(--foreground-secondary)] mt-1">
                   {formatPositionUsd(userVaultTotalUsd)}
                 </p>
+                {pairedVaultAddress && pairAssets !== undefined && pairAssets > BigInt(0) ? (
+                  <p className="text-xs text-[var(--foreground-muted)] mt-1">
+                    Includes{' '}
+                    {formatVaultDetailTokenAmount(
+                      pairAssets.toString(),
+                      depositAssetDecimals,
+                      vaultData.symbol
+                    )}{' '}
+                    in{' '}
+                    <Link
+                      href={getVaultRoute(pairedVaultAddress)}
+                      className="text-[var(--primary)] hover:underline"
+                    >
+                      {pairVault?.kind === 'wrapper' ? 'Wrapper' : 'Underlying'}
+                      {pairVault?.vaultSymbol ? ` (${pairVault.vaultSymbol})` : ''}
+                    </Link>
+                    . Withdraw it from that vault.
+                  </p>
+                ) : null}
               </>
             )}
           </div>

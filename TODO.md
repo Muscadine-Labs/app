@@ -3,11 +3,10 @@
 - see if we should add morpho bundler contracts for eth deposits / withdraws.
 - when a wallet is not connected, still show the vaults on the vault list.
 
-- Wrapper vaults back (phase 1, combined My Position history + earned interest, is done):
-  - Phase 2: wrappers as registry vaults (`kind`, `underlyingAddress`). Direct ERC-4626 deposits with wrapper → underlying cap walk. Withdraws capped at instant liquidity (wrapper idle + what its adapter can pull from the underlying now). No Bundler3, no wrapper force exit.
-  - Phase 3: per-pair default from send-assets gates: Advanced override → underlying if eligible → wrapper if eligible → held contract → underlying view-only.
+- Wrapper vaults back (phases 1–2 done: combined history, wrappers as registry vaults with deposits and capped withdraws):
+  - Phase 3: per-pair default from send-assets gates. The explorer already lists underlying if eligible, else wrapper if eligible, plus anything held; still to do: the Advanced override and a view-only underlying when neither is open.
   - Phase 4: Settings "Combine vault data", default on (Auto / Off). Combines vault page, activity, dashboard chart and Your Vaults per pair.
-  - Phase 5: /vaults Advanced filter: Recommended / Switch to Wrapper Vaults / Show All Vaults. Labels "Wrapper" and "Underlying" only in Show All Vaults or when the wallet holds both. Vault page header switch between the pair. Restore wrapper fee note in the advisory modal and bump TERMS_VERSION to 2.3.0.
+  - Phase 5: /vaults Advanced filter: Recommended / Switch to Wrapper Vaults / Show All Vaults. Labels "Wrapper" and "Underlying" only in Show All Vaults or when the wallet holds both. Vault page header switch between the pair. (Wrapper fee note and TERMS_VERSION 2.3.0 shipped with phase 2.)
 
 **To work on another day:**
 
