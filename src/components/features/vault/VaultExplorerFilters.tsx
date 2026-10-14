@@ -14,7 +14,6 @@ import {
   useRole,
 } from '@floating-ui/react';
 import type { VaultStrategy } from '@/lib/vaults';
-import type { VaultKindMode } from '@/lib/vault-utils';
 
 interface FilterDropdownProps {
   label: string;
@@ -238,181 +237,6 @@ function WalletFilterControl({
   );
 }
 
-const ADVANCED_TOGGLES: Array<{
-  mode: Exclude<VaultKindMode, 'recommended'>;
-  label: string;
-  info: string;
-}> = [
-  {
-    mode: 'wrappers',
-    label: 'Switch to Wrapper Vaults',
-    info: 'Show the wrapper version of each vault. A wrapper is its own vault that deposits into the Muscadine underlying vault, so it earns the same markets, and it charges a performance fee on interest earned. Vaults you already hold stay listed.',
-  },
-  {
-    mode: 'all',
-    label: 'Show All Vaults',
-    info: 'Show both the underlying vault and its wrapper for every asset, grouped under one row per vault. Expand a row to see each one. Vaults your wallet cannot deposit into are marked "Approved wallets only".',
-  },
-];
-
-/** One Advanced row: label, info button (hover or tap shows the explanation) and a switch. */
-function AdvancedToggleRow({
-  label,
-  info,
-  checked,
-  onChange,
-}: {
-  label: string;
-  info: string;
-  checked: boolean;
-  onChange: (checked: boolean) => void;
-}) {
-  const [showInfo, setShowInfo] = useState(false);
-  return (
-    <div className="rounded-lg px-2 py-2.5">
-      <div className="flex items-center justify-between gap-3">
-        <span className="flex min-w-0 items-center gap-2 text-sm text-[var(--foreground)]">
-          <span>{label}</span>
-          <button
-            type="button"
-            aria-label={`About ${label}`}
-            aria-expanded={showInfo}
-            onClick={(event) => {
-              // A mouse already shows it on hover; taps and keyboard toggle it.
-              if ((event.nativeEvent as PointerEvent).pointerType === 'mouse') return;
-              setShowInfo((open) => !open);
-            }}
-            onPointerEnter={(event) => {
-              if (event.pointerType === 'mouse') setShowInfo(true);
-            }}
-            onPointerLeave={(event) => {
-              if (event.pointerType === 'mouse') setShowInfo(false);
-            }}
-            className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[10px] font-semibold leading-none transition-colors cursor-pointer ${
-              showInfo
-                ? 'border-[var(--primary)] text-[var(--primary)]'
-                : 'border-[var(--foreground-muted)] text-[var(--foreground-muted)] hover:border-[var(--foreground-secondary)] hover:text-[var(--foreground-secondary)]'
-            }`}
-          >
-            i
-          </button>
-        </span>
-        <Switch label={label} checked={checked} onChange={onChange} />
-      </div>
-      {showInfo ? (
-        <p className="mt-1.5 pr-12 text-xs leading-relaxed text-[var(--foreground-secondary)]">
-          {info}
-        </p>
-      ) : null}
-    </div>
-  );
-}
-
-function Switch({
-  checked,
-  onChange,
-  label,
-}: {
-  checked: boolean;
-  onChange: (checked: boolean) => void;
-  label: string;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-      onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors cursor-pointer ${
-        checked ? 'bg-[var(--primary)]' : 'bg-[var(--surface-hover)] border border-[var(--border)]'
-      }`}
-    >
-      <span
-        className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${
-          checked ? 'translate-x-[22px]' : 'translate-x-0.5'
-        }`}
-      />
-    </button>
-  );
-}
-
-/** Advanced: which contracts of each wrapper / underlying pair the list shows, as switches. */
-function AdvancedFilterControl({
-  value,
-  onChange,
-}: {
-  value: VaultKindMode;
-  onChange: (value: VaultKindMode) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const isActive = value !== 'recommended';
-  const activeLabel = value === 'wrappers' ? 'Wrappers' : value === 'all' ? 'All vaults' : null;
-
-  const { refs, floatingStyles, context } = useFloating({
-    open,
-    onOpenChange: setOpen,
-    placement: 'bottom-start',
-    middleware: [offset(6), flip(), shift({ padding: 8 })],
-    whileElementsMounted: autoUpdate,
-  });
-
-  const click = useClick(context);
-  const dismiss = useDismiss(context);
-  const role = useRole(context, { role: 'dialog' });
-  const { getReferenceProps, getFloatingProps } = useInteractions([click, dismiss, role]);
-
-  return (
-    <>
-      <button
-        type="button"
-        ref={refs.setReference}
-        {...getReferenceProps()}
-        className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-2 min-h-[36px] text-xs transition-colors cursor-pointer touch-manipulation shrink-0 ${
-          isActive
-            ? 'border-[var(--primary)] bg-[var(--primary-subtle)] text-[var(--primary)]'
-            : 'border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] hover:bg-[var(--surface-hover)]'
-        }`}
-      >
-        <span className={isActive ? '' : 'text-[var(--foreground-secondary)]'}>Advanced</span>
-        {activeLabel ? <span className="whitespace-nowrap">{activeLabel}</span> : null}
-        <svg
-          className={`w-3 h-3 transition-transform ${open ? 'rotate-180' : ''} ${
-            isActive ? '' : 'text-[var(--foreground-secondary)]'
-          }`}
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-          strokeWidth="2"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
-
-      {open && (
-        <FloatingPortal>
-          <div
-            ref={refs.setFloating}
-            style={floatingStyles}
-            {...getFloatingProps()}
-            className="z-[9999] w-72 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-2 shadow-lg"
-          >
-            {ADVANCED_TOGGLES.map((toggle) => (
-              <AdvancedToggleRow
-                key={toggle.mode}
-                label={toggle.label}
-                info={toggle.info}
-                checked={value === toggle.mode}
-                onChange={(checked) => onChange(checked ? toggle.mode : 'recommended')}
-              />
-            ))}
-          </div>
-        </FloatingPortal>
-      )}
-    </>
-  );
-}
-
 export interface VaultExplorerFilterState {
   network: VaultNetworkFilter;
   asset: VaultAssetFilter;
@@ -423,10 +247,6 @@ export interface VaultExplorerFilterState {
 interface VaultExplorerFiltersProps {
   filters: VaultExplorerFilterState;
   onFiltersChange: (filters: VaultExplorerFilterState) => void;
-  kindMode: VaultKindMode;
-  onKindModeChange: (mode: VaultKindMode) => void;
-  /** Hidden unless the wallet can deposit into, or holds, both a wrapper and an underlying. */
-  showAdvanced: boolean;
 }
 
 export function getDefaultExplorerFilters(): VaultExplorerFilterState {
@@ -441,9 +261,6 @@ export function getDefaultExplorerFilters(): VaultExplorerFilterState {
 export default function VaultExplorerFilters({
   filters,
   onFiltersChange,
-  kindMode,
-  onKindModeChange,
-  showAdvanced,
 }: VaultExplorerFiltersProps) {
   const update = (partial: Partial<VaultExplorerFilterState>) => {
     onFiltersChange({ ...filters, ...partial });
@@ -485,9 +302,6 @@ export default function VaultExplorerFilters({
             options={assetOptions}
             onChange={(value) => update({ asset: value as VaultAssetFilter })}
           />
-          {showAdvanced ? (
-            <AdvancedFilterControl value={kindMode} onChange={onKindModeChange} />
-          ) : null}
         </div>
 
         <WalletFilterControl

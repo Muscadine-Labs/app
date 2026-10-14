@@ -18,6 +18,7 @@ import { logger } from '@/lib/logger';
 import { useUnixTimestamp } from '@/hooks/useClientOnly';
 import { useLockPageScroll } from '@/hooks/useLockPageScroll';
 import { useWallet } from '@/contexts/WalletContext';
+import { useVaultPrefs } from '@/contexts/VaultPrefsContext';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Button } from '@/components/ui';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -99,6 +100,7 @@ function groupProductVaults(vaults: readonly PortfolioVault[]): PortfolioVault[]
 export default function PortfolioPositionChart() {
   const { address, isConnected } = useAccount();
   const { morphoHoldings } = useWallet();
+  const { sharedData } = useVaultPrefs();
   const now = useUnixTimestamp();
   const [loading, setLoading] = useState(true);
   const [selectedTimeFrame, setSelectedTimeFrame] = useState<TimeFrame>('all');
@@ -142,7 +144,10 @@ export default function PortfolioPositionChart() {
 
       try {
         const productHistories = await Promise.all(
-          groupProductVaults(portfolioVaults).map(async (group) => {
+          (sharedData
+            ? groupProductVaults(portfolioVaults)
+            : portfolioVaults.map((vault) => [vault])
+          ).map(async (group) => {
             const histories = await Promise.all(
               group.map(async (vault) => {
                 try {
@@ -192,7 +197,7 @@ export default function PortfolioPositionChart() {
         setter([]);
       }
     },
-    [address, portfolioVaults]
+    [address, portfolioVaults, sharedData]
   );
 
   useEffect(() => {

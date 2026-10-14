@@ -8,6 +8,7 @@ import { Vault, getVaultLogo } from '@/types/vault';
 import type { MorphoVaultData } from '@/types/vault';
 import { useVaultData } from '@/contexts/VaultDataContext';
 import { useWallet } from '@/contexts/WalletContext';
+import { useVaultPrefs } from '@/contexts/VaultPrefsContext';
 import { getPairedVaultAddress } from '@/lib/vaults';
 import { VaultName } from '@/components/features/vault/VaultName';
 import {
@@ -218,6 +219,7 @@ function EarnedInterestCell({
 }) {
   const { address } = useAccount();
   const { morphoHoldings } = useWallet();
+  const { sharedData } = useVaultPrefs();
   const pairPosition = useMemo(() => {
     if (!combinePair) return null;
     const pairAddress = getPairedVaultAddress(vault.address)?.toLowerCase();
@@ -302,8 +304,9 @@ function EarnedInterestCell({
   if (heldPair && (heldPair.pnlRaw === undefined || heldPair.pnlUsd === undefined)) {
     return <Skeleton width="4rem" height="1rem" className={skeletonClass} />;
   }
+  // Shared vault data off: a closed pair's profit stays with that contract.
   const closedPair =
-    closedPairEarnedPnl(morphoHoldings.positions, vault.address) ??
+    (sharedData ? closedPairEarnedPnl(morphoHoldings.positions, vault.address) : null) ??
     (heldPair ? { pnlRaw: heldPair.pnlRaw!, pnlUsd: Math.max(0, heldPair.pnlUsd!) } : null);
   const earnedInterestRaw = (() => {
     if (flooredOwnRaw === undefined) return undefined;

@@ -9,6 +9,8 @@ import { ensureAppKitInit } from '@/lib/appkit-init'
 import { VaultDataProvider } from '../contexts/VaultDataContext'
 import { WalletProvider } from '../contexts/WalletContext'
 import { ExplorerVaultsProvider } from '../contexts/ExplorerVaultsContext'
+import { VaultPrefsProvider } from '../contexts/VaultPrefsContext'
+import type { VaultPrefs } from '@/lib/vault-prefs'
 import { TransactionProvider } from '../contexts/TransactionContext'
 import { ToastProvider } from '../contexts/ToastContext'
 import { ThemeProvider, useTheme } from '../contexts/ThemeContext'
@@ -20,6 +22,7 @@ import { logger } from '../lib/logger'
 type Props = {
   children: ReactNode
   initialState?: Parameters<typeof WagmiProvider>[0]['initialState']
+  initialVaultPrefs: VaultPrefs
 }
 
 function AppKitThemeSyncInner() {
@@ -44,7 +47,7 @@ function AppKitThemeSync() {
   return <AppKitThemeSyncInner />
 }
 
-export function Providers({ children, initialState }: Props) {
+export function Providers({ children, initialState, initialVaultPrefs }: Props) {
   const [queryClient] = useState(
     () =>
       new QueryClient({
@@ -77,6 +80,7 @@ export function Providers({ children, initialState }: Props) {
             <AdvisoryAgreementProvider>
                 <ToastProvider>
                   <WalletProvider>
+                    <VaultPrefsProvider initialPrefs={initialVaultPrefs}>
                     <ExplorerVaultsProvider>
                       <VaultDataProvider>
                         <TransactionProvider>
@@ -85,6 +89,7 @@ export function Providers({ children, initialState }: Props) {
                         </TransactionProvider>
                       </VaultDataProvider>
                     </ExplorerVaultsProvider>
+                    </VaultPrefsProvider>
                   </WalletProvider>
                 </ToastProvider>
               </AdvisoryAgreementProvider>

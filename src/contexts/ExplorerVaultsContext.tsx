@@ -1,7 +1,7 @@
 'use client';
 
-import { useContext, useMemo, useState, type ReactNode, createContext } from 'react';
-import { useAccount } from 'wagmi';
+import { useContext, useMemo, type ReactNode, createContext } from 'react';
+import { useVaultPrefs } from '@/contexts/VaultPrefsContext';
 import { useWallet } from '@/contexts/WalletContext';
 import { useVaultDepositGates } from '@/hooks/useVaultDepositGates';
 import {
@@ -19,7 +19,7 @@ interface ExplorerVaultsContextType {
   explorerRegistryVaults: Vault[];
   /** Lowercase addresses of `explorerRegistryVaults`. A listed vault's page is viewable. */
   listedVaultAddresses: ReadonlySet<string>;
-  /** Which contracts of each wrapper / underlying pair are listed. Session only; resets per wallet. */
+  /** Which contracts of each wrapper / underlying pair are listed (Settings, saved in a cookie). */
   kindMode: VaultKindMode;
   setKindMode: (mode: VaultKindMode) => void;
   /**
@@ -35,14 +35,9 @@ interface ExplorerVaultsContextType {
 const ExplorerVaultsContext = createContext<ExplorerVaultsContextType | undefined>(undefined);
 
 export function ExplorerVaultsProvider({ children }: { children: ReactNode }) {
-  const { address } = useAccount();
   const { morphoHoldings } = useWallet();
   const { eligibleVaultAddresses, isResolving } = useVaultDepositGates();
-  const walletKey = address?.toLowerCase() ?? null;
-  const [modeState, setModeState] = useState<{ wallet: string | null; mode: VaultKindMode }>({
-    wallet: null,
-    mode: 'recommended',
-  });
+  const { kindMode: savedKindMode, setKindMode } = useVaultPrefs();
   // Registry vault balances in morphoHoldings are read on chain (WalletContext), so a
   // holder still sees the vault when the Morpho positions API fails or lags.
   const depositedAddresses = useMemo(
@@ -67,9 +62,8 @@ export function ExplorerVaultsProvider({ children }: { children: ReactNode }) {
     return heldKinds.has('wrapper') && heldKinds.has('underlying');
   }, [eligibleVaultAddresses, depositedAddresses]);
 
-  // Not stored: each wallet starts on the recommended list.
-  const kindMode =
-    canUseAdvanced && modeState.wallet === walletKey ? modeState.mode : 'recommended';
+  // The saved choice applies only while it matters to this wallet.
+  const kindMode: VaultKindMode = canUseAdvanced ? savedKindMode : 'recommended';
 
   const explorerRegistryVaults = useMemo(
     () =>
@@ -91,11 +85,11 @@ export function ExplorerVaultsProvider({ children }: { children: ReactNode }) {
       explorerRegistryVaults,
       listedVaultAddresses,
       kindMode,
-      setKindMode: (mode: VaultKindMode) => setModeState({ wallet: walletKey, mode }),
+      setKindMode,
       canUseAdvanced,
       isResolving,
     }),
-    [explorerRegistryVaults, listedVaultAddresses, kindMode, walletKey, canUseAdvanced, isResolving]
+    [explorerRegistryVaults, listedVaultAddresses, kindMode, setKindMode, canUseAdvanced, isResolving]
   );
 
   return (

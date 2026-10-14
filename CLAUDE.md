@@ -142,10 +142,12 @@ Fee wrappers (`kind: 'wrapper'`, `underlyingAddress` = the vault above they depo
 
 **Wrapper / underlying pairs (families):** a wrapper and its underlying vault are one family.
 
+**Vault prefs (Settings, cookie `muscadine-vault-prefs`):** `VaultPrefsContext` holds `kindMode` and `sharedData`; `layout.tsx` reads the cookie (`readVaultPrefsFromCookieHeader` in `lib/vault-prefs.ts`) so the server renders the saved values. **Shared vault data** (default on) lets a pair's chart, earned interest, history and closed-pair profit mix; off keeps each contract alone everywhere (vault page, History, dashboard chart, profit carry). **Switch to Wrapper Vaults** / **Show All Vaults** live in Settings too (only when `canUseAdvanced`).
+
 - **Lists** (`/vaults` and dashboard Your Vaults, `VaultExplorerTable`): `groupVaultFamilies` in `vault-utils.ts` groups listed vaults. A family with both contracts listed is a parent row (chevron) with the two vaults as indented child rows, like Morpho's market families. The parent shows the combined position and profit, the underlying's deposits / TVL / liquidity (it already holds the wrapper's funds, so adding the wrapper would double count) and the APY range of both. Children show each contract alone and carry the **Wrapper** / **Underlying** labels (`VaultKindMark`, `selectVaultKindMarkAddresses`). A family starts expanded when the wallet holds both contracts; a tap toggles it. Dashboard families sort by combined USD. A single listed contract is a plain row.
 - **Profit carry:** a row whose pair contract has no shares left adds that contract's lifetime profit (`closedPairEarnedPnl`), so a move to the wrapper and back keeps all interest on the row.
-- **Vault page My Position** (`VaultPosition.tsx`): holding one contract (or none) shows the pair as one position, so a user who went underlying → wrapper → underlying sees no gap. Holding both shows this vault, with a **This vault | Combined** toggle. Combined view: summed on-chain balance, merged chart (`mergeVaultPositionSeries` in `portfolio-utils.ts`), summed earned interest (no per-contract split), a shaded chart band where funds sat in the other contract, and a note linking to it (withdraws act on the page's own contract). Future rewards project each side at its own APY (`pairAssetsRaw` / `pairApy` on `VaultTransactPanel`).
-- **History tab:** your activity always merges both contracts; rows get a Wrapper / Underlying tag when the other contract has activity.
+- **Vault page My Position** (`VaultPosition.tsx`): holding one contract (or none) shows the pair as one position, so a user who went underlying → wrapper → underlying sees no gap. Holding both shows this vault, with a **This vault | Combined** toggle. Clicking the chart legend ("Shaded: held in Wrapper … Hide") switches to this vault only; an "Include … history" link brings the pair back. Combined view: summed on-chain balance, merged chart (`mergeVaultPositionSeries` in `portfolio-utils.ts`), summed earned interest (no per-contract split), a shaded chart band where funds sat in the other contract, and a note linking to it (withdraws act on the page's own contract). Future rewards project each side at its own APY (`pairAssetsRaw` / `pairApy` on `VaultTransactPanel`).
+- **History tab:** with shared data on, your activity merges both contracts (de-duplicated by event); rows get a Wrapper / Underlying tag only when the wallet holds both.
 - **Dashboard chart** always merges each pair.
 - **No header switch** between the pair on vault pages; the other contract is reached from the explorer, the dashboard family rows, or the combined-view note.
 
@@ -159,7 +161,7 @@ Fee wrappers (`kind: 'wrapper'`, `underlyingAddress` = the vault above they depo
 | `wrappers` | The wrapper |
 | `all` | Both contracts |
 
-The `/vaults` **Advanced** filter is a panel of switches with info icons (like Morpho's): **Switch to Wrapper Vaults** and **Show All Vaults**. Turning one on turns the other off; both off is `recommended`. Each info icon shows its explanation on hover (mouse) or tap. The control only appears when `canUseAdvanced`: the wallet can deposit into both the wrapper and the underlying of some vault, or holds at least one wrapper and one underlying; otherwise the list stays on `recommended`. A listed vault the wallet cannot deposit into gets an **Approved wallets only** pill; that needs a successful read saying no (`blockedVaultAddresses` from `useVaultDepositGates`, `resolveDepositBlocked`), so a failed gate read never shows it.
+**Settings** has the switches (with info icons, like Morpho's): **Switch to Wrapper Vaults** and **Show All Vaults**, saved in the prefs cookie. Turning one on turns the other off; both off is `recommended`. Each info icon shows its explanation on hover (mouse) or tap. The control only appears when `canUseAdvanced`: the wallet can deposit into both the wrapper and the underlying of some vault, or holds at least one wrapper and one underlying; otherwise the list stays on `recommended`. A listed vault the wallet cannot deposit into gets an **Approved wallets only** pill; that needs a successful read saying no (`blockedVaultAddresses` from `useVaultDepositGates`, `resolveDepositBlocked`), so a failed gate read never shows it.
 
 Explorer filters default to **All** (network, strategy, asset). **No v1/v2 version filter** (v1 removed). There is no developer/over-balance bypass mode.
 
@@ -331,7 +333,7 @@ Morpho GraphQL is **server-only** (`fetchMorphoGraphQL()` in route handlers). Th
 | `/api/user/morpho-positions` | User Morpho v2 positions |
 | `/api/vault/v2/...` | V2 Morpho GraphQL proxies |
 
-**NavBar:** Dashboard → `/`, Vaults → `/vaults`. Settings: theme (light/dark/auto). Right sidebar (`LearnContent`) is Q&A links to Morpho docs (protocol, Vault V2, fee wrapper vaults, curator, Blue, Midnight) and [self-custody](https://muscadine.xyz/self-custody).
+**NavBar:** Dashboard → `/`, Vaults → `/vaults`. Settings: theme (light/dark/auto), Shared vault data, and (when `canUseAdvanced`) Switch to Wrapper Vaults / Show All Vaults, saved in a cookie. Right sidebar (`LearnContent`) is Q&A links to Morpho docs (protocol, Vault V2, fee wrapper vaults, curator, Blue, Midnight) and [self-custody](https://muscadine.xyz/self-custody).
 
 **App title:** metadata in `layout.tsx` uses **Muscadine Vaults** (`APP_NAME` in `src/lib/base-app.ts`) so Base.dev / Reown AppKit / WalletConnect match.
 
@@ -374,7 +376,6 @@ Adaptive layout (content-sized panels; empty sections omitted):
 | Network | All, Base | Default **All**; `base` filters `chainId === 8453` |
 | Strategy | All, Prime, Frontier | Default **All** (shows Prime + Frontier) |
 | Asset | All, USDC, cbBTC, WETH | Local filter state. |
-| Advanced | Switches: Switch to Wrapper Vaults, Show All Vaults | Sets `kindMode` (both off = recommended; see Vault registry). Session only. |
 | Scope | Deposits + whitelisted, In wallet, **Whitelisted** | Default **Deposits + whitelisted**. Wallet modes can list external deposits as **External** (not clickable). |
 
 **Table columns** (`VaultExplorerTable.tsx`): Vault, **Your Position**, **Earned Interest**, **APY / TVL** (compact layout). **Whitelisted** rows navigate to `/vault/v2/{address}`; external rows are display-only.
@@ -399,7 +400,7 @@ Chart tabs (order): **APY** → **Total Deposits** → **Share Price** → **All
 
 Provider tree (`src/app/Providers.tsx`):
 
-`ErrorBoundary` → `WagmiProvider` → `QueryClient` → `ThemeProvider` → `AdvisoryAgreementProvider` → `ToastProvider` → `WalletProvider` → `VaultDataProvider` → `TransactionProvider` (Reown AppKit initialized via `createAppKit` in `src/config/appkit.ts`; no SIWE/SIWX)
+`ErrorBoundary` → `WagmiProvider` → `QueryClient` → `ThemeProvider` → `AdvisoryAgreementProvider` → `ToastProvider` → `WalletProvider` → `VaultPrefsProvider` → `ExplorerVaultsProvider` → `VaultDataProvider` → `TransactionProvider` (Reown AppKit initialized via `createAppKit` in `src/config/appkit.ts`; no SIWE/SIWX)
 
 | Context | File | Role |
 |---------|------|------|
@@ -409,6 +410,7 @@ Provider tree (`src/app/Providers.tsx`):
 | `PriceContext` | `contexts/PriceContext.tsx` | Asset USD prices |
 | `ToastContext` | `contexts/ToastContext.tsx` | Toasts |
 | `ThemeContext` | `contexts/ThemeContext.tsx` | Light/dark |
+| `VaultPrefsContext` | `contexts/VaultPrefsContext.tsx` | Settings → vault list mode and Shared vault data (cookie) |
 | `AdvisoryAgreementContext` | `contexts/AdvisoryAgreementContext.tsx` | Legal modal gating |
 
 ### Advisory agreement (`AdvisoryAgreementModal.tsx`)

@@ -39,6 +39,7 @@ import { resolveAssetDecimals } from '@/lib/asset-decimals';
 import { BASE_CHAIN_ID } from '@/lib/constants';
 import { getPairedVaultAddress } from '@/lib/vaults';
 import { useVaultDataFetch } from '@/hooks/useVaultDataFetch';
+import { useVaultPrefs } from '@/contexts/VaultPrefsContext';
 import { mergeVaultPositionSeries } from '@/lib/portfolio-utils';
 import type { Transaction } from '@/types/api';
 import type { VaultTransactionTab } from '@/hooks/useScopedVaultTransaction';
@@ -153,7 +154,9 @@ export default function VaultPosition({
   // Holding one side of a wrapper / underlying pair shows the pair as one position, so a
   // move out and back leaves no gap. Holding both shows this vault, with a Combined toggle.
   const pairedVaultAddress = getPairedVaultAddress(vaultData.address);
-  const [positionView, setPositionView] = useState<'vault' | 'combined'>('vault');
+  // Explicit choice from the This vault | Combined toggle or the chart legend; null = default.
+  const [viewOverride, setViewOverride] = useState<'vault' | 'combined' | null>(null);
+  const { sharedData } = useVaultPrefs();
   const pairVault = useMemo(
     () => (pairedVaultAddress ? findVaultByAddress(pairedVaultAddress) : null),
     [pairedVaultAddress]
@@ -215,7 +218,10 @@ export default function VaultPosition({
     pairAssets !== undefined &&
     pageAssets > BigInt(0) &&
     pairAssets > BigInt(0);
-  const showCombined = !!pairedVaultAddress && (!holdsBoth || positionView === 'combined');
+  // Default: combined when holding one side (no gap after a move), this vault when holding both.
+  // Settings → Shared vault data off never mixes the two.
+  const positionView = viewOverride ?? (holdsBoth ? 'vault' : 'combined');
+  const showCombined = sharedData && !!pairedVaultAddress && positionView === 'combined';
   const productVaultAddresses = useMemo(
     () => (showCombined && pairedVaultAddress ? [vaultData.address, pairedVaultAddress] : [vaultData.address]),
     [showCombined, pairedVaultAddress, vaultData.address]
@@ -715,6 +721,16 @@ export default function VaultPosition({
   }, [showCombined, chartData, pairPositionHistory, pairHourly30dHistory]);
 
   const pairKindLabel = pairVault?.kind === 'wrapper' ? 'Wrapper' : 'Underlying';
+  const pairHasHistory = (() => {
+    if (pairAssets !== undefined && pairAssets > BigInt(0)) return true;
+    try {
+      return BigInt(pairEarnedInterest.earnedInterestRaw || '0') > BigInt(0);
+    } catch {
+      return false;
+    }
+  })();
+  const canRestorePair =
+    sharedData && !holdsBoth && viewOverride === 'vault' && !!pairedVaultAddress && pairHasHistory;
 
   // Helper function to calculate chart ticks based on time frame
   const getChartTicks = useMemo(() => {
@@ -798,7 +814,7 @@ export default function VaultPosition({
           <div className="min-w-0">
             <div className="flex items-center gap-2 mb-1">
               <p className="text-xs text-[var(--foreground-secondary)]">Your Position</p>
-              {holdsBoth ? (
+              {holdsBoth && sharedData ? (
                 <div
                   role="group"
                   aria-label="Position view"
@@ -809,7 +825,7 @@ export default function VaultPosition({
                       key={view}
                       type="button"
                       aria-pressed={positionView === view}
-                      onClick={() => setPositionView(view)}
+                      onClick={() => setViewOverride(view)}
                       className={`px-2 py-0.5 text-[10px] font-medium rounded transition-colors cursor-pointer ${
                         positionView === view
                           ? 'bg-[var(--primary)] text-white'
@@ -1163,11 +1179,26 @@ export default function VaultPosition({
                 </ResponsiveContainer>
               </div>
               {pairHeldBands.length > 0 ? (
-                <p className="mt-2 shrink-0 flex items-center gap-1.5 text-[10px] text-[var(--foreground-muted)]">
+                <button
+                  type="button"
+                  onClick={() => setViewOverride('vault')}
+                  title={`Show this vault only, without the ${pairKindLabel.toLowerCase()} history`}
+                  className="mt-2 shrink-0 self-start flex items-center gap-1.5 text-[10px] text-[var(--foreground-muted)] hover:text-[var(--foreground-secondary)] cursor-pointer"
+                >
                   <span className="inline-block h-2.5 w-2.5 rounded-sm bg-[var(--foreground-muted)] opacity-20" />
                   Shaded: held in {pairKindLabel}
                   {pairVault?.vaultSymbol ? ` (${pairVault.vaultSymbol})` : ''}
-                </p>
+                  <span className="underline">Hide</span>
+                </button>
+              ) : canRestorePair ? (
+                <button
+                  type="button"
+                  onClick={() => setViewOverride('combined')}
+                  className="mt-2 shrink-0 self-start text-[10px] text-[var(--primary)] hover:underline cursor-pointer"
+                >
+                  Include {pairKindLabel}
+                  {pairVault?.vaultSymbol ? ` (${pairVault.vaultSymbol})` : ''} history
+                </button>
               ) : null}
             </div>
           ) : (
