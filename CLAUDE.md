@@ -646,7 +646,7 @@ Do not bump without checking compatibility:
 |---------|------------|
 | `wagmi` | Stay on **2.x** — Reown AppKit requirement |
 | `eslint` | Stay on **9.x** until `eslint-plugin-react` / `jsx-a11y` / `import` (bundled by `eslint-config-next` 16) accept ESLint 10 — their peer ranges stop at 9 and `npm ls` reports the tree invalid on 10 |
-| `ox` | Stay on **0.14.x** — `ox@1` is a breaking rewrite; used for ERC-8021 builder codes |
+| `ox` | Stay on **0.14.x** — `ox@1` is a breaking rewrite; used for ERC-8021 builder codes. It is pinned in `overrides` (`$ox`), so a `viem` bump can need the matching `ox` patch: check `npm view viem@<version> dependencies.ox` and bump `ox` with it, or the Turbopack build fails with missing ox exports (`AccountConfig`). |
 | `valtio` | Keep a **root** `valtio` (2.x) — Reown AppKit / WalletConnect must resolve `valtio/vanilla` under Turbopack |
 | `@morpho-org/*-wagmi` 4.x | Often requires wagmi 3 |
 

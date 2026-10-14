@@ -1,6 +1,5 @@
 'use client';
 
-import React from 'react';
 import { useToast } from '@/contexts/ToastContext';
 import { truncateAddress } from '@/lib/formatter';
 import type { Address } from 'viem';

@@ -1151,7 +1151,7 @@ export default function VaultPosition({
                         x1={band.x1}
                         x2={band.x2}
                         fill="var(--foreground-muted)"
-                        fillOpacity={0.06}
+                        fillOpacity={0.04}
                         stroke="none"
                         ifOverflow="hidden"
                       />
@@ -1170,7 +1170,7 @@ export default function VaultPosition({
                 </ResponsiveContainer>
               </div>
               {pairHeldBands.length > 0 ? (
-                <p className="mt-2 shrink-0 text-[10px] leading-tight text-[var(--foreground-muted)] pointer-events-none">
+                <p className="mt-2 shrink-0 text-[8px] leading-tight text-[var(--foreground-muted)] pointer-events-none">
                   Grey shaded area means deposited into the{' '}
                   {pairVault?.kind === 'wrapper' ? 'wrapper' : 'underlying'} vault
                   {pairVault?.vaultSymbol ? ` (${pairVault.vaultSymbol})` : ''}.

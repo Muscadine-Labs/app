@@ -44,7 +44,9 @@ export const wagmiAdapter = new WagmiAdapter({
   projectId,
   networks,
   transports: {
-    [base.id]: fallback([http(alchemyUrl), http()]),
+    // JSON-RPC batching: parallel reads made in the same tick (force-withdraw planner, deposit
+    // caps, position reads) go out as one HTTP request to Alchemy instead of one each.
+    [base.id]: fallback([http(alchemyUrl, { batch: true }), http()]),
   },
 })
 
