@@ -8,6 +8,9 @@ import { ConnectButton } from "../features/wallet";
 import { Icon } from "../ui/Icon";
 import { Button } from "../ui/Button";
 import { useTheme } from "@/contexts/ThemeContext";
+import { useVaultPrefs } from "@/contexts/VaultPrefsContext";
+import { useExplorerVaults } from "@/contexts/ExplorerVaultsContext";
+import { SettingToggleRow } from "@/components/ui/SettingToggleRow";
 import { MORPHO_DISCLAIMER_URL } from '@/lib/constants';
 
 interface NavBarProps {
@@ -23,11 +26,17 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
     const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
     const settingsRef = useRef<HTMLDivElement>(null);
+    const infoPopoverOpenRef = useRef(false);
     const mobileNavRef = useRef<HTMLDivElement>(null);
     const hamburgerButtonRef = useRef<HTMLButtonElement>(null);
     
     // Settings state with defaults
     const { theme, setTheme } = useTheme();
+    const { sharedData, setSharedData } = useVaultPrefs();
+    const { kindMode, setKindMode, canUseAdvanced } = useExplorerVaults();
+    const handleInfoOpenChange = (open: boolean) => {
+        infoPopoverOpenRef.current = open;
+    };
 
     const isActive = useCallback((item: NavItem): boolean => {
         if (item.id === 'vaults') {
@@ -49,7 +58,13 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
             if (menuRef.current && !menuRef.current.contains(target)) {
                 setIsMenuOpen(false);
             }
-            if (settingsRef.current && !settingsRef.current.contains(target)) {
+            const infoPopover = target instanceof Element && target.closest('[data-vault-info-popover]');
+            if (
+                settingsRef.current &&
+                !settingsRef.current.contains(target) &&
+                !infoPopoverOpenRef.current &&
+                !infoPopover
+            ) {
                 setIsSettingsOpen(false);
             }
             // Only handle mobile nav if it's actually open
@@ -267,7 +282,10 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                             className="relative flex items-center" 
                             ref={settingsRef}
                             onMouseEnter={() => setIsSettingsOpen(true)}
-                            onMouseLeave={() => setIsSettingsOpen(false)}
+                            onMouseLeave={() => {
+                                if (infoPopoverOpenRef.current) return;
+                                setIsSettingsOpen(false);
+                            }}
                         >
                             <button
                                 onClick={() => {
@@ -302,9 +320,12 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                         onMouseEnter={() => setIsSettingsOpen(true)}
                                     />
                                     <div 
-                                        className="absolute right-0 top-full mt-2 w-56 bg-[var(--surface)] border border-[var(--border)] rounded-2xl shadow-xl py-4 z-[60] animate-[fadeInUp_0.2s_ease-out]"
+                                        className="absolute right-0 top-full mt-2 w-72 max-w-[calc(100vw-2rem)] bg-[var(--surface)] border border-[var(--border)] rounded-2xl shadow-xl py-4 z-[60] animate-[fadeInUp_0.2s_ease-out]"
                                         onMouseEnter={() => setIsSettingsOpen(true)}
-                                        onMouseLeave={() => setIsSettingsOpen(false)}
+                                        onMouseLeave={() => {
+                                            if (infoPopoverOpenRef.current) return;
+                                            setIsSettingsOpen(false);
+                                        }}
                                     >
                                     {/* Theme Section */}
                                     <div className="px-4">
@@ -355,6 +376,34 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                                 Auto
                                             </button>
                                         </div>
+                                    </div>
+                                    {/* Vault display: saved in a cookie (VaultPrefsContext) */}
+                                    <div className="px-4 mt-3 pt-2 border-t border-[var(--border)]">
+                                        <SettingToggleRow
+                                            label="Shared vault data"
+                                            info="Show a wrapper and its underlying vault as one history: the chart and earned interest include both, so moving between them leaves no gap. Turn off to see each vault on its own."
+                                            checked={sharedData}
+                                            onChange={setSharedData}
+                                            onInfoOpenChange={handleInfoOpenChange}
+                                        />
+                                        {canUseAdvanced ? (
+                                            <>
+                                                <SettingToggleRow
+                                                    label="Switch to Wrapper Vaults"
+                                                    info="Show the wrapper version of each vault. A wrapper is its own vault that deposits into the Muscadine underlying vault, so it earns the same markets, and it charges a performance fee on interest earned. Vaults you already hold stay listed."
+                                                    checked={kindMode === 'wrappers'}
+                                                    onChange={(on) => setKindMode(on ? 'wrappers' : 'recommended')}
+                                                    onInfoOpenChange={handleInfoOpenChange}
+                                                />
+                                                <SettingToggleRow
+                                                    label="Show All Vaults"
+                                                    info="Show both the underlying vault and its wrapper for every asset, grouped under one row per vault. Expand a row to see each one. Vaults your wallet cannot deposit into are marked &quot;Approved wallets only&quot;."
+                                                    checked={kindMode === 'all'}
+                                                    onChange={(on) => setKindMode(on ? 'all' : 'recommended')}
+                                                    onInfoOpenChange={handleInfoOpenChange}
+                                                />
+                                            </>
+                                        ) : null}
                                     </div>
                                     </div>
                                 </>

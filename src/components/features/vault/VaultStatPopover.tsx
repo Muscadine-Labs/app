@@ -13,20 +13,44 @@ interface VaultStatPopoverProps {
   children: ReactNode;
   /** Prefer end alignment for stats on the right side of the grid. */
   align?: 'start' | 'end';
+  /** Fires when the panel opens or closes. Used so a parent menu can stay open. */
+  onOpenChange?: (open: boolean) => void;
 }
 
 export function VaultStatPopover({
   ariaLabel,
   children,
   align = 'start',
+  onOpenChange,
 }: VaultStatPopoverProps) {
   const [open, setOpen] = useState(false);
+  const onOpenChangeRef = useRef(onOpenChange);
+
+  useEffect(() => {
+    onOpenChangeRef.current = onOpenChange;
+  }, [onOpenChange]);
+
+  const close = useCallback(() => {
+    setOpen(false);
+  }, []);
+
+  const toggle = useCallback(() => {
+    setOpen((prev) => !prev);
+  }, []);
+
   const [isMobile, setIsMobile] = useState(false);
   const [position, setPosition] = useState({ top: 0, left: 0 });
   const buttonRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
   useLockPageScroll(open);
+
+  useEffect(() => {
+    onOpenChangeRef.current?.(open);
+    return () => {
+      if (open) onOpenChangeRef.current?.(false);
+    };
+  }, [open]);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT_PX - 1}px)`);
@@ -85,12 +109,12 @@ export function VaultStatPopover({
       const target = event.target as Node;
       if (buttonRef.current?.contains(target)) return;
       if (panelRef.current?.contains(target)) return;
-      setOpen(false);
+      close();
     };
 
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setOpen(false);
+        close();
       }
     };
 
@@ -103,11 +127,7 @@ export function VaultStatPopover({
       document.removeEventListener('touchstart', handlePointerDown);
       window.removeEventListener('keydown', handleEscape);
     };
-  }, [open]);
-
-  const toggle = () => {
-    setOpen((prev) => !prev);
-  };
+  }, [open, close]);
 
   const panelShellClassName =
     'rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] shadow-xl overscroll-contain flex flex-col';
@@ -118,7 +138,10 @@ export function VaultStatPopover({
       {isMobile && (
         <button
           type="button"
-          onClick={() => setOpen(false)}
+          onClick={(event) => {
+            event.stopPropagation();
+            close();
+          }}
           className="rounded-md p-1.5 text-[var(--foreground-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] cursor-pointer touch-manipulation"
           aria-label="Close"
         >
@@ -151,13 +174,18 @@ export function VaultStatPopover({
         createPortal(
           <>
             <div
+              data-vault-info-popover=""
               className="fixed inset-0 z-[100] bg-black/40 touch-none overscroll-none"
               aria-hidden
-              onClick={() => setOpen(false)}
+              onClick={(event) => {
+                event.stopPropagation();
+                close();
+              }}
             />
             {isMobile ? (
               <div
                 ref={panelRef}
+                data-vault-info-popover=""
                 role="dialog"
                 aria-modal="true"
                 aria-label={ariaLabel}
@@ -169,6 +197,7 @@ export function VaultStatPopover({
             ) : (
               <div
                 ref={panelRef}
+                data-vault-info-popover=""
                 role="dialog"
                 aria-modal="true"
                 aria-label={ariaLabel}

@@ -1,10 +1,19 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
+import Link from 'next/link';
 import { MorphoVaultData } from '@/types/vault';
 import type { VaultMarketAllocation } from '@/lib/vault-v2-allocations';
 import { formatMorphoMarketRateLabel } from '@/lib/morpho-market-url';
-import { getVaultAnalyticsUrl } from '@/lib/vault-utils';
+import {
+  findVaultByAddress,
+  getDepositedVaultAddressSet,
+  getVaultAnalyticsUrl,
+  getVaultRoute,
+} from '@/lib/vault-utils';
+import { useExplorerVaults } from '@/contexts/ExplorerVaultsContext';
+import { useVaultDepositGates } from '@/hooks/useVaultDepositGates';
+import { useWallet } from '@/contexts/WalletContext';
 import {
   formatSmartCurrency,
   formatPercentage,
@@ -36,6 +45,7 @@ function formatOptionalUsd(value: number | null): string {
 
 function formatAllocationType(row: VaultMarketAllocation): string {
   if (row.kind === 'idle') return '—';
+  if (row.kind === 'vault') return 'Vault';
   return formatMorphoMarketRateLabel(row.rateType, row.lltv) ?? '—';
 }
 
@@ -60,7 +70,7 @@ function formatCompactRowSummary(
 ): string {
   const parts: string[] = [];
 
-  if (row.kind === 'market') {
+  if (row.kind !== 'idle') {
     const typeLabel = formatAllocationType(row);
     if (typeLabel !== '—') parts.push(typeLabel);
   }
@@ -79,7 +89,42 @@ function formatCompactRowSummary(
   return parts.join(' · ');
 }
 
+/** In-app link when the wallet can open the vault's page, else Muscadine Analytics. */
+function useVaultRowHref(): (vaultAddress: string) => { href: string; internal: boolean } {
+  const { listedVaultAddresses } = useExplorerVaults();
+  const { eligibleVaultAddresses } = useVaultDepositGates();
+  const { morphoHoldings } = useWallet();
+  return (vaultAddress: string) => {
+    const key = vaultAddress.toLowerCase();
+    // Same rule as the vault page's access check: listed, depositable, or held.
+    const pageOpen =
+      !!findVaultByAddress(vaultAddress) &&
+      (listedVaultAddresses.has(key) ||
+        eligibleVaultAddresses.has(key) ||
+        getDepositedVaultAddressSet(morphoHoldings.positions).has(key));
+    return pageOpen
+      ? { href: getVaultRoute(vaultAddress), internal: true }
+      : { href: getVaultAnalyticsUrl(vaultAddress), internal: false };
+  };
+}
+
+const NAME_LINK_CLASS =
+  'font-medium text-[var(--primary)] hover:text-[var(--primary-hover)] hover:underline';
+
 function AllocationMarketName({ row }: { row: VaultMarketAllocation }) {
+  const vaultRowHref = useVaultRowHref();
+  if (row.kind === 'vault' && row.vaultAddress) {
+    const { href, internal } = vaultRowHref(row.vaultAddress);
+    return internal ? (
+      <Link href={href} className={NAME_LINK_CLASS}>
+        {row.name}
+      </Link>
+    ) : (
+      <a href={href} target="_blank" rel="noopener noreferrer" className={NAME_LINK_CLASS}>
+        {row.name}
+      </a>
+    );
+  }
   if (row.kind === 'market' && row.morphoUrl) {
     return (
       <a
@@ -113,7 +158,7 @@ function AllocationMobileCard({
       <AllocationMarketName row={row} />
 
       <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
-        {row.kind === 'market' && (
+        {row.kind !== 'idle' && (
           <div>
             <dt className="text-[var(--foreground-muted)]">Type</dt>
             <dd className="text-[var(--foreground-secondary)] tabular-nums">{formatAllocationType(row)}</dd>
@@ -132,7 +177,9 @@ function AllocationMobileCard({
           <dd className="text-[var(--foreground-secondary)] tabular-nums">{formatOptionalUsd(row.liquidityUsd)}</dd>
         </div>
         <div className="col-span-2">
-          <dt className="text-[var(--foreground-muted)]">Market size</dt>
+          <dt className="text-[var(--foreground-muted)]">
+            {row.kind === 'vault' ? 'Total deposits' : 'Market size'}
+          </dt>
           <dd className="text-[var(--foreground-secondary)] tabular-nums">{formatOptionalUsd(row.marketSizeUsd)}</dd>
         </div>
       </dl>
@@ -221,9 +268,16 @@ export function VaultAllocations({
   }, [active, fetchKey, vaultData.address, vaultData.chainId]);
 
   const vaultTokenLabel = vaultData.symbol || 'Token';
+  // A wrapper allocates only to its underlying vault: label the columns for a vault.
+  const vaultRowsOnly =
+    allocations.some((row) => row.kind === 'vault') &&
+    allocations.every((row) => row.kind !== 'market');
   const allocatedHeader =
     allocatedValueType === 'usd' ? 'Allocated (USD)' : `Allocated (${vaultTokenLabel})`;
-  const analyticsHref = getVaultAnalyticsUrl(vaultData.address);
+  const analyticsHref = getVaultAnalyticsUrl(vaultData.underlyingAddress ?? vaultData.address);
+  const underlyingVault = vaultData.underlyingAddress
+    ? findVaultByAddress(vaultData.underlyingAddress)
+    : null;
 
   return (
     <div className="space-y-3 min-h-[10rem]">
@@ -235,6 +289,12 @@ export function VaultAllocations({
           </p>
         </div>
       )}
+      {underlyingVault ? (
+        <p className="text-xs text-[var(--foreground-secondary)]">
+          This wrapper deposits into {underlyingVault.name} ({underlyingVault.vaultSymbol}), which
+          allocates to Morpho markets.
+        </p>
+      ) : null}
 
       {loading ? (
         <div className="p-2 space-y-3">
@@ -293,13 +353,15 @@ export function VaultAllocations({
             <table className="table-auto text-xs sm:text-sm">
               <thead>
                 <tr className="border-b border-[var(--border-subtle)] text-left text-[10px] sm:text-xs">
-                  <th className={`${MARKET_CELL} ${TH} text-left`}>Market</th>
+                  <th className={`${MARKET_CELL} ${TH} text-left`}>
+                    {vaultRowsOnly ? 'Vault' : 'Market'}
+                  </th>
                   <th className={`${TYPE_CELL} ${TH} text-left hidden min-[40rem]:table-cell`}>Type</th>
                   <th className={`${AMOUNT_CELL} ${TH} hidden min-[40rem]:table-cell`}>{allocatedHeader}</th>
                   <th className={`${METRIC_CELL} ${TH} text-right hidden min-[40rem]:table-cell`}>APY</th>
                   <th className={`${METRIC_CELL} ${TH} text-right hidden md:table-cell`}>Liquidity</th>
                   <th className={`${METRIC_CELL} ${TH} text-right hidden xl:table-cell`}>
-                    Market size
+                    {vaultRowsOnly ? 'Total deposits' : 'Market size'}
                   </th>
                 </tr>
               </thead>

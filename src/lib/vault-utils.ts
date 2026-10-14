@@ -1,6 +1,7 @@
 import {
   VaultDefinition,
   VaultStrategy,
+  getPairedVaultAddress,
   getRegistryVaultList,
 } from '@/lib/vaults';
 import { Vault } from '@/types/vault';
@@ -142,6 +143,8 @@ export function registryDefinitionToVault(vault: VaultDefinition): Vault {
     chainId: vault.chainId,
     version: vault.version,
     strategy: vault.strategy,
+    kind: vault.kind,
+    underlyingAddress: vault.underlyingAddress,
     isCurated: true,
   };
 }
@@ -197,14 +200,76 @@ export function getDepositedVaultAddressSet(
   );
 }
 
-/** Registry vaults the explorer lists: deposit-eligible, or held so the owner can exit. */
+/**
+ * Profit on the other contract of a wrapper / underlying pair, once that contract has
+ * no shares. Its row is gone, so the row still shown carries it. When both sides are
+ * held, each row keeps its own profit.
+ */
+export function closedPairEarnedPnl(
+  positions: readonly WalletMorphoPosition[],
+  vaultAddress: string
+): { pnlRaw: string; pnlUsd: number } | null {
+  const pairAddress = getPairedVaultAddress(vaultAddress);
+  if (!pairAddress) return null;
+  const pair = positions.find(
+    (position) => position.vault.address.toLowerCase() === pairAddress.toLowerCase()
+  );
+  if (!pair || hasOnChainVaultShares(pair) || !pair.pnlRaw) return null;
+  let pnlRaw: bigint;
+  try {
+    pnlRaw = BigInt(pair.pnlRaw);
+  } catch {
+    return null;
+  }
+  // A loss on the closed contract must not shrink the open row. The vault page
+  // floors each side at zero. Skip the pair when the dollar figure is missing.
+  if (pnlRaw <= BigInt(0) || pair.pnlUsd === undefined || !(pair.pnlUsd > 0)) {
+    return null;
+  }
+  return { pnlRaw: pnlRaw.toString(), pnlUsd: pair.pnlUsd };
+}
+
+/**
+ * Which contracts of each wrapper / underlying pair the explorer lists.
+ * `recommended`: the one the wallet can deposit into (underlying first), else the underlying view-only.
+ * `wrappers`: the wrapper of every pair. `all`: both contracts of every pair.
+ * Held vaults are listed in every mode so the wallet can exit.
+ */
+export type VaultKindMode = 'recommended' | 'wrappers' | 'all';
+
+/**
+ * The contract a pair defaults to for this wallet: the underlying if the wallet can deposit
+ * into it, else the wrapper if it can, else the underlying (view-only).
+ */
+export function resolvePairDefaultAddress(
+  underlyingAddress: string,
+  eligibleVaultAddresses: ReadonlySet<string>
+): string {
+  const underlyingKey = underlyingAddress.toLowerCase();
+  if (eligibleVaultAddresses.has(underlyingKey)) return underlyingKey;
+  const wrapper = getPairedVaultAddress(underlyingAddress)?.toLowerCase();
+  if (wrapper && eligibleVaultAddresses.has(wrapper)) return wrapper;
+  return underlyingKey;
+}
+
+/** Registry vaults the explorer lists for this wallet and mode. */
 export function selectRegistryVaultsForExplorer(options: {
   depositedAddresses: ReadonlySet<string>;
   eligibleVaultAddresses: ReadonlySet<string>;
+  mode?: VaultKindMode;
 }): Vault[] {
+  const mode = options.mode ?? 'recommended';
   return getAllRegistryVaults().filter((vault) => {
     const key = vault.address.toLowerCase();
-    return options.eligibleVaultAddresses.has(key) || options.depositedAddresses.has(key);
+    if (options.depositedAddresses.has(key)) return true;
+    const underlyingAddress = vault.kind === 'wrapper' ? vault.underlyingAddress : vault.address;
+    // A vault with no pair keeps the plain rule: listed when the wallet can deposit.
+    if (!underlyingAddress || !getPairedVaultAddress(vault.address)) {
+      return options.eligibleVaultAddresses.has(key);
+    }
+    if (mode === 'all') return true;
+    if (mode === 'wrappers') return vault.kind === 'wrapper';
+    return resolvePairDefaultAddress(underlyingAddress, options.eligibleVaultAddresses) === key;
   });
 }
 
@@ -351,4 +416,77 @@ export function calculateYAxisDomain(
   }
 
   return [domainMin, domainMax];
+}
+
+/**
+ * Vaults to label Wrapper / Underlying: both contracts of their pair are in the list,
+ * so the names alone would be ambiguous.
+ */
+export function selectVaultKindMarkAddresses(listedVaults: readonly Vault[]): Set<string> {
+  const listed = new Set(listedVaults.map((vault) => vault.address.toLowerCase()));
+  const marks = new Set<string>();
+  for (const vault of listedVaults) {
+    const pair = getPairedVaultAddress(vault.address)?.toLowerCase();
+    if (pair && listed.has(pair)) marks.add(vault.address.toLowerCase());
+  }
+  return marks;
+}
+
+/** A wrapper / underlying pair shown as one family row, or a lone vault. Underlying first. */
+export interface VaultFamily {
+  /** Lowercase underlying address (or the vault's own address when it has no pair). */
+  key: string;
+  members: Vault[];
+}
+
+/** Group listed vaults into families, keeping the list's order of first appearance. */
+export function groupVaultFamilies(vaults: readonly Vault[]): VaultFamily[] {
+  const families: VaultFamily[] = [];
+  const byKey = new Map<string, VaultFamily>();
+  for (const vault of vaults) {
+    const hasPair = getPairedVaultAddress(vault.address) !== undefined;
+    const key = (
+      hasPair && vault.kind === 'wrapper' && vault.underlyingAddress
+        ? vault.underlyingAddress
+        : vault.address
+    ).toLowerCase();
+    let family = byKey.get(key);
+    if (!family) {
+      family = { key, members: [] };
+      byKey.set(key, family);
+      families.push(family);
+    }
+    family.members.push(vault);
+  }
+  for (const family of families) {
+    family.members.sort(
+      (a, b) => (a.kind === 'wrapper' ? 1 : 0) - (b.kind === 'wrapper' ? 1 : 0)
+    );
+  }
+  return families;
+}
+
+/**
+ * Settings → Switch to Wrapper Vaults / Show All Vaults only matter when the wallet can deposit
+ * into both the wrapper and the underlying of some vault, or holds at least one of each kind.
+ */
+export function resolveCanUseAdvanced(
+  eligibleVaultAddresses: ReadonlySet<string>,
+  depositedAddresses: ReadonlySet<string>
+): boolean {
+  const vaults = getRegistryVaultList();
+  const canDepositBoth = vaults.some(
+    (vault) =>
+      vault.kind === 'wrapper' &&
+      !!vault.underlyingAddress &&
+      eligibleVaultAddresses.has(vault.address.toLowerCase()) &&
+      eligibleVaultAddresses.has(vault.underlyingAddress.toLowerCase())
+  );
+  if (canDepositBoth) return true;
+  const heldKinds = new Set(
+    vaults
+      .filter((vault) => depositedAddresses.has(vault.address.toLowerCase()))
+      .map((vault) => vault.kind)
+  );
+  return heldKinds.has('wrapper') && heldKinds.has('underlying');
 }

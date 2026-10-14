@@ -11,6 +11,7 @@ import {
   resolveVaultForPage,
 } from '@/lib/vault-utils';
 import { resolveVaultPageAccess, type OnChainShareState } from '@/lib/vault-access';
+import { useExplorerVaults } from '@/contexts/ExplorerVaultsContext';
 import { ERC20_BALANCE_ABI } from '@/lib/abis';
 import { BASE_CHAIN_ID } from '@/lib/constants';
 import { useVaultDataFetch } from '@/hooks/useVaultDataFetch';
@@ -114,6 +115,7 @@ export default function VaultV2Page() {
     eligibleVaultAddresses,
     isResolving: gatesResolving,
   } = useVaultDepositGates();
+  const { listedVaultAddresses } = useExplorerVaults();
   const depositedAddresses = useMemo(
     () => getDepositedVaultAddressSet(morphoHoldings.positions),
     [morphoHoldings.positions]
@@ -140,6 +142,7 @@ export default function VaultV2Page() {
     return resolveVaultPageAccess({
       vaultAddress: vault.address,
       eligibleVaultAddresses,
+      listedVaultAddresses,
       depositedAddresses,
       walletStatus,
       walletAddress,
@@ -150,6 +153,7 @@ export default function VaultV2Page() {
   }, [
     vault,
     eligibleVaultAddresses,
+    listedVaultAddresses,
     depositedAddresses,
     walletStatus,
     walletAddress,

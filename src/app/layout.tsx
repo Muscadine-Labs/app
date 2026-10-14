@@ -4,6 +4,7 @@ import './globals.css'
 import { AppLayout } from '@/components/layout/AppLayout'
 import { headers } from 'next/headers'
 import { cookieToInitialState } from 'wagmi'
+import { readVaultPrefsFromCookieHeader } from '@/lib/vault-prefs'
 import { Providers } from './Providers'
 import { config } from '@/config/wagmi'
 import { PriceProvider } from '@/contexts/PriceContext'
@@ -70,6 +71,7 @@ export default async function RootLayout({
 }) {
   const cookie = (await headers()).get('cookie')
   const initialState = cookieToInitialState(config, cookie)
+  const initialVaultPrefs = readVaultPrefsFromCookieHeader(cookie)
 
   return (
     <html lang="en">
@@ -77,7 +79,7 @@ export default async function RootLayout({
         <meta name="base:app_id" content={BASE_APP_ID} />
       </head>
       <body className={`${figtree.className} ${funnelDisplay.variable}`}>
-          <Providers initialState={initialState}>
+          <Providers initialState={initialState} initialVaultPrefs={initialVaultPrefs}>
               <PriceProvider>
                 <AppLayout>{children}</AppLayout>
               </PriceProvider>

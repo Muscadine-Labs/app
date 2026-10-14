@@ -34,9 +34,10 @@ export function computeEarnedInterestFromActivity(options: {
     totalWithdrawals += transactionToRaw(tx.assets);
   }
 
-  const netDeposits =
-    totalDeposits > totalWithdrawals ? totalDeposits - totalWithdrawals : BigInt(0);
-  const earned = currentAssetsRaw - netDeposits;
+  // Lifetime profit = what is held now + everything taken out − everything put in. Floor only
+  // the result: withdrawals can exceed deposits (interest taken out before a smaller
+  // re-deposit, e.g. a move to the wrapper and back), and that interest must still count.
+  const earned = currentAssetsRaw + totalWithdrawals - totalDeposits;
   return earned > BigInt(0) ? earned : BigInt(0);
 }
 
@@ -170,17 +171,19 @@ export function periodInterestRaw(options: {
     return { hidden: true, earnedRaw: BigInt(0) };
   }
 
-  const { interestRaw: nowInterest } = splitPositionValueAtPoint({
-    positionValueRaw: options.currentPositionRaw,
-    netDepositRaw: netDepositRawAtTime(options.events, options.nowTs),
-  });
+  // Interest in the window = value now − value at the window start − money moved in or out
+  // during it. Cumulative principal is not used: it floors at zero, so a wallet that once
+  // withdrew more than it deposited (interest taken out, then a smaller re-deposit) would
+  // count all earlier interest in the current window.
   const startTs = options.nowTs - options.periodSeconds;
-  const { interestRaw: startInterest } = splitPositionValueAtPoint({
-    positionValueRaw: options.startPositionRaw,
-    netDepositRaw: netDepositRawAtTime(options.events, startTs),
-  });
-  const earned =
-    nowInterest > startInterest ? nowInterest - startInterest : BigInt(0);
+  let flowsInWindow = BigInt(0);
+  for (const event of options.events) {
+    if (event.timestamp > startTs && event.timestamp <= options.nowTs) {
+      flowsInWindow += event.deltaRaw;
+    }
+  }
+  const delta = options.currentPositionRaw - options.startPositionRaw - flowsInWindow;
+  const earned = delta > BigInt(0) ? delta : BigInt(0);
   return { hidden: false, earnedRaw: earned };
 }
 

@@ -3,10 +3,12 @@ export type VaultPageAccess = 'allowed' | 'pending' | 'denied';
 /** This wallet's share balance in the vault, read on chain. `unknown` = no wallet or the read failed. */
 export type OnChainShareState = 'held' | 'empty' | 'loading' | 'unknown';
 
-/** Vault detail page — allow depositors and exit holders; redirect everyone else. */
+/** Vault detail page — allow depositors, exit holders and vaults the explorer lists; redirect everyone else. */
 export function resolveVaultPageAccess(options: {
   vaultAddress: string;
   eligibleVaultAddresses: ReadonlySet<string>;
+  /** Vaults the explorer lists for this wallet (includes view-only pair defaults). */
+  listedVaultAddresses: ReadonlySet<string>;
   depositedAddresses: ReadonlySet<string>;
   walletStatus: 'connected' | 'connecting' | 'reconnecting' | 'disconnected';
   walletAddress?: string | null;
@@ -18,6 +20,7 @@ export function resolveVaultPageAccess(options: {
 }): VaultPageAccess {
   const key = options.vaultAddress.toLowerCase();
   if (options.eligibleVaultAddresses.has(key)) return 'allowed';
+  if (!options.gatesResolving && options.listedVaultAddresses.has(key)) return 'allowed';
   if (options.depositedAddresses.has(key)) return 'allowed';
   if (options.onChainShares === 'held') return 'allowed';
   if (options.gatesResolving || options.onChainShares === 'loading') return 'pending';

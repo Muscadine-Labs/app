@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { MorphoVaultData } from '@/types/vault';
 import { formatVaultDetailTokenAmount, formatDate, formatCurrency } from '@/lib/formatter';
 import { useAccount } from 'wagmi';
@@ -11,6 +11,28 @@ import {
   formatTransactionTypeLabel,
   transactionTypeDotClass,
 } from '@/lib/transaction-labels';
+import { getProductVaultAddresses, type VaultKind } from '@/lib/vaults';
+import { findVaultByAddress, getDepositedVaultAddressSet } from '@/lib/vault-utils';
+import { useVaultPrefs } from '@/contexts/VaultPrefsContext';
+import { useWallet } from '@/contexts/WalletContext';
+
+function transactionKey(tx: Transaction): string {
+  return `${tx.id ?? ''}-${tx.transactionHash ?? ''}-${tx.type}-${tx.timestamp}`;
+}
+
+/** Morpho can return the same event from both contracts' feeds (or twice in one); keep one. */
+function dedupeTransactions<T extends Transaction>(rows: T[]): T[] {
+  const seen = new Set<string>();
+  return rows.filter((tx) => {
+    const key = transactionKey(tx);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+/** A user activity row, tagged with the contract it happened on when the pair's activity is merged. */
+type HistoryTransaction = Transaction & { vaultKind?: VaultKind };
 
 interface VaultHistoryProps {
   vaultData: MorphoVaultData;
@@ -18,8 +40,17 @@ interface VaultHistoryProps {
 
 export default function VaultHistory({ vaultData }: VaultHistoryProps) {
   const { address } = useAccount();
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [userTransactions, setUserTransactions] = useState<Transaction[]>([]);
+  const [transactions, setTransactions] = useState<HistoryTransaction[]>([]);
+  const [userTransactions, setUserTransactions] = useState<HistoryTransaction[]>([]);
+  const { sharedData } = useVaultPrefs();
+  const { morphoHoldings } = useWallet();
+  // Tag rows Wrapper / Underlying only for a wallet that holds both contracts now.
+  const holdsBoth = useMemo(() => {
+    const product = getProductVaultAddresses(vaultData.address);
+    if (product.length < 2) return false;
+    const held = getDepositedVaultAddressSet(morphoHoldings.positions);
+    return product.every((vaultAddress) => held.has(vaultAddress.toLowerCase()));
+  }, [vaultData.address, morphoHoldings.positions]);
   const [loading, setLoading] = useState(true);
   const [showUserOnly, setShowUserOnly] = useState(true);
   const [allActivityLoaded, setAllActivityLoaded] = useState(false);
@@ -31,13 +62,39 @@ export default function VaultHistory({ vaultData }: VaultHistoryProps) {
       setLoading(true);
       try {
         if (address && showUserOnly) {
-          const userResponse = await fetch(
-            `/api/vault/${vaultData.version}/${vaultData.address}/activity?chainId=${vaultData.chainId}&userAddress=${address}`,
-            { signal: abortController.signal }
+          const version = vaultData.version ?? 'v2';
+          // With shared vault data on, your activity covers both contracts of a wrapper /
+          // underlying pair, so a move out and back shows in one list.
+          const vaultAddresses = sharedData
+            ? getProductVaultAddresses(vaultData.address)
+            : [vaultData.address];
+          const responses = await Promise.all(
+            vaultAddresses.map((vaultAddress) =>
+              fetch(
+                `/api/vault/${version}/${vaultAddress}/activity?chainId=${vaultData.chainId}&userAddress=${address}`,
+                { signal: abortController.signal }
+              )
+            )
           );
-          const userResponseData = await userResponse.json();
+          if (responses.some((response) => !response.ok)) {
+            throw new Error('Failed to fetch vault activity');
+          }
+          const payloads = await Promise.all(responses.map((response) => response.json()));
+          if (payloads.some((payload) => payload?.error)) {
+            throw new Error('Failed to fetch vault activity');
+          }
           if (abortController.signal.aborted) return;
-          setUserTransactions(userResponseData.transactions || []);
+          const perVault = payloads.map((payload, i) => {
+            const kind = findVaultByAddress(vaultAddresses[i])?.kind;
+            const rows = Array.isArray(payload.transactions)
+              ? (payload.transactions as Transaction[])
+              : [];
+            return rows.map((tx): HistoryTransaction => ({ ...tx, vaultKind: kind }));
+          });
+          const merged = dedupeTransactions(
+            perVault.flat().sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0))
+          );
+          setUserTransactions(merged);
           return;
         }
 
@@ -60,13 +117,13 @@ export default function VaultHistory({ vaultData }: VaultHistoryProps) {
         const responses = await Promise.all(requests);
         const allData = await responses[0].json();
         if (abortController.signal.aborted) return;
-        setTransactions(allData.transactions || []);
+        setTransactions(dedupeTransactions(allData.transactions || []));
         setAllActivityLoaded(true);
 
         if (responses[1]) {
           const userResponseData = await responses[1].json();
           if (abortController.signal.aborted) return;
-          setUserTransactions(userResponseData.transactions || []);
+          setUserTransactions(dedupeTransactions(userResponseData.transactions || []));
         } else {
           setUserTransactions([]);
         }
@@ -84,7 +141,7 @@ export default function VaultHistory({ vaultData }: VaultHistoryProps) {
     void fetchActivity();
 
     return () => abortController.abort();
-  }, [vaultData.address, vaultData.chainId, vaultData.version, address, showUserOnly]);
+  }, [vaultData.address, vaultData.chainId, vaultData.version, address, showUserOnly, sharedData]);
 
   const getExplorerUrl = (txHash: string) => {
     return `https://basescan.org/tx/${txHash}`;
@@ -183,7 +240,7 @@ export default function VaultHistory({ vaultData }: VaultHistoryProps) {
           <div className="space-y-2">
             {recentTransactions.map((tx) => (
               <div
-                key={`${tx.id ?? ''}-${tx.transactionHash ?? ''}-${tx.type}-${tx.timestamp}`}
+                key={transactionKey(tx)}
                 className="flex items-center justify-between p-4 bg-[var(--surface-elevated)] rounded-lg border border-[var(--border-subtle)] hover:border-[var(--border)] transition-colors"
               >
                 <div className="flex items-center gap-4 flex-1">
@@ -207,6 +264,11 @@ export default function VaultHistory({ vaultData }: VaultHistoryProps) {
                           ({formatCurrency(tx.assetsUsd)})
                         </span>
                       )}
+                      {holdsBoth && sharedData && showUserOnly && tx.vaultKind ? (
+                        <span className="inline-flex rounded-md bg-[var(--surface)] px-1.5 py-0.5 text-[10px] font-medium leading-none text-[var(--foreground-muted)]">
+                          {tx.vaultKind === 'wrapper' ? 'Wrapper' : 'Underlying'}
+                        </span>
+                      ) : null}
                     </div>
                     <div className="flex items-center gap-2 mt-1">
                       <span className="text-xs text-[var(--foreground-secondary)]">
