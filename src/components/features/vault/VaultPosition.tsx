@@ -1170,7 +1170,7 @@ export default function VaultPosition({
                 </ResponsiveContainer>
               </div>
               {pairHeldBands.length > 0 ? (
-                <p className="mt-2 shrink-0 text-[10px] leading-tight text-[var(--foreground-muted)] pointer-events-none">
+                <p className="mt-2 shrink-0 text-[8px] leading-tight text-[var(--foreground-muted)] pointer-events-none">
                   Grey shaded area means deposited into the{' '}
                   {pairVault?.kind === 'wrapper' ? 'wrapper' : 'underlying'} vault
                   {pairVault?.vaultSymbol ? ` (${pairVault.vaultSymbol})` : ''}.
