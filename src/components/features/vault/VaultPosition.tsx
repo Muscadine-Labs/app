@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { getAssetDecimalsForSymbol } from '@/lib/asset-decimals';
+import { vaultDustThreshold } from '@/lib/onchain-positions';
 import { useAccount, useReadContract } from 'wagmi';
 import Link from 'next/link';
 import { MorphoVaultData } from '@/types/vault';
@@ -216,8 +218,9 @@ export default function VaultPosition({
     !!pairedVaultAddress &&
     pageAssets !== undefined &&
     pairAssets !== undefined &&
-    pageAssets > BigInt(0) &&
-    pairAssets > BigInt(0);
+    // Dust left by a force-redeem exit does not count as holding that side.
+    pageAssets >= vaultDustThreshold(getAssetDecimalsForSymbol(vaultData.symbol)) &&
+    pairAssets >= vaultDustThreshold(getAssetDecimalsForSymbol(vaultData.symbol));
   // Default: combined when holding one side (no gap after a move), this vault when holding both.
   // Settings → Shared vault data off never mixes the two.
   const positionView = viewOverride ?? (holdsBoth ? 'vault' : 'combined');
