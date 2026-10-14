@@ -30,7 +30,8 @@ function VaultExplorerContent({
     ...initialFilters,
   }));
   const { isConnected } = useAccount();
-  const { explorerRegistryVaults, isResolving, kindMode, setKindMode } = useExplorerVaults();
+  const { explorerRegistryVaults, isResolving, kindMode, setKindMode, canUseAdvanced } =
+    useExplorerVaults();
   const { morphoHoldings } = useWallet();
   const { getVaultData } = useVaultData();
   const isMounted = useIsClient();
@@ -101,6 +102,7 @@ function VaultExplorerContent({
           onFiltersChange={setFilters}
           kindMode={kindMode}
           onKindModeChange={setKindMode}
+          showAdvanced={canUseAdvanced}
         />
       )}
       <div className="flex-1 min-h-0 overflow-y-auto">

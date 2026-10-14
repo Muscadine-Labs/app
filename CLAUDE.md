@@ -151,7 +151,7 @@ Fee wrappers (`kind: 'wrapper'`, `underlyingAddress` = the vault above they depo
 
 **Vault page access** (`resolveVaultPageAccess` in `vault-access.ts`) allows a vault the wallet can deposit into, holds, or that the explorer lists for it (`listedVaultAddresses`, so a view-only pair default opens with deposit disabled). It also reads the wallet's share balance on chain, so a holder reaches the page even when the Morpho positions API fails or lags. Once allowed, the page stays open for that wallet so a full withdraw does not redirect away mid-success.
 
-**Explorer visibility** is gate-driven (`useVaultDepositGates`, read from each vault on chain; `selectRegistryVaultsForExplorer` in `vault-utils.ts`). A held vault is always listed so the wallet can exit; wrapper balances are also read on chain so a holder still sees the wrapper when the positions API fails. The rest depends on `kindMode` in `ExplorerVaultsContext` (session only, resets when the wallet changes):
+**Explorer visibility** is gate-driven (`useVaultDepositGates`, read from each vault on chain; `selectRegistryVaultsForExplorer` in `vault-utils.ts`). A held vault is always listed so the wallet can exit; registry balances come from the chain (`WalletContext`), so a holder still sees the vault when the positions API fails. The rest depends on `kindMode` in `ExplorerVaultsContext` (session only, resets when the wallet changes):
 
 | Mode | Each wrapper / underlying pair lists |
 |------|--------------------------------------|
@@ -159,7 +159,7 @@ Fee wrappers (`kind: 'wrapper'`, `underlyingAddress` = the vault above they depo
 | `wrappers` | The wrapper |
 | `all` | Both contracts |
 
-The `/vaults` **Advanced** filter is a panel of switches with info icons (like Morpho's): **Switch to Wrapper Vaults** and **Show All Vaults**. Turning one on turns the other off; both off is `recommended`. A listed vault the wallet cannot deposit into gets an **Approved wallets only** pill; that needs a successful read saying no (`blockedVaultAddresses` from `useVaultDepositGates`, `resolveDepositBlocked`), so a failed gate read never shows it.
+The `/vaults` **Advanced** filter is a panel of switches with info icons (like Morpho's): **Switch to Wrapper Vaults** and **Show All Vaults**. Turning one on turns the other off; both off is `recommended`. Each info icon shows its explanation on hover (mouse) or tap. The control only appears when `canUseAdvanced`: the wallet can deposit into both the wrapper and the underlying of some vault, or holds at least one wrapper and one underlying; otherwise the list stays on `recommended`. A listed vault the wallet cannot deposit into gets an **Approved wallets only** pill; that needs a successful read saying no (`blockedVaultAddresses` from `useVaultDepositGates`, `resolveDepositBlocked`), so a failed gate read never shows it.
 
 Explorer filters default to **All** (network, strategy, asset). **No v1/v2 version filter** (v1 removed). There is no developer/over-balance bypass mode.
 
@@ -331,7 +331,7 @@ Morpho GraphQL is **server-only** (`fetchMorphoGraphQL()` in route handlers). Th
 | `/api/user/morpho-positions` | User Morpho v2 positions |
 | `/api/vault/v2/...` | V2 Morpho GraphQL proxies |
 
-**NavBar:** Dashboard → `/`, Vaults → `/vaults`. Settings: theme (light/dark/auto). Right sidebar (`LearnContent`) is Q&A links to Morpho docs (protocol, Vault V2, curator, Blue, Midnight) and [self-custody](https://muscadine.xyz/self-custody).
+**NavBar:** Dashboard → `/`, Vaults → `/vaults`. Settings: theme (light/dark/auto). Right sidebar (`LearnContent`) is Q&A links to Morpho docs (protocol, Vault V2, fee wrapper vaults, curator, Blue, Midnight) and [self-custody](https://muscadine.xyz/self-custody).
 
 **App title:** metadata in `layout.tsx` uses **Muscadine Vaults** (`APP_NAME` in `src/lib/base-app.ts`) so Base.dev / Reown AppKit / WalletConnect match.
 
@@ -353,7 +353,7 @@ Adaptive layout (content-sized panels; empty sections omitted):
 
 **Important:** Portfolio chart includes **v2** positions from the API; **Your Vaults** is **v2-only**.
 
-- **Your Vaults** lists v2 deposits only (`position.version === 'v2'`), sorted by USD. External (non-curated) vaults are shown but **not clickable** (no `/vault/v2/...` detail page). Hidden when empty.
+- **Your Vaults** lists v2 deposits only (`position.version === 'v2'`), sorted by USD. External (non-curated) vaults are shown but **not clickable** (no `/vault/v2/...` detail page) and labelled **External**; Muscadine vaults get a **Whitelisted** label only when an external vault is also listed. Hidden when empty.
 - **Layout:** Desktop uses two independent columns. Your Vaults sits beside the chart. Wide wallet still uses `wallet|wallet / chart|side`. Below 1000px stacks wallet → chart → Vaults.
 - **Portfolio chart** (`PortfolioPositionChart.tsx`):
   1. Discovers vaults via `/api/user/morpho-positions?includeEmpty=true`.

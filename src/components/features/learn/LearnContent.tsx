@@ -12,6 +12,10 @@ const RESOURCES = [
     href: 'https://docs.morpho.org/learn/concepts/vault-v2/',
   },
   {
+    question: 'What is a wrapper vault?',
+    href: 'https://docs.morpho.org/developers/earn/concepts/fee-wrapper/',
+  },
+  {
     question: 'What is a curator?',
     href: 'https://docs.morpho.org/learn/concepts/curator/',
   },

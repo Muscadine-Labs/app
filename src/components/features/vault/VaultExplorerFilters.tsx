@@ -246,25 +246,65 @@ const ADVANCED_TOGGLES: Array<{
   {
     mode: 'wrappers',
     label: 'Switch to Wrapper Vaults',
-    info: 'List the fee wrapper of each vault instead of the vault you can deposit into. Wrappers deposit into the underlying vaults and charge a performance fee.',
+    info: 'Show the wrapper version of each vault. A wrapper is its own vault that deposits into the Muscadine underlying vault, so it earns the same markets, and it charges a performance fee on interest earned. Vaults you already hold stay listed.',
   },
   {
     mode: 'all',
     label: 'Show All Vaults',
-    info: 'List every wrapper and underlying vault, grouped by vault. Vaults your wallet cannot deposit into are marked.',
+    info: 'Show both the underlying vault and its wrapper for every asset, grouped under one row per vault. Expand a row to see each one. Vaults your wallet cannot deposit into are marked "Approved wallets only".',
   },
 ];
 
-function InfoIcon({ text }: { text: string }) {
+/** One Advanced row: label, info button (hover or tap shows the explanation) and a switch. */
+function AdvancedToggleRow({
+  label,
+  info,
+  checked,
+  onChange,
+}: {
+  label: string;
+  info: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  const [showInfo, setShowInfo] = useState(false);
   return (
-    <span
-      title={text}
-      aria-label={text}
-      role="img"
-      className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-[var(--foreground-muted)] text-[10px] font-semibold leading-none text-[var(--foreground-muted)] cursor-help"
-    >
-      i
-    </span>
+    <div className="rounded-lg px-2 py-2.5">
+      <div className="flex items-center justify-between gap-3">
+        <span className="flex min-w-0 items-center gap-2 text-sm text-[var(--foreground)]">
+          <span>{label}</span>
+          <button
+            type="button"
+            aria-label={`About ${label}`}
+            aria-expanded={showInfo}
+            onClick={(event) => {
+              // A mouse already shows it on hover; taps and keyboard toggle it.
+              if ((event.nativeEvent as PointerEvent).pointerType === 'mouse') return;
+              setShowInfo((open) => !open);
+            }}
+            onPointerEnter={(event) => {
+              if (event.pointerType === 'mouse') setShowInfo(true);
+            }}
+            onPointerLeave={(event) => {
+              if (event.pointerType === 'mouse') setShowInfo(false);
+            }}
+            className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[10px] font-semibold leading-none transition-colors cursor-pointer ${
+              showInfo
+                ? 'border-[var(--primary)] text-[var(--primary)]'
+                : 'border-[var(--foreground-muted)] text-[var(--foreground-muted)] hover:border-[var(--foreground-secondary)] hover:text-[var(--foreground-secondary)]'
+            }`}
+          >
+            i
+          </button>
+        </span>
+        <Switch label={label} checked={checked} onChange={onChange} />
+      </div>
+      {showInfo ? (
+        <p className="mt-1.5 pr-12 text-xs leading-relaxed text-[var(--foreground-secondary)]">
+          {info}
+        </p>
+      ) : null}
+    </div>
   );
 }
 
@@ -358,20 +398,13 @@ function AdvancedFilterControl({
             className="z-[9999] w-72 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-2 shadow-lg"
           >
             {ADVANCED_TOGGLES.map((toggle) => (
-              <div
+              <AdvancedToggleRow
                 key={toggle.mode}
-                className="flex items-center justify-between gap-3 rounded-lg px-2 py-2.5"
-              >
-                <span className="flex min-w-0 items-center gap-2 text-sm text-[var(--foreground)]">
-                  <span>{toggle.label}</span>
-                  <InfoIcon text={toggle.info} />
-                </span>
-                <Switch
-                  label={toggle.label}
-                  checked={value === toggle.mode}
-                  onChange={(checked) => onChange(checked ? toggle.mode : 'recommended')}
-                />
-              </div>
+                label={toggle.label}
+                info={toggle.info}
+                checked={value === toggle.mode}
+                onChange={(checked) => onChange(checked ? toggle.mode : 'recommended')}
+              />
             ))}
           </div>
         </FloatingPortal>
@@ -392,6 +425,8 @@ interface VaultExplorerFiltersProps {
   onFiltersChange: (filters: VaultExplorerFilterState) => void;
   kindMode: VaultKindMode;
   onKindModeChange: (mode: VaultKindMode) => void;
+  /** Hidden unless the wallet can deposit into, or holds, both a wrapper and an underlying. */
+  showAdvanced: boolean;
 }
 
 export function getDefaultExplorerFilters(): VaultExplorerFilterState {
@@ -408,6 +443,7 @@ export default function VaultExplorerFilters({
   onFiltersChange,
   kindMode,
   onKindModeChange,
+  showAdvanced,
 }: VaultExplorerFiltersProps) {
   const update = (partial: Partial<VaultExplorerFilterState>) => {
     onFiltersChange({ ...filters, ...partial });
@@ -449,7 +485,9 @@ export default function VaultExplorerFilters({
             options={assetOptions}
             onChange={(value) => update({ asset: value as VaultAssetFilter })}
           />
-          <AdvancedFilterControl value={kindMode} onChange={onKindModeChange} />
+          {showAdvanced ? (
+            <AdvancedFilterControl value={kindMode} onChange={onKindModeChange} />
+          ) : null}
         </div>
 
         <WalletFilterControl

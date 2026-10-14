@@ -448,10 +448,13 @@ function DashboardVaultMobileCard({
   vaultData,
   showKind,
   nested = false,
+  showCuratedLabel = false,
 }: {
   vault: Vault;
   showKind?: boolean;
   nested?: boolean;
+  /** Label Muscadine vaults "Whitelisted" only when the list also has an external vault. */
+  showCuratedLabel?: boolean;
   positionAssets?: string;
   positionUsd: number;
   loading: boolean;
@@ -485,9 +488,11 @@ function DashboardVaultMobileCard({
         <div className="min-w-0 flex-1">
           <VaultName name={vault.name} lines={2} kind={vault.kind} showKind={showKind} />
           <VaultShareLabel vault={vault} />
-          <span className="text-[10px] text-[var(--foreground-muted)] block">
-            {isCurated ? 'Whitelisted' : 'External'}
-          </span>
+          {!isCurated || showCuratedLabel ? (
+            <span className="text-[10px] text-[var(--foreground-muted)] block">
+              {isCurated ? 'Whitelisted' : 'External'}
+            </span>
+          ) : null}
         </div>
       </div>
 
@@ -1501,6 +1506,7 @@ export function DashboardVaultTable({
       .map(({ family }) => family);
   }, [vaults, morphoHoldings.positions]);
   const { isExpanded, toggle } = useFamilyExpansion(families);
+  const hasExternal = vaults.some((vault) => !isCuratedVaultAddress(vault.address));
 
   if (!isMounted) {
     return (
@@ -1564,6 +1570,7 @@ export function DashboardVaultTable({
         vaultData={vaultData}
         showKind={kindMarks.has(vault.address.toLowerCase())}
         nested={nested}
+        showCuratedLabel={hasExternal}
       />
     );
   };
