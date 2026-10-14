@@ -65,8 +65,17 @@ export type ForceWithdrawPlan = {
   estimatedPenaltyAssets: bigint;
   /** Max penalty rate across adapters actually used in this plan (WAD). */
   maxPenaltyWad: bigint;
-  /** `redeem` on MAX exits (no share dust); otherwise `withdraw(assets)`. */
+  /**
+   * `redeem` on MAX exits (no share dust), and on near-max amounts whose shares plus penalty
+   * shares exceed the balance; otherwise `withdraw(assets)`.
+   */
   exitMode: 'withdraw' | 'redeem';
+  /**
+   * The user asked for their whole position (MAX). Kept apart from `exitMode`, which the planner
+   * can also set to `redeem` for a near-max amount: a replan that finds enough instant liquidity
+   * must then withdraw only `requestedAssets`, not redeem every share.
+   */
+  maxExit: boolean;
   /** Inner calls for vault.multicall (forceDeallocate… + withdraw|redeem). */
   multicallArgs: Hex[];
 };
@@ -790,6 +799,7 @@ export async function planForceWithdrawV2(
     estimatedPenaltyAssets,
     maxPenaltyWad,
     exitMode,
+    maxExit: useRedeemExit,
     multicallArgs,
   };
 }
