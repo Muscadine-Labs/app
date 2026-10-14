@@ -1,6 +1,6 @@
 'use client';
 
-import React, { type ReactNode, useState, useEffect } from 'react';
+import { type ReactNode, useState, useEffect } from 'react';
 import { NavBar } from './NavBar';
 import RightSidebar from './RightSidebar';
 import { ToastContainer } from '@/components/ui/ToastContainer';

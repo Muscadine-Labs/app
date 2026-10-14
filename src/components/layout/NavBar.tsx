@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useState, useEffect, useRef } from 'react';
+import { useCallback, useState, useEffect, useRef } from 'react';
 import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
 import { navigationItems, NavItem } from "@/config/navigation";

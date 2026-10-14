@@ -140,10 +140,6 @@ export function findWrapperDefinition(address: string): VaultDefinition | undefi
   return vault?.kind === 'wrapper' ? vault : undefined;
 }
 
-export function isWrapperVaultAddress(address: string): boolean {
-  return findWrapperDefinition(address) !== undefined;
-}
-
 /** Wrapper that deposits into this underlying vault, if any. */
 export function findWrapperForUnderlying(underlyingAddress: string): VaultDefinition | undefined {
   const key = underlyingAddress.toLowerCase();
