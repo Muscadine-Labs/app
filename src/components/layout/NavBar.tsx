@@ -397,7 +397,7 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                         {canUseAdvanced ? (
                                             <SettingSelectRow
                                                 label="Vault View"
-                                                info="Choose which vaults to list. Underlying: the main vaults (default). Wrapper: a version of each vault that charges a fee on interest. All Vaults: both. Vaults you hold always show."
+                                                info="Choose which vaults to list. Underlying: the main vaults (default), or the wrapper if that is the only one you can deposit into. Wrapper: a version of each vault that charges a fee on interest. All Vaults: both. Vaults you hold always show."
                                                 value={kindMode}
                                                 options={VAULT_VIEW_OPTIONS}
                                                 onChange={setKindMode}

@@ -1151,7 +1151,7 @@ export default function VaultPosition({
                         x1={band.x1}
                         x2={band.x2}
                         fill="var(--foreground-muted)"
-                        fillOpacity={0.06}
+                        fillOpacity={0.04}
                         stroke="none"
                         ifOverflow="hidden"
                       />
