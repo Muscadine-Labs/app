@@ -22,6 +22,7 @@ import { Vault } from '@/types/vault';
 import { BASE_CHAIN_ID } from '@/lib/constants';
 import type { VaultStrategy } from '@/lib/vaults';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { useIsClient } from '@/hooks/useClientOnly';
 
 /** Chart height under the wallet. */
 const CHART_HEIGHT_CLASS = 'h-[300px] sm:h-[340px] min-[1000px]:h-[380px]';
@@ -121,7 +122,10 @@ export default function Home() {
     );
   }, [morphoHoldings.positions]);
 
-  const showVaultsPanel = isConnected;
+  // The server cannot know a wallet that connects without a wagmi cookie (cleared cookie,
+  // injected wallet that auto-reconnects), so the connected layout waits for hydration.
+  const isClient = useIsClient();
+  const showVaultsPanel = isClient && isConnected;
   const showSideColumn = showVaultsPanel;
 
   useVaultListPreloader(depositedVaults);
