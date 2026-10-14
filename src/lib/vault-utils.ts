@@ -465,3 +465,28 @@ export function groupVaultFamilies(vaults: readonly Vault[]): VaultFamily[] {
   }
   return families;
 }
+
+/**
+ * Settings → Switch to Wrapper Vaults / Show All Vaults only matter when the wallet can deposit
+ * into both the wrapper and the underlying of some vault, or holds at least one of each kind.
+ */
+export function resolveCanUseAdvanced(
+  eligibleVaultAddresses: ReadonlySet<string>,
+  depositedAddresses: ReadonlySet<string>
+): boolean {
+  const vaults = getRegistryVaultList();
+  const canDepositBoth = vaults.some(
+    (vault) =>
+      vault.kind === 'wrapper' &&
+      !!vault.underlyingAddress &&
+      eligibleVaultAddresses.has(vault.address.toLowerCase()) &&
+      eligibleVaultAddresses.has(vault.underlyingAddress.toLowerCase())
+  );
+  if (canDepositBoth) return true;
+  const heldKinds = new Set(
+    vaults
+      .filter((vault) => depositedAddresses.has(vault.address.toLowerCase()))
+      .map((vault) => vault.kind)
+  );
+  return heldKinds.has('wrapper') && heldKinds.has('underlying');
+}

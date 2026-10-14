@@ -6,13 +6,12 @@ import { useWallet } from '@/contexts/WalletContext';
 import { useVaultDepositGates } from '@/hooks/useVaultDepositGates';
 import {
   getDepositedVaultAddressSet,
+  resolveCanUseAdvanced,
   selectRegistryVaultsForExplorer,
   type VaultKindMode,
 } from '@/lib/vault-utils';
 import type { Vault } from '@/types/vault';
-import { getRegistryVaultList } from '@/lib/vaults';
 
-const REGISTRY_VAULTS = getRegistryVaultList();
 
 interface ExplorerVaultsContextType {
   /** Registry vaults the explorer lists for this wallet. */
@@ -45,22 +44,10 @@ export function ExplorerVaultsProvider({ children }: { children: ReactNode }) {
     [morphoHoldings.positions]
   );
 
-  const canUseAdvanced = useMemo(() => {
-    const canDepositBoth = REGISTRY_VAULTS.some(
-      (vault) =>
-        vault.kind === 'wrapper' &&
-        !!vault.underlyingAddress &&
-        eligibleVaultAddresses.has(vault.address.toLowerCase()) &&
-        eligibleVaultAddresses.has(vault.underlyingAddress.toLowerCase())
-    );
-    if (canDepositBoth) return true;
-    const heldKinds = new Set(
-      REGISTRY_VAULTS.filter((vault) => depositedAddresses.has(vault.address.toLowerCase())).map(
-        (vault) => vault.kind
-      )
-    );
-    return heldKinds.has('wrapper') && heldKinds.has('underlying');
-  }, [eligibleVaultAddresses, depositedAddresses]);
+  const canUseAdvanced = useMemo(
+    () => resolveCanUseAdvanced(eligibleVaultAddresses, depositedAddresses),
+    [eligibleVaultAddresses, depositedAddresses]
+  );
 
   // The saved choice applies only while it matters to this wallet.
   const kindMode: VaultKindMode = canUseAdvanced ? savedKindMode : 'recommended';

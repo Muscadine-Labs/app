@@ -5,7 +5,15 @@ import Link from 'next/link';
 import { MorphoVaultData } from '@/types/vault';
 import type { VaultMarketAllocation } from '@/lib/vault-v2-allocations';
 import { formatMorphoMarketRateLabel } from '@/lib/morpho-market-url';
-import { findVaultByAddress, getVaultAnalyticsUrl, getVaultRoute } from '@/lib/vault-utils';
+import {
+  findVaultByAddress,
+  getDepositedVaultAddressSet,
+  getVaultAnalyticsUrl,
+  getVaultRoute,
+} from '@/lib/vault-utils';
+import { useExplorerVaults } from '@/contexts/ExplorerVaultsContext';
+import { useVaultDepositGates } from '@/hooks/useVaultDepositGates';
+import { useWallet } from '@/contexts/WalletContext';
 import {
   formatSmartCurrency,
   formatPercentage,
@@ -165,7 +173,8 @@ export function VaultAllocations({
   const fetchKey = `${vaultData.address}:${vaultData.chainId}`;
 
   useEffect(() => {
-    if (!active) return;
+    // A wrapper holds no Blue markets of its own (its capital sits in the underlying vault).
+    if (!active || vaultData.underlyingAddress) return;
 
     if (cacheRef.current?.key === fetchKey) {
       setAllocations(cacheRef.current.allocations);
@@ -219,12 +228,22 @@ export function VaultAllocations({
     return () => {
       abortController.abort();
     };
-  }, [active, fetchKey, vaultData.address, vaultData.chainId]);
+  }, [active, fetchKey, vaultData.address, vaultData.chainId, vaultData.underlyingAddress]);
 
   const vaultTokenLabel = vaultData.symbol || 'Token';
   const allocatedHeader =
     allocatedValueType === 'usd' ? 'Allocated (USD)' : `Allocated (${vaultTokenLabel})`;
-  const analyticsHref = getVaultAnalyticsUrl(vaultData.address);
+  const analyticsHref = getVaultAnalyticsUrl(vaultData.underlyingAddress ?? vaultData.address);
+  const { listedVaultAddresses } = useExplorerVaults();
+  const { eligibleVaultAddresses } = useVaultDepositGates();
+  const { morphoHoldings } = useWallet();
+  const underlyingKey = vaultData.underlyingAddress?.toLowerCase();
+  // Same rule as the vault page's access check: listed, depositable, or held.
+  const underlyingPageOpen =
+    !!underlyingKey &&
+    (listedVaultAddresses.has(underlyingKey) ||
+      eligibleVaultAddresses.has(underlyingKey) ||
+      getDepositedVaultAddressSet(morphoHoldings.positions).has(underlyingKey));
   const underlyingVault = vaultData.underlyingAddress
     ? findVaultByAddress(vaultData.underlyingAddress)
     : null;
@@ -242,17 +261,30 @@ export function VaultAllocations({
       {underlyingVault ? (
         <p className="text-xs text-[var(--foreground-secondary)]">
           This wrapper deposits into{' '}
-          <Link
-            href={getVaultRoute(underlyingVault.address)}
-            className="text-[var(--primary)] hover:underline"
-          >
-            {underlyingVault.name} ({underlyingVault.vaultSymbol})
-          </Link>
+          {underlyingPageOpen ? (
+            <Link
+              href={getVaultRoute(underlyingVault.address)}
+              className="text-[var(--primary)] hover:underline"
+            >
+              {underlyingVault.name} ({underlyingVault.vaultSymbol})
+            </Link>
+          ) : (
+            // A wallet that cannot open the underlying's page (gated, not held, not listed)
+            // still gets its allocations on Muscadine Analytics.
+            <a
+              href={getVaultAnalyticsUrl(underlyingVault.address)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[var(--primary)] hover:underline"
+            >
+              {underlyingVault.name} ({underlyingVault.vaultSymbol})
+            </a>
+          )}
           . Its market allocations are on that vault&apos;s page.
         </p>
       ) : null}
 
-      {loading ? (
+      {underlyingVault ? null : loading ? (
         <div className="p-2 space-y-3">
           {[1, 2, 3].map((row) => (
             <Skeleton key={row} width="100%" height="4.5rem" />
@@ -375,7 +407,7 @@ export function VaultAllocations({
         </>
       )}
 
-      {!loading && (
+      {(underlyingVault || !loading) && (
         <p className="text-[10px] leading-snug text-[var(--foreground-muted)] pt-1 text-center sm:text-right">
           For full allocations and analytics, visit{' '}
           <a
