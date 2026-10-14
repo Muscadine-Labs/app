@@ -26,6 +26,7 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
     const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
     const settingsRef = useRef<HTMLDivElement>(null);
+    const infoPopoverOpenRef = useRef(false);
     const mobileNavRef = useRef<HTMLDivElement>(null);
     const hamburgerButtonRef = useRef<HTMLButtonElement>(null);
     
@@ -33,6 +34,9 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
     const { theme, setTheme } = useTheme();
     const { sharedData, setSharedData } = useVaultPrefs();
     const { kindMode, setKindMode, canUseAdvanced } = useExplorerVaults();
+    const handleInfoOpenChange = (open: boolean) => {
+        infoPopoverOpenRef.current = open;
+    };
 
     const isActive = useCallback((item: NavItem): boolean => {
         if (item.id === 'vaults') {
@@ -54,7 +58,13 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
             if (menuRef.current && !menuRef.current.contains(target)) {
                 setIsMenuOpen(false);
             }
-            if (settingsRef.current && !settingsRef.current.contains(target)) {
+            const infoPopover = target instanceof Element && target.closest('[data-vault-info-popover]');
+            if (
+                settingsRef.current &&
+                !settingsRef.current.contains(target) &&
+                !infoPopoverOpenRef.current &&
+                !infoPopover
+            ) {
                 setIsSettingsOpen(false);
             }
             // Only handle mobile nav if it's actually open
@@ -272,7 +282,10 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                             className="relative flex items-center" 
                             ref={settingsRef}
                             onMouseEnter={() => setIsSettingsOpen(true)}
-                            onMouseLeave={() => setIsSettingsOpen(false)}
+                            onMouseLeave={() => {
+                                if (infoPopoverOpenRef.current) return;
+                                setIsSettingsOpen(false);
+                            }}
                         >
                             <button
                                 onClick={() => {
@@ -309,7 +322,10 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                     <div 
                                         className="absolute right-0 top-full mt-2 w-72 max-w-[calc(100vw-2rem)] bg-[var(--surface)] border border-[var(--border)] rounded-2xl shadow-xl py-4 z-[60] animate-[fadeInUp_0.2s_ease-out]"
                                         onMouseEnter={() => setIsSettingsOpen(true)}
-                                        onMouseLeave={() => setIsSettingsOpen(false)}
+                                        onMouseLeave={() => {
+                                            if (infoPopoverOpenRef.current) return;
+                                            setIsSettingsOpen(false);
+                                        }}
                                     >
                                     {/* Theme Section */}
                                     <div className="px-4">
@@ -368,6 +384,7 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                             info="Show a wrapper and its underlying vault as one history: the chart and earned interest include both, so moving between them leaves no gap. Turn off to see each vault on its own."
                                             checked={sharedData}
                                             onChange={setSharedData}
+                                            onInfoOpenChange={handleInfoOpenChange}
                                         />
                                         {canUseAdvanced ? (
                                             <>
@@ -376,12 +393,14 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                                     info="Show the wrapper version of each vault. A wrapper is its own vault that deposits into the Muscadine underlying vault, so it earns the same markets, and it charges a performance fee on interest earned. Vaults you already hold stay listed."
                                                     checked={kindMode === 'wrappers'}
                                                     onChange={(on) => setKindMode(on ? 'wrappers' : 'recommended')}
+                                                    onInfoOpenChange={handleInfoOpenChange}
                                                 />
                                                 <SettingToggleRow
                                                     label="Show All Vaults"
                                                     info="Show both the underlying vault and its wrapper for every asset, grouped under one row per vault. Expand a row to see each one. Vaults your wallet cannot deposit into are marked &quot;Approved wallets only&quot;."
                                                     checked={kindMode === 'all'}
                                                     onChange={(on) => setKindMode(on ? 'all' : 'recommended')}
+                                                    onInfoOpenChange={handleInfoOpenChange}
                                                 />
                                             </>
                                         ) : null}

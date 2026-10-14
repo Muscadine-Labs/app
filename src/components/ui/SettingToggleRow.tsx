@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { VaultStatPopover } from '@/components/features/vault/VaultStatPopover';
 
 export function Switch({
   checked,
@@ -34,54 +34,31 @@ export function Switch({
   );
 }
 
-/** Settings row: label, info button (hover with a mouse, tap otherwise) and a switch. */
+/** Settings row: label, the same info popover used on vault pages, and a switch. */
 export function SettingToggleRow({
   label,
   info,
   checked,
   onChange,
+  onInfoOpenChange,
 }: {
   label: string;
   info: string;
   checked: boolean;
   onChange: (checked: boolean) => void;
+  onInfoOpenChange?: (open: boolean) => void;
 }) {
-  const [showInfo, setShowInfo] = useState(false);
   return (
     <div className="py-2">
       <div className="flex items-center justify-between gap-3">
         <span className="flex min-w-0 items-center gap-2 text-sm text-[var(--foreground)]">
           <span>{label}</span>
-          <button
-            type="button"
-            aria-label={`About ${label}`}
-            aria-expanded={showInfo}
-            onClick={(event) => {
-              event.stopPropagation();
-              // A mouse already shows it on hover; taps and keyboard toggle it.
-              if ((event.nativeEvent as PointerEvent).pointerType === 'mouse') return;
-              setShowInfo((open) => !open);
-            }}
-            onPointerEnter={(event) => {
-              if (event.pointerType === 'mouse') setShowInfo(true);
-            }}
-            onPointerLeave={(event) => {
-              if (event.pointerType === 'mouse') setShowInfo(false);
-            }}
-            className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[10px] font-semibold leading-none transition-colors cursor-pointer ${
-              showInfo
-                ? 'border-[var(--primary)] text-[var(--primary)]'
-                : 'border-[var(--foreground-muted)] text-[var(--foreground-muted)] hover:border-[var(--foreground-secondary)] hover:text-[var(--foreground-secondary)]'
-            }`}
-          >
-            i
-          </button>
+          <VaultStatPopover ariaLabel={label} align="end" onOpenChange={onInfoOpenChange}>
+            <p className="py-1 text-xs leading-relaxed text-[var(--foreground-secondary)]">{info}</p>
+          </VaultStatPopover>
         </span>
         <Switch label={label} checked={checked} onChange={onChange} />
       </div>
-      {showInfo ? (
-        <p className="mt-1.5 text-xs leading-relaxed text-[var(--foreground-secondary)]">{info}</p>
-      ) : null}
     </div>
   );
 }
