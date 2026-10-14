@@ -1,6 +1,5 @@
 **To Work on Today:**
 
-- when a wallet is not connected, still show the vaults on the vault list.
 
 **To work on another day:**
 

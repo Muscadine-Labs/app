@@ -63,7 +63,11 @@ export function SettingToggleRow({
   );
 }
 
-/** Settings row: label, info popover, and a dropdown of options. */
+/**
+ * Settings row: label, info popover, and a dropdown of options. The native option list can sit
+ * outside the hover menu, so `onInfoOpenChange` also reports the dropdown as open while focused,
+ * keeping a hover-to-close menu open while the user picks.
+ */
 export function SettingSelectRow<T extends string>({
   label,
   info,
@@ -92,6 +96,8 @@ export function SettingSelectRow<T extends string>({
           aria-label={label}
           value={value}
           onClick={(event) => event.stopPropagation()}
+          onFocus={() => onInfoOpenChange?.(true)}
+          onBlur={() => onInfoOpenChange?.(false)}
           onChange={(event) => onChange(event.target.value as T)}
           className="shrink-0 rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1 text-sm text-[var(--foreground)] focus:outline-none cursor-pointer"
         >
