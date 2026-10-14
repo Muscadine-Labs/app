@@ -142,7 +142,7 @@ Fee wrappers (`kind: 'wrapper'`, `underlyingAddress` = the vault above they depo
 
 **Wrapper / underlying pairs (families):** a wrapper and its underlying vault are one family.
 
-**Vault prefs (Settings, cookie `muscadine-vault-prefs`):** `VaultPrefsContext` holds `kindMode` and `sharedData`; `layout.tsx` reads the cookie (`readVaultPrefsFromCookieHeader` in `lib/vault-prefs.ts`) so the server renders the saved values. **Shared vault data** (default on) lets a pair's chart, earned interest, history and closed-pair profit mix; off keeps each contract alone everywhere (vault page, History, dashboard chart, profit carry). **Switch to Wrapper Vaults** / **Show All Vaults** live in Settings too (only when `canUseAdvanced`).
+**Vault prefs (Settings, cookie `muscadine-vault-prefs`):** `VaultPrefsContext` holds `kindMode` and `sharedData`; `layout.tsx` reads the cookie (`readVaultPrefsFromCookieHeader` in `lib/vault-prefs.ts`) so the server renders the saved values. **Shared vault data** (default on) lets a pair's chart, earned interest, history and closed-pair profit mix; off keeps each contract alone everywhere (vault page, History, dashboard chart, profit carry). **Vault View** (Underlying / Wrapper / All Vaults) lives in Settings too (only when `canUseAdvanced`).
 
 - **Lists** (`/vaults` and dashboard Your Vaults, `VaultExplorerTable`): `groupVaultFamilies` in `vault-utils.ts` groups listed vaults. A family with both contracts listed is a parent row (chevron) with the two vaults as indented child rows, like Morpho's market families. The parent shows the combined position and profit, the underlying's deposits / TVL / liquidity (it already holds the wrapper's funds, so adding the wrapper would double count) and the APY range of both. Children show each contract alone and carry the **Wrapper** / **Underlying** labels (`VaultKindMark`, `selectVaultKindMarkAddresses`). A family starts expanded when the wallet holds both contracts; a tap toggles it. Dashboard families sort by combined USD. A single listed contract is a plain row.
 - **Profit carry:** a row whose pair contract has no shares left adds that contract's lifetime profit (`closedPairEarnedPnl`), so a move to the wrapper and back keeps all interest on the row.
@@ -161,7 +161,7 @@ Fee wrappers (`kind: 'wrapper'`, `underlyingAddress` = the vault above they depo
 | `wrappers` | The wrapper |
 | `all` | Both contracts |
 
-**Settings** has the switches (with info icons, like Morpho's): **Switch to Wrapper Vaults** and **Show All Vaults**, saved in the prefs cookie. Turning one on turns the other off; both off is `recommended`. Each info icon shows its explanation on hover (mouse) or tap. The control only appears when `canUseAdvanced`: the wallet can deposit into both the wrapper and the underlying of some vault, or holds at least one wrapper and one underlying; otherwise the list stays on `recommended`. A listed vault the wallet cannot deposit into gets an **Approved wallets only** pill; that needs a successful read saying no (`blockedVaultAddresses` from `useVaultDepositGates`, `resolveDepositBlocked`), so a failed gate read never shows it.
+**Settings** has a **Vault View** dropdown (with an info icon, like Morpho's), saved in the prefs cookie: **Underlying** = `recommended` (the default; it can still list a wrapper when only the wrapper is depositable), **Wrapper** = `wrappers`, **All Vaults** = `all`. Labels only (`VAULT_VIEW_OPTIONS` in `NavBar.tsx`, `SettingSelectRow`); the modes behave as in the table above. The info icon shows its explanation on hover (mouse) or tap. The control only appears when `canUseAdvanced`: the wallet can deposit into both the wrapper and the underlying of some vault, or holds at least one wrapper and one underlying; otherwise the list stays on `recommended`. A listed vault the wallet cannot deposit into gets an **Approved wallets only** pill; that needs a successful read saying no (`blockedVaultAddresses` from `useVaultDepositGates`, `resolveDepositBlocked`), so a failed gate read never shows it.
 
 Explorer filters default to **All** (network, strategy, asset). **No v1/v2 version filter** (v1 removed). There is no developer/over-balance bypass mode.
 
@@ -218,11 +218,18 @@ Direct ERC-4626 for deposit, plain withdraw, and redeem. Force exits use vault `
 **WETH vaults** (vault `asset()` is `BASE_WETH_ADDRESS`):
 
 - Deposit and withdraw are WETH only. There is no ETH, ETH+WETH, or unwrap option.
+- **Native ETH was rebuilt and tested, then dropped for complexity** (PR #120, tested on a Base mainnet fork). If it is ever revisited:
+  - Base WETH (WETH9) pays out with Solidity `transfer` (2300 gas). A plain EOA receives it; a Coinbase Smart Wallet / Base Account proxy reverts, and so do EIP-7702 accounts whose delegate does work on receive. An `eth_call` of `WETH.withdraw(0)` from the wallet detects this. Wrapping (`WETH.deposit`) works for every wallet. Bundler3's GeneralAdapter1 `unwrapNative` sends ETH with full gas, which is why the old path used it.
+  - Never unwrap the wallet's WETH balance (it can hold WETH from before, plus interest dust). `withdraw(assets)` pays exactly `assets`; `redeem` pays an amount fixed only when mined, so unwrap the WETH `Transfer` from the vault to the user in the exit receipt.
+  - A retry after a lost unwrap confirmation must check the sent unwrap on chain first, or it unwraps a second time out of WETH the wallet held before.
+  - EIP-5792 `atomic.status: 'ready'` means the wallet would first upgrade the EOA to a 7702 smart account; treat it as not batchable so users are never prompted to upgrade mid-deposit.
 - USDC / cbBTC deposits and plain withdraws stay direct ERC-4626.
 
 **Force withdraw** (`src/lib/force-withdraw-v2.ts`): when requested assets exceed instant liquidity, plan a cash exit. Warning modal shows estimated penalty, risks, and **Force withdraw**, plus **Open vault on Morpho**. If markets cannot cover the shortfall, the input is capped at the reachable amount. The plan is rebuilt from fresh on-chain reads immediately before it is sent. Instant liquidity for planning is always read on-chain (idle + what the liquidity adapter's route market can pay), never taken from the API.
 
 **Wrappers have no force exit** (it needed Bundler3, which the app does not use). `planForceWithdrawV2` returns `null` when a wrapper withdraw fits its instant liquidity (`readWrapperInstantAssets`: wrapper idle + what its adapter can pull from the underlying now, capped by the wrapper's position there), and otherwise throws `ForceWithdrawShortfallError` so the input is capped.
+
+**Force-redeem dust:** the redeem share count is fixed when the tx is built (`balance − estimated penalty shares`), and interest accrued before it is mined makes the penalty burn slightly fewer shares, so a few shares stay behind (~1e-14 WETH). A vault-only `multicall` cannot redeem "whatever is left". `readRegistryVaultBalances` therefore treats a position below `vaultDustThreshold` (1e-9 token for 18 decimals, otherwise under one base unit) as empty, and `VaultPosition` ignores dust for "holds both". A near-max amount whose shares plus penalty shares exceed the balance is planned as a redeem of the rest (`expectedAssetsOut` = its value). The plan keeps the user's MAX intent in `maxExit`, separate from `exitMode`: when the send-time replan finds enough instant liquidity, a near-max plan falls back to `withdraw(requestedAssets)`, and only a MAX plan to `redeem` of every share.
 
 Vault `multicall` of `forceDeallocate` × N + `withdraw` or **`redeem` (MAX)** from Morpho Blue market adapters (`abi.encode(marketParams)`). Planner reads on-chain market cash. The liquidity route market (`liquidityAdapter` + `liquidityData`) is never force-deallocated: it is already counted as instant liquidity, and draining it first makes the final withdraw revert. Vault V2 `maxWithdraw` is never used.
 
@@ -334,7 +341,7 @@ Morpho GraphQL is **server-only** (`fetchMorphoGraphQL()` in route handlers). Th
 | `/api/user/morpho-positions` | User Morpho v2 positions |
 | `/api/vault/v2/...` | V2 Morpho GraphQL proxies |
 
-**NavBar:** Dashboard → `/`, Vaults → `/vaults`. Settings: theme (light/dark/auto), Shared vault data, and (when `canUseAdvanced`) Switch to Wrapper Vaults / Show All Vaults, saved in a cookie. Right sidebar (`LearnContent`) is Q&A links to Morpho docs (protocol, Vault V2, fee wrapper vaults, curator, Blue, Midnight) and [self-custody](https://muscadine.xyz/self-custody).
+**NavBar:** Dashboard → `/`, Vaults → `/vaults`. Settings: theme (light/dark/auto), Shared vault data, and (when `canUseAdvanced`) Vault View (Underlying / Wrapper / All Vaults), saved in a cookie. Right sidebar (`LearnContent`) is Q&A links to Morpho docs (protocol, Vault V2, fee wrapper vaults, curator, Blue, Midnight) and [self-custody](https://muscadine.xyz/self-custody).
 
 **App title:** metadata in `layout.tsx` uses **Muscadine Vaults** (`APP_NAME` in `src/lib/base-app.ts`) so Base.dev / Reown AppKit / WalletConnect match.
 

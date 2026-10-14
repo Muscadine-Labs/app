@@ -467,7 +467,7 @@ export function groupVaultFamilies(vaults: readonly Vault[]): VaultFamily[] {
 }
 
 /**
- * Settings → Switch to Wrapper Vaults / Show All Vaults only matter when the wallet can deposit
+ * Settings → Vault View (Underlying / Wrapper / All Vaults) only matters when the wallet can deposit
  * into both the wrapper and the underlying of some vault, or holds at least one of each kind.
  */
 export function resolveCanUseAdvanced(

@@ -1,7 +1,5 @@
 **To Work on Today:**
 
-- see if we should add morpho bundler contracts for eth deposits / withdraws.
-- when a wallet is not connected, still show the vaults on the vault list.
 
 **To work on another day:**
 
@@ -9,3 +7,4 @@
 - Have multichain for viewing such as with stocks, vaults like robinhood chain. With the actual functions on settings be able to switch the chain.
 - Smart wallet (AA) deposit issue when USDC is used for gas — investigate before changing tx code.
 - Stock/token/cash boxes on dashboard. Was deleted because it was unnecessary. If website gains other functions can be useful to have for user experience to see their wallet and to abstract away crypto.
+- Took out eth deposits / withdraws because we would have to rely on outside contracts or other issues with new abstracted smart wallets. Optional to add it back, but anyone can call on wrap/unwrap eth on weth contract. 

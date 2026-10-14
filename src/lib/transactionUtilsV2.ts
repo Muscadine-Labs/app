@@ -575,11 +575,11 @@ export async function forceWithdrawFromVaultV2(
     plan.vaultAddress,
     plan.requestedAssets,
     userAddress,
-    { useRedeemExit: plan.exitMode === 'redeem' }
+    { useRedeemExit: plan.maxExit }
   );
   if (!freshPlan) {
-    // Instant liquidity now covers the exit: a plain withdraw/redeem is enough.
-    if (plan.exitMode === 'redeem') {
+    // Instant liquidity now covers the exit: a plain withdraw/redeem of what the user asked for.
+    if (plan.maxExit) {
       return redeemFromVaultV2(publicClient, walletClient, plan.vaultAddress, onProgress);
     }
     const assetDecimals = await readVaultAssetDecimals(publicClient, plan.vaultAddress);

@@ -10,13 +10,21 @@ import { Button } from "../ui/Button";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useVaultPrefs } from "@/contexts/VaultPrefsContext";
 import { useExplorerVaults } from "@/contexts/ExplorerVaultsContext";
-import { SettingToggleRow } from "@/components/ui/SettingToggleRow";
+import { SettingSelectRow, SettingToggleRow } from "@/components/ui/SettingToggleRow";
 import { MORPHO_DISCLAIMER_URL } from '@/lib/constants';
 
 interface NavBarProps {
     isRightSidebarCollapsed?: boolean;
     onToggleSidebar?: () => void;
 }
+
+
+/** Settings → Vault View. Labels only; each maps to an existing explorer list mode. */
+const VAULT_VIEW_OPTIONS = [
+    { value: 'recommended', label: 'Underlying' },
+    { value: 'wrappers', label: 'Wrapper' },
+    { value: 'all', label: 'All Vaults' },
+] as const;
 
 export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps) {
     const pathname = usePathname();
@@ -387,22 +395,14 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                             onInfoOpenChange={handleInfoOpenChange}
                                         />
                                         {canUseAdvanced ? (
-                                            <>
-                                                <SettingToggleRow
-                                                    label="Switch to Wrapper Vaults"
-                                                    info="Show the wrapper version of each vault. A wrapper is its own vault that deposits into the Muscadine underlying vault, so it earns the same markets, and it charges a performance fee on interest earned. Vaults you already hold stay listed."
-                                                    checked={kindMode === 'wrappers'}
-                                                    onChange={(on) => setKindMode(on ? 'wrappers' : 'recommended')}
-                                                    onInfoOpenChange={handleInfoOpenChange}
-                                                />
-                                                <SettingToggleRow
-                                                    label="Show All Vaults"
-                                                    info="Show both the underlying vault and its wrapper for every asset, grouped under one row per vault. Expand a row to see each one. Vaults your wallet cannot deposit into are marked &quot;Approved wallets only&quot;."
-                                                    checked={kindMode === 'all'}
-                                                    onChange={(on) => setKindMode(on ? 'all' : 'recommended')}
-                                                    onInfoOpenChange={handleInfoOpenChange}
-                                                />
-                                            </>
+                                            <SettingSelectRow
+                                                label="Vault View"
+                                                info="Underlying (default): the Muscadine vault for each asset, or its wrapper when your wallet can only deposit into the wrapper. Wrapper: the wrapper version of each vault; it deposits into the underlying vault, earns the same markets, and charges a performance fee on interest earned. All Vaults: both, grouped under one row per vault, with vaults your wallet cannot deposit into marked &quot;Approved wallets only&quot;. Vaults you already hold always stay listed."
+                                                value={kindMode}
+                                                options={VAULT_VIEW_OPTIONS}
+                                                onChange={setKindMode}
+                                                onInfoOpenChange={handleInfoOpenChange}
+                                            />
                                         ) : null}
                                     </div>
                                     </div>
