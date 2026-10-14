@@ -389,7 +389,7 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                     <div className="px-4 mt-3 pt-2 border-t border-[var(--border)]">
                                         <SettingToggleRow
                                             label="Shared vault data"
-                                            info="Show a wrapper and its underlying vault as one history: the chart and earned interest include both, so moving between them leaves no gap. Turn off to see each vault on its own."
+                                            info="Shows a vault and its wrapper version as one history, so your chart and earnings stay together. Turn off to see each one separately."
                                             checked={sharedData}
                                             onChange={setSharedData}
                                             onInfoOpenChange={handleInfoOpenChange}
@@ -397,7 +397,7 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                         {canUseAdvanced ? (
                                             <SettingSelectRow
                                                 label="Vault View"
-                                                info="Underlying (default): the Muscadine vault for each asset, or its wrapper when your wallet can only deposit into the wrapper. Wrapper: the wrapper version of each vault; it deposits into the underlying vault, earns the same markets, and charges a performance fee on interest earned. All Vaults: both, grouped under one row per vault, with vaults your wallet cannot deposit into marked &quot;Approved wallets only&quot;. Vaults you already hold always stay listed."
+                                                info="Choose which vaults to list. Underlying: the main vaults (default). Wrapper: a version of each vault that charges a fee on interest. All Vaults: both. Vaults you hold always show."
                                                 value={kindMode}
                                                 options={VAULT_VIEW_OPTIONS}
                                                 onChange={setKindMode}
