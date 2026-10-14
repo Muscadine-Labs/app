@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useAccount, useWaitForTransactionReceipt, useReadContract, useWalletClient, usePublicClient } from 'wagmi';
-import { parseUnits, type Address, type Hex, type PublicClient, type WalletClient } from 'viem';
+import { parseUnits, type Address, type PublicClient, type WalletClient } from 'viem';
 import { VaultAccount } from '@/types/vault';
 import { useTransactionState } from '@/contexts/TransactionContext';
 import type { TransactionProgressStep } from '@/types/transactions';
@@ -28,10 +28,7 @@ import {
   withdrawFromVaultV2,
   redeemFromVaultV2,
   forceWithdrawFromVaultV2,
-  unwrapExitProceedsV2,
 } from '@/lib/transactionUtilsV2';
-import { isWethVault } from '@/lib/transaction-form-utils';
-import { DEPOSIT_FUNDING_LABELS } from '@/lib/native-eth';
 import { TransactionConfirmation } from './TransactionConfirmation';
 import { WithdrawLiquidityWarningModal } from './WithdrawLiquidityWarningModal';
 import { TransactionStatus as TransactionStatusComponent } from './TransactionStatus';
@@ -55,12 +52,6 @@ interface TransactionFlowProps {
   embedded?: boolean;
 }
 
-const WRAPPED_PENDING_NOTE =
-  'Your ETH was wrapped and is in your wallet as WETH. Try again deposits it without wrapping again.';
-
-const UNWRAP_PENDING_NOTE =
-  'Your withdraw went through and the WETH is in your wallet. Try again to unwrap exactly that amount to ETH, or keep it as WETH.';
-
 function stepTypeForLabel(label: string): 'signing' | 'approving' | 'confirming' {
   const lower = label.toLowerCase();
   if (lower.includes('approve')) return 'approving';
@@ -82,7 +73,6 @@ export function TransactionFlow({
     txHash,
     transactionType,
     derivedAsset,
-    preferredAsset,
     setAmount,
     setStatus,
   } = useTransactionState();
@@ -116,32 +106,6 @@ export function TransactionFlow({
   const forcePlanRef = useRef<ForceWithdrawPlan | null>(null);
   const executingRef = useRef(false);
   const confirmLockRef = useRef(false);
-  /** ETH this flow wrapped without depositing yet, so a retry does not wrap it again. */
-  const wrappedEthRef = useRef(BigInt(0));
-  /**
-   * Exit to ETH sent one by one: the mined exit whose unwrap has not gone through. A retry only
-   * unwraps what that exit paid; it never sends the exit again.
-   */
-  const [pendingUnwrapExitHash, setPendingUnwrapExitHash] = useState<Hex | null>(null);
-  /** Unwrap already sent for that exit: a retry checks it on chain instead of sending another. */
-  const sentUnwrapHashRef = useRef<Hex | null>(null);
-
-  const nativeVaultAddress =
-    fromAccount?.type === 'vault'
-      ? (fromAccount as VaultAccount).address
-      : toAccount?.type === 'vault'
-        ? (toAccount as VaultAccount).address
-        : null;
-  const nativeVaultSymbol =
-    fromAccount?.type === 'vault'
-      ? (fromAccount as VaultAccount).symbol
-      : toAccount?.type === 'vault'
-        ? (toAccount as VaultAccount).symbol
-        : '';
-  const isNativeEthVault =
-    nativeVaultAddress !== null && isWethVault(nativeVaultAddress, nativeVaultSymbol);
-  const depositFunding = isNativeEthVault ? preferredAsset : 'WETH';
-  const exitAsset = isNativeEthVault && preferredAsset === 'ETH' ? 'ETH' : 'WETH';
 
   const shouldClearFlowState = (status === 'idle' || status === 'preview') && !partialFailure;
   const effectiveCurrentTxHash = shouldClearFlowState ? null : currentTxHash;
@@ -397,15 +361,6 @@ export function TransactionFlow({
       return;
     }
 
-    // After a partial failure: what an ETH flow already did and what Try again will do.
-    const pendingNativeNote = () => {
-      if (transactionType === 'withdraw' && exitAsset === 'ETH') return `\n\n${UNWRAP_PENDING_NOTE}`;
-      if (transactionType === 'deposit' && wrappedEthRef.current > BigInt(0)) {
-        return `\n\n${WRAPPED_PENDING_NOTE}`;
-      }
-      return '';
-    };
-
     try {
       setLiquidityWarningOpen(false);
       setLiquidityWarningContext(null);
@@ -419,8 +374,6 @@ export function TransactionFlow({
         setTotalSteps(0);
         setCurrentTxHash(null);
         setPartialFailure(false);
-        setPendingUnwrapExitHash(null);
-        sentUnwrapHashRef.current = null;
       }
 
       logger.info('Transaction execution started', {
@@ -497,27 +450,8 @@ export function TransactionFlow({
       };
 
       let txHash: string;
-      const onUnwrapSent = (hash: Hex) => {
-        sentUnwrapHashRef.current = hash;
-      };
-      const exitOptions = {
-        receiveAs: exitAsset,
-        onExitConfirmed: (hash: Hex) => setPendingUnwrapExitHash(hash),
-        onUnwrapSent,
-      } as const;
 
-      if (isResuming && transactionType === 'withdraw' && pendingUnwrapExitHash) {
-        // The exit is mined; only its unwrap is left.
-        forcePlanRef.current = null;
-        txHash = await unwrapExitProceedsV2(
-          publicClient as PublicClient,
-          walletClient as WalletClient,
-          (fromAccount as VaultAccount).address as Address,
-          pendingUnwrapExitHash,
-          onProgress,
-          { priorUnwrapHash: sentUnwrapHashRef.current, onUnwrapSent }
-        );
-      } else if (transactionType === 'deposit') {
+      if (transactionType === 'deposit') {
         const vaultAddr = (toAccount as VaultAccount).address as Address;
         txHash = await depositToVaultV2(
           publicClient as PublicClient,
@@ -525,16 +459,8 @@ export function TransactionFlow({
           vaultAddr,
           amount,
           assetToUse.decimals,
-          onProgress,
-          {
-            funding: depositFunding,
-            alreadyWrapped: wrappedEthRef.current,
-            onWrapped: (wrapped) => {
-              wrappedEthRef.current += wrapped;
-            },
-          }
+          onProgress
         );
-        wrappedEthRef.current = BigInt(0);
       } else if (transactionType === 'withdraw') {
         const vaultAddr = (fromAccount as VaultAccount).address as Address;
 
@@ -544,8 +470,7 @@ export function TransactionFlow({
             publicClient as PublicClient,
             walletClient as WalletClient,
             forcePlan,
-            onProgress,
-            exitOptions
+            onProgress
           );
           forcePlanRef.current = null;
         } else if (shouldUseWithdrawAll) {
@@ -553,8 +478,7 @@ export function TransactionFlow({
             publicClient as PublicClient,
             walletClient as WalletClient,
             vaultAddr,
-            onProgress,
-            exitOptions
+            onProgress
           );
         } else {
           txHash = await withdrawFromVaultV2(
@@ -563,8 +487,7 @@ export function TransactionFlow({
             vaultAddr,
             amount,
             assetToUse.decimals,
-            onProgress,
-            exitOptions
+            onProgress
           );
         }
       } else {
@@ -573,8 +496,6 @@ export function TransactionFlow({
 
       setCurrentTxHash(txHash);
       setPartialFailure(false);
-      setPendingUnwrapExitHash(null);
-      sentUnwrapHashRef.current = null;
       completeSuccessfulTransaction(txHash);
       executingRef.current = false;
       setIsExecuting(false);
@@ -585,7 +506,7 @@ export function TransactionFlow({
       if (isCancellationError(err)) {
         if (partialFailure || currentStepRef.current > 0) {
           setPartialFailure(true);
-          setStatus('error', `Transaction cancelled.${pendingNativeNote()}`);
+          setStatus('error', 'Transaction cancelled');
         } else {
           setStatus('preview');
           setCurrentTxHash(null);
@@ -618,7 +539,7 @@ export function TransactionFlow({
       if (failedPastFirstStep) {
         setPartialFailure(true);
       }
-      setStatus('error', failedPastFirstStep ? `${errorMessage}${pendingNativeNote()}` : errorMessage);
+      setStatus('error', errorMessage);
       if (!failedPastFirstStep) {
         showErrorToast(errorMessage, 5000);
       }
@@ -633,9 +554,6 @@ export function TransactionFlow({
     publicClient,
     queryClient,
     partialFailure,
-    pendingUnwrapExitHash,
-    depositFunding,
-    exitAsset,
     shouldUseWithdrawAll,
     completeSuccessfulTransaction,
     setAmount,
@@ -890,14 +808,6 @@ export function TransactionFlow({
           toAccount={toAccount}
           amount={amount?.trim() || ''}
           assetSymbol={assetSymbol}
-          walletAssetSymbol={
-            !isNativeEthVault
-              ? undefined
-              : transactionType === 'deposit'
-                ? DEPOSIT_FUNDING_LABELS[depositFunding]
-                : exitAsset
-          }
-          partialFailureCancelLabel={pendingUnwrapExitHash ? 'Keep WETH' : undefined}
           assetDecimals={derivedAsset?.decimals}
           transactionType={transactionType}
           isLoading={isSigning || isApproving || isConfirming || isCheckingLiquidity || isExecuting}
@@ -926,14 +836,6 @@ export function TransactionFlow({
               } else if (onSuccess) {
                 onSuccess();
               }
-            } else if (isError && partialFailure && pendingUnwrapExitHash) {
-              // Keep WETH: the exit already went through, so finish on it.
-              const exitHash = pendingUnwrapExitHash;
-              setPendingUnwrapExitHash(null);
-              sentUnwrapHashRef.current = null;
-              setPartialFailure(false);
-              setCurrentTxHash(exitHash);
-              completeSuccessfulTransaction(exitHash);
             } else if (isError && partialFailure) {
               setStatus('preview');
               setPartialFailure(false);

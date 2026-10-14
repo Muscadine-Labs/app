@@ -82,7 +82,7 @@ Never commit real keys. `.env.example` documents placeholders.
 | Chain | Base only (`8453`) |
 | Server data | Next.js Route Handlers → Morpho GraphQL |
 | Client GraphQL | None — Morpho GraphQL is server-only via `fetchMorphoGraphQL()` |
-| V2 txs | Direct ERC-4626 via viem (`transactionUtilsV2.ts`); force exits via vault `multicall` (`force-withdraw-v2.ts`); native ETH via WETH wrap/unwrap (`native-eth.ts`), batched with EIP-5792 `wallet_sendCalls` when the wallet is atomic |
+| V2 txs | Direct ERC-4626 via viem (`transactionUtilsV2.ts`); force exits via vault `multicall` (`force-withdraw-v2.ts`) |
 | Charts | Recharts |
 | Analytics | `@vercel/analytics` |
 | Base Account SDK | `@base-org/account` |
@@ -109,7 +109,7 @@ Never commit real keys. `.env.example` documents placeholders.
 
 **Reads:** Morpho GraphQL (server routes via `fetchMorphoGraphQL()`).
 
-**Writes:** User wallet signs transactions built in-app — **not** via GraphQL. Deposits, plain withdraws, and force exits are direct vault calls and pay the vault asset. WETH vaults can also take ETH / ETH + WETH and pay ETH, through the WETH contract only (`native-eth.ts`).
+**Writes:** User wallet signs transactions built in-app — **not** via GraphQL. Deposits, plain withdraws, and force exits are direct vault calls and pay the vault asset (WETH vaults take and pay WETH).
 
 ---
 
@@ -142,7 +142,7 @@ Fee wrappers (`kind: 'wrapper'`, `underlyingAddress` = the vault above they depo
 
 **Wrapper / underlying pairs (families):** a wrapper and its underlying vault are one family.
 
-**Vault prefs (Settings, cookie `muscadine-vault-prefs`):** `VaultPrefsContext` holds `kindMode` and `sharedData`; `layout.tsx` reads the cookie (`readVaultPrefsFromCookieHeader` in `lib/vault-prefs.ts`) so the server renders the saved values. **Shared vault data** (default on) lets a pair's chart, earned interest, history and closed-pair profit mix; off keeps each contract alone everywhere (vault page, History, dashboard chart, profit carry). **Switch to Wrapper Vaults** / **Show All Vaults** live in Settings too (only when `canUseAdvanced`).
+**Vault prefs (Settings, cookie `muscadine-vault-prefs`):** `VaultPrefsContext` holds `kindMode` and `sharedData`; `layout.tsx` reads the cookie (`readVaultPrefsFromCookieHeader` in `lib/vault-prefs.ts`) so the server renders the saved values. **Shared vault data** (default on) lets a pair's chart, earned interest, history and closed-pair profit mix; off keeps each contract alone everywhere (vault page, History, dashboard chart, profit carry). **Vault View** (Underlying / Wrapper / All Vaults) lives in Settings too (only when `canUseAdvanced`).
 
 - **Lists** (`/vaults` and dashboard Your Vaults, `VaultExplorerTable`): `groupVaultFamilies` in `vault-utils.ts` groups listed vaults. A family with both contracts listed is a parent row (chevron) with the two vaults as indented child rows, like Morpho's market families. The parent shows the combined position and profit, the underlying's deposits / TVL / liquidity (it already holds the wrapper's funds, so adding the wrapper would double count) and the APY range of both. Children show each contract alone and carry the **Wrapper** / **Underlying** labels (`VaultKindMark`, `selectVaultKindMarkAddresses`). A family starts expanded when the wallet holds both contracts; a tap toggles it. Dashboard families sort by combined USD. A single listed contract is a plain row.
 - **Profit carry:** a row whose pair contract has no shares left adds that contract's lifetime profit (`closedPairEarnedPnl`), so a move to the wrapper and back keeps all interest on the row.
@@ -161,7 +161,7 @@ Fee wrappers (`kind: 'wrapper'`, `underlyingAddress` = the vault above they depo
 | `wrappers` | The wrapper |
 | `all` | Both contracts |
 
-**Settings** has the switches (with info icons, like Morpho's): **Switch to Wrapper Vaults** and **Show All Vaults**, saved in the prefs cookie. Turning one on turns the other off; both off is `recommended`. Each info icon shows its explanation on hover (mouse) or tap. The control only appears when `canUseAdvanced`: the wallet can deposit into both the wrapper and the underlying of some vault, or holds at least one wrapper and one underlying; otherwise the list stays on `recommended`. A listed vault the wallet cannot deposit into gets an **Approved wallets only** pill; that needs a successful read saying no (`blockedVaultAddresses` from `useVaultDepositGates`, `resolveDepositBlocked`), so a failed gate read never shows it.
+**Settings** has a **Vault View** dropdown (with an info icon, like Morpho's), saved in the prefs cookie: **Underlying** = `recommended` (the default; it can still list a wrapper when only the wrapper is depositable), **Wrapper** = `wrappers`, **All Vaults** = `all`. Labels only (`VAULT_VIEW_OPTIONS` in `NavBar.tsx`, `SettingSelectRow`); the modes behave as in the table above. The info icon shows its explanation on hover (mouse) or tap. The control only appears when `canUseAdvanced`: the wallet can deposit into both the wrapper and the underlying of some vault, or holds at least one wrapper and one underlying; otherwise the list stays on `recommended`. A listed vault the wallet cannot deposit into gets an **Approved wallets only** pill; that needs a successful read saying no (`blockedVaultAddresses` from `useVaultDepositGates`, `resolveDepositBlocked`), so a failed gate read never shows it.
 
 Explorer filters default to **All** (network, strategy, asset). **No v1/v2 version filter** (v1 removed). There is no developer/over-balance bypass mode.
 
@@ -199,34 +199,31 @@ Share tokens use **18 decimals**; underlying assets use registry decimals (USDC 
 
 ### `src/lib/transactionUtilsV2.ts`
 
-Direct ERC-4626 for deposit, plain withdraw, and redeem. Force exits use vault `multicall`. Exits pay the vault asset; WETH vaults can add a WETH contract wrap before a deposit or unwrap after an exit (see WETH vaults below). No bundler.
+Direct ERC-4626 for deposit, plain withdraw, and redeem. Force exits use vault `multicall`. Exits pay the vault asset. There is no native ETH wrap or unwrap.
 
 **Exports:**
 
 | Function | Behavior |
 |----------|----------|
-| `depositToVaultV2` | Direct ERC-4626 deposit. WETH vaults: `funding` WETH (default) / ETH / ETH + WETH wraps the ETH shortfall first. |
-| `withdrawFromVaultV2` | Direct `withdraw`. Pays the vault asset, or ETH (`receiveAs: 'ETH'`). |
-| `redeemFromVaultV2` | Direct `redeem`. Pays the vault asset, or ETH (`receiveAs: 'ETH'`). |
-| `forceWithdrawFromVaultV2` | Vault `multicall` force-deallocate + withdraw/redeem. Replanned from on-chain reads immediately before send; falls back to plain withdraw/redeem when instant liquidity now covers the amount. Takes `receiveAs` too. |
-| `unwrapExitProceedsV2` | Resume an ETH exit whose unwrap did not go through: unwraps exactly what that exit paid (from its receipt). Never re-sends the exit. |
+| `depositToVaultV2` | Direct ERC-4626 deposit. WETH vaults take WETH only. |
+| `withdrawFromVaultV2` | Direct `withdraw`. Pays the vault asset. |
+| `redeemFromVaultV2` | Direct `redeem`. Pays the vault asset. |
+| `forceWithdrawFromVaultV2` | Vault `multicall` force-deallocate + withdraw/redeem. Replanned from on-chain reads immediately before send; falls back to plain withdraw/redeem when instant liquidity now covers the amount. |
 
 **ABIs (in-file):**
 
 - `ERC20_ABI` — `approve`, `allowance`, `balanceOf`, `decimals`
 - `ERC4626_ABI` — `asset`, `deposit`, `withdraw`, `redeem`, `previewWithdraw`, `convertToAssets`
 
-**WETH vaults** (vault `asset()` is `BASE_WETH_ADDRESS`) — native ETH through the WETH contract only (`src/lib/native-eth.ts`). No Bundler3, no VaultBundlesV1: the wallet stays the vault caller, so deposit gates and caps are unchanged.
+**WETH vaults** (vault `asset()` is `BASE_WETH_ADDRESS`):
 
-- **Selector** in `VaultTransactPanel` (WETH vaults only): deposit **WETH** (default) / **ETH** / **ETH + WETH**; withdraw **WETH** (default) / **ETH**. `preferredAsset` in `TransactionContext` resets to WETH on reset and tab change.
-- **Deposit:** `planDepositWrap` — ETH wraps the full amount; ETH + WETH spends WETH first and wraps only the shortfall. `ETH_GAS_RESERVE_WEI` (0.0001 ETH) stays in the wallet; MAX is `maxDepositForFunding` from on-chain ETH (`useBalance`) and WETH. Calls: `WETH.deposit{value}` → `approve(vault, amount)` if needed (no reset for WETH) → `vault.deposit`. A retry after a sequential wrap passes `alreadyWrapped` (counted only while still held), so ETH is never wrapped twice.
-- **Exit to ETH — the unwrap amount is never the wallet's WETH balance** (it can hold WETH from before, and interest dust):
-  - `withdraw(assets)` (and a force `multicall` ending in `withdraw`) pays exactly `assets` → unwrap `assets`.
-  - `redeem` (full exit, and force exits ending in `redeem`) pays an amount fixed only when mined → send the exit, then unwrap `wethPaidByVault(receipt, vault, user)` (WETH `Transfer` logs from the vault to the user). Before the unwrap, check the wallet still holds that much. Zero dust; earlier WETH untouched.
-- **Batching:** `supportsAtomicBatch` (`wallet_getCapabilities` → `atomic.status === 'supported'`, or legacy `atomicBatch.supported`; `ready` counts as no, so an EOA is never asked to upgrade). Atomic wallets get one `sendCalls` batch (`forceAtomic`) for deposits and for exits with a known amount; redeem exits are always two steps. Other wallets get one tx per step. If `sendCalls` reports it is unsupported, the same calls go one by one. The builder-code suffix is appended to each call's data.
-- **Smart wallets cannot receive ETH from WETH.** Base WETH (WETH9) pays out with Solidity `transfer` (2300 gas). Coinbase Smart Wallet / Base Account proxies and many EIP-7702 accounts revert. `canReceiveWethUnwrap` (`eth_call` of `withdraw(0)` from the wallet) hides **ETH** on the withdraw tab for them (`ethExitUnavailable`) and is re-checked before any exit is sent. ETH **deposits** work for every wallet. Verified on a Base fork against a deployed Coinbase Smart Wallet.
-- **Partial failure:** exit mined, unwrap failed/cancelled → `TransactionFlow` keeps the exit hash; **Try again** runs `unwrapExitProceedsV2` only; **Keep WETH** finishes on the exit. The sent unwrap hash is kept too (`priorUnwrapHash`): a retry waits on / returns that unwrap instead of sending another, so a lost confirmation can never unwrap WETH the wallet held before.
-- USDC / cbBTC vaults are unchanged.
+- Deposit and withdraw are WETH only. There is no ETH, ETH+WETH, or unwrap option.
+- **Native ETH was rebuilt and tested, then dropped for complexity** (PR #120, tested on a Base mainnet fork). If it is ever revisited:
+  - Base WETH (WETH9) pays out with Solidity `transfer` (2300 gas). A plain EOA receives it; a Coinbase Smart Wallet / Base Account proxy reverts, and so do EIP-7702 accounts whose delegate does work on receive. An `eth_call` of `WETH.withdraw(0)` from the wallet detects this. Wrapping (`WETH.deposit`) works for every wallet. Bundler3's GeneralAdapter1 `unwrapNative` sends ETH with full gas, which is why the old path used it.
+  - Never unwrap the wallet's WETH balance (it can hold WETH from before, plus interest dust). `withdraw(assets)` pays exactly `assets`; `redeem` pays an amount fixed only when mined, so unwrap the WETH `Transfer` from the vault to the user in the exit receipt.
+  - A retry after a lost unwrap confirmation must check the sent unwrap on chain first, or it unwraps a second time out of WETH the wallet held before.
+  - EIP-5792 `atomic.status: 'ready'` means the wallet would first upgrade the EOA to a 7702 smart account; treat it as not batchable so users are never prompted to upgrade mid-deposit.
+- USDC / cbBTC deposits and plain withdraws stay direct ERC-4626.
 
 **Force withdraw** (`src/lib/force-withdraw-v2.ts`): when requested assets exceed instant liquidity, plan a cash exit. Warning modal shows estimated penalty, risks, and **Force withdraw**, plus **Open vault on Morpho**. If markets cannot cover the shortfall, the input is capped at the reachable amount. The plan is rebuilt from fresh on-chain reads immediately before it is sent. Instant liquidity for planning is always read on-chain (idle + what the liquidity adapter's route market can pay), never taken from the API.
 
@@ -234,7 +231,7 @@ Direct ERC-4626 for deposit, plain withdraw, and redeem. Force exits use vault `
 
 Vault `multicall` of `forceDeallocate` × N + `withdraw` or **`redeem` (MAX)** from Morpho Blue market adapters (`abi.encode(marketParams)`). Planner reads on-chain market cash. The liquidity route market (`liquidityAdapter` + `liquidityData`) is never force-deallocated: it is already counted as instant liquidity, and draining it first makes the final withdraw revert. Vault V2 `maxWithdraw` is never used.
 
-This is **not** in-kind redemption. In-kind (`vault.inKindRedeem` → VaultExitBundlesV1 `vaultExitBundlesV1InKindRedemptionVaultV2`) burns shares and transfers Morpho Blue supply positions to the user. Not implemented. Do not swap force withdraw for `vaultExitBundlesV1ForceWithdrawVaultV2` (bundle helper with referral fee / minSharePrice). Cash exits stay vault `multicall`. Do not add Bundler3 or VaultBundlesV1; native ETH stays on the WETH-contract path above.
+This is **not** in-kind redemption. In-kind (`vault.inKindRedeem` → VaultExitBundlesV1 `vaultExitBundlesV1InKindRedemptionVaultV2`) burns shares and transfers Morpho Blue supply positions to the user. Not implemented. Do not swap force withdraw for `vaultExitBundlesV1ForceWithdrawVaultV2` (bundle helper with referral fee / minSharePrice). Cash exits stay vault `multicall`. Do not add Bundler3 or a native-ETH path.
 
 **Approvals:**
 
@@ -342,7 +339,7 @@ Morpho GraphQL is **server-only** (`fetchMorphoGraphQL()` in route handlers). Th
 | `/api/user/morpho-positions` | User Morpho v2 positions |
 | `/api/vault/v2/...` | V2 Morpho GraphQL proxies |
 
-**NavBar:** Dashboard → `/`, Vaults → `/vaults`. Settings: theme (light/dark/auto), Shared vault data, and (when `canUseAdvanced`) Switch to Wrapper Vaults / Show All Vaults, saved in a cookie. Right sidebar (`LearnContent`) is Q&A links to Morpho docs (protocol, Vault V2, fee wrapper vaults, curator, Blue, Midnight) and [self-custody](https://muscadine.xyz/self-custody).
+**NavBar:** Dashboard → `/`, Vaults → `/vaults`. Settings: theme (light/dark/auto), Shared vault data, and (when `canUseAdvanced`) Vault View (Underlying / Wrapper / All Vaults), saved in a cookie. Right sidebar (`LearnContent`) is Q&A links to Morpho docs (protocol, Vault V2, fee wrapper vaults, curator, Blue, Midnight) and [self-custody](https://muscadine.xyz/self-custody).
 
 **App title:** metadata in `layout.tsx` uses **Muscadine Vaults** (`APP_NAME` in `src/lib/base-app.ts`) so Base.dev / Reown AppKit / WalletConnect match.
 
@@ -395,7 +392,7 @@ Adaptive layout (content-sized panels; empty sections omitted):
 
 ### Vault detail (`/vault/v2/[address]`)
 
-Whitelisted registry vaults only — unknown / external addresses redirect home. Deposit/Withdraw is an inline `VaultTransactPanel` top-aligned with Your Position + Earned Interest (chart under those totals). Below 1000px: totals → chart → panel. Stats box: Network, APY, Past/Future rewards (no duplicate position or all-time earned). Past is the default when the user has a vault position; Future is the default when they do not. WETH vaults offer a WETH / ETH / ETH + WETH selector (WETH default). Mobile sticky Deposit/Withdraw on Overview jumps to My Position. Tab switches away from My Position are blocked while a tx is in preview/signing.
+Whitelisted registry vaults only — unknown / external addresses redirect home. Deposit/Withdraw is an inline `VaultTransactPanel` top-aligned with Your Position + Earned Interest (chart under those totals). Below 1000px: totals → chart → panel. Stats box: Network, APY, Past/Future rewards (no duplicate position or all-time earned). Past is the default when the user has a vault position; Future is the default when they do not. WETH vaults take and pay WETH only. Mobile sticky Deposit/Withdraw on Overview jumps to My Position. Tab switches away from My Position are blocked while a tx is in preview/signing.
 
 ### Vault detail charts (`VaultOverview.tsx`)
 
@@ -488,7 +485,6 @@ src/
     api-utils.ts          # Period/interval helpers; strip incomplete Morpho timeseries tails
     transactionUtilsV2.ts # ★ V2 on-chain (ERC-4626 + vault multicall force withdraw)
     transactionUtils.ts   # Errors, shared tx helpers
-    native-eth.ts         # WETH wrap/unwrap planning, receipt-based unwrap amount, EIP-5792 batch check
     vaults.ts             # ★ Vault registry (v2 Prime/Frontier)
     vault-utils.ts        # Routes, sortVaultsForDisplay, resolvePositionAssetsUsd, isCuratedVaultAddress
     interest-utils.ts     # Earned interest from activity; period + projected estimates
@@ -562,7 +558,6 @@ Optional later: [Base Notifications API](https://docs.base.org/apps/technical-gu
 - `BASE_CHAIN_ID = 8453` — use this constant; never write `8453` inline
 - `MORPHO_CHAIN_SLUG` / `getMorphoChainSlug` — chain slug for app.morpho.org links
 - `BASE_WETH_ADDRESS` — Base canonical WETH
-- `ETH_GAS_RESERVE` / `ETH_GAS_RESERVE_WEI` — 0.0001 ETH kept for gas when a WETH vault deposit wraps ETH
 - `TOKEN_ADDRESSES` / `TOKEN_ADDRESSES_LOWER` — USDC, cbBTC, WETH on Base
 - Cache TTLs: vault client + Morpho in-memory **60s**; prices 10m; activity 1m
 - Morpho GraphQL: `MORPHO_GRAPHQL_URL`, `MORPHO_GRAPHQL_REVALIDATE_SECONDS`, fetch timeout/retries, preload batch size — all Morpho calls go through `fetchMorphoGraphQL()` in `api-utils.ts`
@@ -706,7 +701,6 @@ Do not bump without checking compatibility:
 | V2 deposit/withdraw/redeem | `src/lib/transactionUtilsV2.ts` |
 | Force-withdraw planner | `src/lib/force-withdraw-v2.ts` |
 | Force withdraw plan | `src/lib/force-withdraw-v2.ts` |
-| Native ETH (WETH vaults) | `src/lib/native-eth.ts`, `transactionUtilsV2.ts` (`depositWrappingEth`, `exitToEth`) |
 | Transaction orchestration | `src/components/features/transactions/TransactionFlow.tsx` |
 | Vault addresses | `src/lib/vaults.ts` |
 | Vault sort / routing | `src/lib/vault-utils.ts` (`sortVaultsForDisplay`, `getVaultRoute`) |

@@ -19,10 +19,6 @@ export function getMorphoChainSlug(chainId: number): string {
 }
 
 export const BASE_WETH_ADDRESS = '0x4200000000000000000000000000000000000006' as const;
-/** ETH left in the wallet for gas when a WETH vault deposit wraps native ETH. */
-export const ETH_GAS_RESERVE = 0.0001;
-/** `ETH_GAS_RESERVE` in wei. */
-export const ETH_GAS_RESERVE_WEI = BigInt(100_000_000_000_000);
 
 /** Major token addresses on Base. */
 export const TOKEN_ADDRESSES = {

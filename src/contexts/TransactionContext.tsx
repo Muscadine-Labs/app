@@ -2,7 +2,6 @@
 
 import React, { createContext, useContext, useState, useCallback, useMemo } from 'react';
 import { Account, VaultAccount } from '../types/vault';
-import type { DepositFunding } from '../lib/native-eth';
 
 export type TransactionType = 'deposit' | 'withdraw';
 
@@ -23,11 +22,6 @@ export interface TransactionState {
   error: string | null;
   txHash: string | null;
   transactionType: TransactionType | null;
-  /**
-   * WETH vaults only. Deposit: WETH (default), ETH, or ETH + WETH ('ALL').
-   * Withdraw: WETH (default) or ETH. Resets to WETH with the form.
-   */
-  preferredAsset: DepositFunding;
 }
 
 interface TransactionContextType extends TransactionState {
@@ -37,7 +31,6 @@ interface TransactionContextType extends TransactionState {
   setToAccount: (account: Account | null) => void;
   setAmount: (amount: string) => void;
   setStatus: (status: TransactionStatus, error?: string | null, txHash?: string | null) => void;
-  setPreferredAsset: (asset: DepositFunding) => void;
   reset: () => void;
 }
 
@@ -52,7 +45,6 @@ export function TransactionProvider({ children }: { children: React.ReactNode })
     error: null,
     txHash: null,
     transactionType: null,
-    preferredAsset: 'WETH',
   });
 
   // Determine transaction type based on from/to accounts
@@ -100,10 +92,6 @@ export function TransactionProvider({ children }: { children: React.ReactNode })
     }));
   }, []);
 
-  const setPreferredAsset = useCallback((preferredAsset: DepositFunding) => {
-    setState(prev => ({ ...prev, preferredAsset }));
-  }, []);
-
   const reset = useCallback(() => {
     setState({
       fromAccount: null,
@@ -113,7 +101,6 @@ export function TransactionProvider({ children }: { children: React.ReactNode })
       error: null,
       txHash: null,
       transactionType: null,
-      preferredAsset: 'WETH',
     });
   }, []);
 
@@ -164,7 +151,6 @@ export function TransactionProvider({ children }: { children: React.ReactNode })
     setToAccount,
     setAmount,
     setStatus,
-    setPreferredAsset,
     reset,
   };
 

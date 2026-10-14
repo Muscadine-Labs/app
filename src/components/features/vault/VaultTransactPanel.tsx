@@ -19,12 +19,6 @@ import {
 import { usePrices } from '@/contexts/PriceContext';
 import { ConnectButton } from '@/components/features/wallet';
 import { parseTransactionAmount } from '@/lib/liquidity-utils';
-import { ETH_GAS_RESERVE } from '@/lib/constants';
-import {
-  DEPOSIT_FUNDING_LABELS,
-  SMART_WALLET_UNWRAP_NOTE,
-  type DepositFunding,
-} from '@/lib/native-eth';
 import {
   buildPastEarningsRows,
   buildProjectedEarningsRows,
@@ -164,24 +158,11 @@ export function VaultTransactPanel({
     ethPrice
   );
 
-  // WETH vaults: the wallet side is WETH, ETH, or ETH + WETH (deposit only).
-  const assetOptions: DepositFunding[] = tx.isWethVault
-    ? tx.effectiveActiveTab === 'deposit'
-      ? ['WETH', 'ETH', 'ALL']
-      : tx.ethExitUnavailable
-        ? []
-        : ['WETH', 'ETH']
-    : [];
-  const walletAssetLabel = tx.isWethVault
-    ? DEPOSIT_FUNDING_LABELS[tx.preferredAsset]
-    : tx.derivedAsset?.symbol || vaultData.symbol;
-  const wrapsEth =
-    tx.isWethVault && tx.effectiveActiveTab === 'deposit' && tx.preferredAsset !== 'WETH';
-
   const availableLabel = useMemo(() => {
-    if (tx.maxAmount === null || tx.isWithdrawMaxLoading) return `0.00 ${walletAssetLabel}`;
-    return formatAssetBalance(tx.maxAmount, walletAssetLabel, undefined, true);
-  }, [walletAssetLabel, tx.maxAmount, tx.isWithdrawMaxLoading]);
+    const symbol = tx.derivedAsset?.symbol || vaultData.symbol;
+    if (tx.maxAmount === null || tx.isWithdrawMaxLoading) return `0.00 ${symbol}`;
+    return formatAssetBalance(tx.maxAmount, symbol, undefined, true);
+  }, [tx.derivedAsset?.symbol, tx.maxAmount, tx.isWithdrawMaxLoading, vaultData.symbol]);
 
   const positionKnown = currentAssetsRaw !== null;
   const positionAssets = currentAssetsRaw ?? BigInt(0);
@@ -324,23 +305,6 @@ export function VaultTransactPanel({
                 {tx.effectiveActiveTab === 'deposit' ? 'Deposit' : 'Withdraw'} {vaultData.symbol}
               </p>
               <div className="flex items-center gap-2">
-                {assetOptions.length > 0 && (
-                  <select
-                    aria-label={
-                      tx.effectiveActiveTab === 'deposit' ? 'Deposit from' : 'Receive as'
-                    }
-                    value={tx.preferredAsset}
-                    onChange={(e) => tx.handlePreferredAssetChange(e.target.value as DepositFunding)}
-                    disabled={reviewOpen}
-                    className="text-xs px-2 py-1 bg-[var(--surface-elevated)] border border-[var(--border-subtle)] rounded text-[var(--foreground-secondary)] focus:outline-none cursor-pointer disabled:cursor-not-allowed"
-                  >
-                    {assetOptions.map((option) => (
-                      <option key={option} value={option}>
-                        {DEPOSIT_FUNDING_LABELS[option]}
-                      </option>
-                    ))}
-                  </select>
-                )}
                 <Image
                   src={logo}
                   alt={vaultData.symbol}
@@ -385,25 +349,6 @@ export function VaultTransactPanel({
                 Amount exceeds available balance.
               </p>
             )}
-            {wrapsEth && (
-              <p className="mt-2 text-xs text-[var(--foreground-muted)]">
-                ETH is wrapped to WETH, then deposited. {ETH_GAS_RESERVE} ETH stays in your
-                wallet for gas.
-              </p>
-            )}
-            {tx.isWethVault && tx.effectiveActiveTab === 'withdraw' && tx.ethExitUnavailable && (
-              <p className="mt-2 text-xs text-[var(--foreground-muted)]">
-                {SMART_WALLET_UNWRAP_NOTE}
-              </p>
-            )}
-            {tx.isWethVault &&
-              tx.effectiveActiveTab === 'withdraw' &&
-              tx.preferredAsset === 'ETH' && (
-                <p className="mt-2 text-xs text-[var(--foreground-muted)]">
-                  The vault pays WETH, then exactly that amount is unwrapped to ETH. WETH already in
-                  your wallet is not touched.
-                </p>
-              )}
             {tx.depositCapFull && !depositsDisabled && (
               <p className="mt-2 text-xs text-[var(--warning)]">
                 This vault is at its deposit cap right now. Try again later, or contact muscadinelabs@gmail.com.
