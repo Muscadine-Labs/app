@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { useAccount, useWaitForTransactionReceipt, useReadContract, useWalletClient, usePublicClient } from 'wagmi';
+import { useAccount, useConfig, useSwitchChain, useWaitForTransactionReceipt, useReadContract, useWalletClient, usePublicClient } from 'wagmi';
+import { getWalletClient } from 'wagmi/actions';
 import { parseUnits, type Address, type PublicClient, type WalletClient } from 'viem';
 import { VaultAccount } from '@/types/vault';
 import { useTransactionState } from '@/contexts/TransactionContext';
@@ -81,6 +82,27 @@ export function TransactionFlow({
   const { fetchVaultData } = useVaultData();
   const router = useRouter();
   const { data: walletClient } = useWalletClient();
+  const wagmiConfig = useConfig();
+  const { chainId: walletChainId } = useAccount();
+  const { switchChainAsync } = useSwitchChain();
+
+  /**
+   * Wallet client on Base for sending. If the wallet is on another network, ask it to switch
+   * first (viem would otherwise refuse with an unclear error), then take a fresh client: the
+   * one from the hook still points at the old chain until the next render.
+   */
+  const resolveBaseWalletClient = useCallback(async (): Promise<WalletClient> => {
+    if (walletChainId === BASE_CHAIN_ID && walletClient?.chain?.id === BASE_CHAIN_ID) {
+      return walletClient as WalletClient;
+    }
+    try {
+      await switchChainAsync({ chainId: BASE_CHAIN_ID });
+    } catch (err) {
+      if (isCancellationError(err)) throw err;
+      throw new Error('Switch your wallet to the Base network to continue.');
+    }
+    return (await getWalletClient(wagmiConfig, { chainId: BASE_CHAIN_ID })) as WalletClient;
+  }, [walletChainId, walletClient, switchChainAsync, wagmiConfig]);
   const publicClient = usePublicClient();
   const queryClient = useQueryClient();
 
@@ -365,6 +387,7 @@ export function TransactionFlow({
       setLiquidityWarningOpen(false);
       setLiquidityWarningContext(null);
       setIsExecuting(true);
+      const baseWalletClient = await resolveBaseWalletClient();
       const isResuming = partialFailure;
 
       if (!isResuming) {
@@ -455,7 +478,7 @@ export function TransactionFlow({
         const vaultAddr = (toAccount as VaultAccount).address as Address;
         txHash = await depositToVaultV2(
           publicClient as PublicClient,
-          walletClient as WalletClient,
+          baseWalletClient,
           vaultAddr,
           amount,
           assetToUse.decimals,
@@ -468,7 +491,7 @@ export function TransactionFlow({
         if (forcePlan) {
           txHash = await forceWithdrawFromVaultV2(
             publicClient as PublicClient,
-            walletClient as WalletClient,
+            baseWalletClient,
             forcePlan,
             onProgress
           );
@@ -476,14 +499,14 @@ export function TransactionFlow({
         } else if (shouldUseWithdrawAll) {
           txHash = await redeemFromVaultV2(
             publicClient as PublicClient,
-            walletClient as WalletClient,
+            baseWalletClient,
             vaultAddr,
             onProgress
           );
         } else {
           txHash = await withdrawFromVaultV2(
             publicClient as PublicClient,
-            walletClient as WalletClient,
+            baseWalletClient,
             vaultAddr,
             amount,
             assetToUse.decimals,
@@ -555,6 +578,7 @@ export function TransactionFlow({
     queryClient,
     partialFailure,
     shouldUseWithdrawAll,
+    resolveBaseWalletClient,
     completeSuccessfulTransaction,
     setAmount,
     setStatus,
@@ -617,6 +641,8 @@ export function TransactionFlow({
             // Planner read fresh on-chain liquidity and found it covers the request, so the plain
             // exit failed for another reason. Send it and let the wallet surface the real error.
             let instantCoversRequest = false;
+            // Planner failed for a reason other than a shortfall (usually RPC).
+            let planFailed = false;
 
             if (userAddress) {
               try {
@@ -655,6 +681,7 @@ export function TransactionFlow({
                 });
                 forcePlan = null;
                 forceOk = false;
+                planFailed = true;
               }
             }
 
@@ -668,6 +695,16 @@ export function TransactionFlow({
                   publicClient as PublicClient,
                   vaultAccount.address as `0x${string}`
                 ));
+
+              // Neither the planner nor the liquidity read got an answer: this is a network
+              // problem, not low liquidity, so say that instead of showing the warning.
+              if (planFailed && instant === null) {
+                const errorMessage =
+                  "Couldn't check this vault's liquidity right now (network error). Please try again.";
+                setStatus('error', errorMessage);
+                showErrorToast(errorMessage, 5000);
+                return;
+              }
 
               setLiquidityWarningContext({
                 morphoVaultUrl: getMorphoVaultUrl(BASE_CHAIN_ID, vaultAccount.address),

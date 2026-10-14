@@ -174,6 +174,13 @@ const VAULT_V2_FORCE_ABI = [
     outputs: [{ name: '', type: 'uint256' }],
   },
   {
+    name: 'convertToAssets',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [{ name: 'shares', type: 'uint256' }],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+  {
     name: 'multicall',
     type: 'function',
     stateMutability: 'nonpayable',
@@ -673,21 +680,20 @@ export async function planForceWithdrawV2(
   }
 
   // User receives the requested amount; penalty is paid in shares.
-  const expectedAssetsOut = requestedAssets;
+  let expectedAssetsOut = requestedAssets;
 
   let exitMode: 'withdraw' | 'redeem' = 'withdraw';
   let multicallArgs: Hex[];
 
-  if (useRedeemExit) {
-    const userShares = (await publicClient.readContract({
+  const [userShares, penaltySharesPerStep, sharesForRequest] = await Promise.all([
+    publicClient.readContract({
       address: normalizedVault,
       abi: VAULT_V2_FORCE_ABI,
       functionName: 'balanceOf',
       args: [user],
-    })) as bigint;
-
+    }) as Promise<bigint>,
     // Each forceDeallocate burns previewWithdraw(penaltyAssets) shares mid-multicall.
-    const penaltySharesPerStep = await Promise.all(
+    Promise.all(
       deallocations
         .filter((step) => step.penaltyAssets > BigInt(0))
         .map((step) =>
@@ -698,8 +704,22 @@ export async function planForceWithdrawV2(
             args: [step.penaltyAssets],
           })
         )
-    );
-    const penaltyShares = penaltySharesPerStep.reduce((sum, shares) => sum + shares, BigInt(0));
+    ),
+    publicClient.readContract({
+      address: normalizedVault,
+      abi: VAULT_V2_FORCE_ABI,
+      functionName: 'previewWithdraw',
+      args: [requestedAssets],
+    }) as Promise<bigint>,
+  ]);
+  const penaltyShares = penaltySharesPerStep.reduce((sum, shares) => sum + shares, BigInt(0));
+
+  // Near-max amount: the penalty shares plus the shares for the request exceed the balance, so
+  // `withdraw(requested)` would revert. Redeem everything left after the penalty instead; the
+  // user receives slightly less than typed, shown in the warning as the expected amount.
+  const redeemExit = useRedeemExit || sharesForRequest + penaltyShares > userShares;
+
+  if (redeemExit) {
 
     if (penaltyShares >= userShares) {
       logger.warn('Force redeem exit would burn all shares as penalty; falling back to withdraw', {
@@ -713,6 +733,15 @@ export async function planForceWithdrawV2(
       });
     } else {
       const redeemShares = userShares - penaltyShares;
+      if (!useRedeemExit) {
+        // What the remaining shares are worth after the penalty burn.
+        expectedAssetsOut = (await publicClient.readContract({
+          address: normalizedVault,
+          abi: VAULT_V2_FORCE_ABI,
+          functionName: 'convertToAssets',
+          args: [redeemShares],
+        })) as bigint;
+      }
       const redeemArgs = buildMulticallArgs(deallocations, user, {
         mode: 'redeem',
         shares: redeemShares,
