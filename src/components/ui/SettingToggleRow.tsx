@@ -62,3 +62,46 @@ export function SettingToggleRow({
     </div>
   );
 }
+
+/** Settings row: label, info popover, and a dropdown of options. */
+export function SettingSelectRow<T extends string>({
+  label,
+  info,
+  value,
+  options,
+  onChange,
+  onInfoOpenChange,
+}: {
+  label: string;
+  info: string;
+  value: T;
+  options: ReadonlyArray<{ value: T; label: string }>;
+  onChange: (value: T) => void;
+  onInfoOpenChange?: (open: boolean) => void;
+}) {
+  return (
+    <div className="py-2">
+      <div className="flex items-center justify-between gap-3">
+        <span className="flex min-w-0 items-center gap-2 text-sm text-[var(--foreground)]">
+          <span>{label}</span>
+          <VaultStatPopover ariaLabel={label} align="end" onOpenChange={onInfoOpenChange}>
+            <p className="py-1 text-xs leading-relaxed text-[var(--foreground-secondary)]">{info}</p>
+          </VaultStatPopover>
+        </span>
+        <select
+          aria-label={label}
+          value={value}
+          onClick={(event) => event.stopPropagation()}
+          onChange={(event) => onChange(event.target.value as T)}
+          className="shrink-0 rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-1 text-sm text-[var(--foreground)] focus:outline-none cursor-pointer"
+        >
+          {options.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </div>
+    </div>
+  );
+}
