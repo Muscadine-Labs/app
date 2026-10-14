@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from 'next'
-import { Figtree, Funnel_Display } from 'next/font/google'
+import localFont from 'next/font/local'
 import './globals.css'
 import { AppLayout } from '@/components/layout/AppLayout'
 import { headers } from 'next/headers'
@@ -14,17 +14,15 @@ import DeferredAnalytics from '@/components/DeferredAnalytics'
 
 const appUrl = getAppUrl()
 
-const figtree = Figtree({
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700'],
+// Self-hosted (Figtree latin variable font from Google Fonts, SIL OFL), so the build never
+// downloads fonts: next/font/google fetches at build time and failed on Vercel.
+const figtree = localFont({
+  src: './fonts/Figtree-latin-wght.woff2',
+  weight: '400 700',
+  display: 'swap',
   variable: '--font-figtree',
 })
 
-const funnelDisplay = Funnel_Display({
-  subsets: ['latin'],
-  weight: ['400', '600'],
-  variable: '--font-funnel-display',
-})
 
 export const viewport: Viewport = {
   width: 'device-width',
@@ -78,7 +76,7 @@ export default async function RootLayout({
       <head>
         <meta name="base:app_id" content={BASE_APP_ID} />
       </head>
-      <body className={`${figtree.className} ${funnelDisplay.variable}`}>
+      <body className={figtree.className}>
           <Providers initialState={initialState} initialVaultPrefs={initialVaultPrefs}>
               <PriceProvider>
                 <AppLayout>{children}</AppLayout>
