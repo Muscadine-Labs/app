@@ -6,7 +6,7 @@ import { formatUnits } from 'viem';
 import { useTransactionState } from '@/contexts/TransactionContext';
 import { useWallet } from '@/contexts/WalletContext';
 import { useVaultData } from '@/contexts/VaultDataContext';
-import { BASE_CHAIN_ID } from '@/lib/constants';
+import { BASE_CHAIN_ID, TOKEN_ADDRESSES } from '@/lib/constants';
 import { formatBigIntForInput } from '@/lib/formatter';
 import { ERC20_BALANCE_ABI, ERC4626_ABI } from '@/lib/abis';
 import { getAssetDecimalsForSymbol } from '@/lib/asset-decimals';
@@ -113,9 +113,28 @@ export function useScopedVaultTransaction({
     args: walletAddress ? [walletAddress] : undefined,
     query: { enabled: !!walletAddress },
   });
+  // The wallet's balance of the vault asset, read on chain: deposits never size off an API.
+  const assetTokenAddress = useMemo(() => {
+    const key = Object.keys(TOKEN_ADDRESSES).find(
+      (symbol) => symbol.toLowerCase() === vaultSymbol.toLowerCase()
+    ) as keyof typeof TOKEN_ADDRESSES | undefined;
+    return key ? TOKEN_ADDRESSES[key] : undefined;
+  }, [vaultSymbol]);
+  const { data: onChainAssetBalance, refetch: refetchOnChainAssetBalance } = useReadContract({
+    address: walletAddress && assetTokenAddress ? (assetTokenAddress as `0x${string}`) : undefined,
+    chainId: BASE_CHAIN_ID,
+    abi: ERC20_BALANCE_ABI,
+    functionName: 'balanceOf',
+    args: walletAddress ? [walletAddress] : undefined,
+    query: { enabled: !!walletAddress && !!assetTokenAddress },
+  });
+
+  // Re-read both after every positions refresh (the app refreshes after each transaction).
   useEffect(() => {
-    if (walletAddress) void refetchOnChainShares();
-  }, [walletAddress, morphoHoldings.positions, refetchOnChainShares]);
+    if (!walletAddress) return;
+    void refetchOnChainShares();
+    void refetchOnChainAssetBalance();
+  }, [walletAddress, morphoHoldings.positions, refetchOnChainShares, refetchOnChainAssetBalance]);
 
   const vaultShareBalance =
     onChainShares !== undefined ? onChainShares.toString() : vaultPosition?.shares ?? null;
@@ -281,6 +300,8 @@ export function useScopedVaultTransaction({
     if (!derivedAsset) return null;
 
     if (effectiveActiveTab === 'deposit') {
+      if (onChainAssetBalance !== undefined) return onChainAssetBalance;
+      // Only while the on-chain read loads (or for an asset without a known token address).
       if (isWethVault(vaultAddress, vaultSymbol) || derivedAsset.symbol === 'WETH') {
         return getTokenBalanceRaw('WETH', tokenBalances);
       }
@@ -299,6 +320,7 @@ export function useScopedVaultTransaction({
     vaultAddress,
     vaultSymbol,
     tokenBalances,
+    onChainAssetBalance,
     vaultShareBalanceBn,
     exactAssetAmount,
     isExactAssetAmountPending,

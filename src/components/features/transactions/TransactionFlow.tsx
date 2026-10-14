@@ -1,14 +1,13 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { useWaitForTransactionReceipt, useReadContract, useWalletClient, usePublicClient } from 'wagmi';
+import { useAccount, useWaitForTransactionReceipt, useReadContract, useWalletClient, usePublicClient } from 'wagmi';
 import { parseUnits, type Address, type PublicClient, type WalletClient } from 'viem';
 import { VaultAccount } from '@/types/vault';
 import { useTransactionState } from '@/contexts/TransactionContext';
 import type { TransactionProgressStep } from '@/types/transactions';
 import { isCancellationError, formatTransactionError } from '@/lib/transactionUtils';
 import {
-  fetchInstantLiquidityAssets,
   getMorphoVaultUrl,
   parseTransactionAmount,
   simulateVaultWithdraw,
@@ -18,6 +17,7 @@ import {
   formatPenaltyRatePercent,
   ForceWithdrawShortfallError,
   planForceWithdrawV2,
+  readInstantLiquidityAssets,
   simulateForceWithdrawPlan,
   type ForceWithdrawPlan,
 } from '@/lib/force-withdraw-v2';
@@ -40,7 +40,7 @@ import { VAULT_DEPOSIT_GATES_QUERY_KEY, VaultDepositBlockedError } from '@/lib/v
 import { DEPOSIT_CAPACITY_QUERY_KEY, DepositCapExceededError } from '@/lib/deposit-capacity';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
-import { ERC4626_ABI } from '@/lib/abis';
+import { ERC20_BALANCE_ABI, ERC4626_ABI } from '@/lib/abis';
 
 interface TransactionFlowProps {
   onSuccess?: () => void;
@@ -122,7 +122,22 @@ export function TransactionFlow({
     ) || null;
   }, [fromAccount, morphoHoldings.positions, transactionType]);
 
-  const vaultShareBalance = vaultPosition?.shares || null;
+  // Share balance read on chain for the MAX (redeem) check; wallet state only while it loads.
+  const { address: connectedAddress } = useAccount();
+  const withdrawVaultAddress =
+    transactionType === 'withdraw' && fromAccount?.type === 'vault'
+      ? ((fromAccount as VaultAccount).address as `0x${string}`)
+      : undefined;
+  const { data: onChainShares } = useReadContract({
+    address: withdrawVaultAddress && connectedAddress ? withdrawVaultAddress : undefined,
+    chainId: BASE_CHAIN_ID,
+    abi: ERC20_BALANCE_ABI,
+    functionName: 'balanceOf',
+    args: connectedAddress ? [connectedAddress] : undefined,
+    query: { enabled: !!withdrawVaultAddress && !!connectedAddress },
+  });
+  const vaultShareBalance =
+    onChainShares !== undefined ? onChainShares.toString() : vaultPosition?.shares || null;
   const vaultShareBalanceBn = useMemo((): bigint | null => {
     if (!vaultShareBalance) return null;
     try {
@@ -646,15 +661,13 @@ export function TransactionFlow({
             if (!instantCoversRequest) {
               forcePlanRef.current = forceOk && forcePlan ? forcePlan : null;
 
+              // On-chain only: what the vault can pay right now.
               const instant =
                 forcePlan?.instantLiquidityAssets ??
-                (await fetchInstantLiquidityAssets(vaultAccount.address, BASE_CHAIN_ID)) ??
-                (() => {
-                  const cached = getVaultData(vaultAccount.address);
-                  const raw =
-                    cached?.liquidityBreakdown?.instantLiquidityAssets ?? cached?.liquidityAssets;
-                  return raw ? BigInt(raw) : null;
-                })();
+                (await readInstantLiquidityAssets(
+                  publicClient as PublicClient,
+                  vaultAccount.address as `0x${string}`
+                ));
 
               setLiquidityWarningContext({
                 morphoVaultUrl: getMorphoVaultUrl(BASE_CHAIN_ID, vaultAccount.address),

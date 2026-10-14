@@ -8,12 +8,15 @@ import { resolveAssetDecimals } from '@/lib/asset-decimals';
 import { MORPHO_GRAPHQL_REVALIDATE_SECONDS } from '@/lib/constants';
 import { logger } from '@/lib/logger';
 
-export type VaultAllocationKind = 'market' | 'idle';
+/** `vault`: a fee wrapper's deposit into its underlying Vault V2 (via a MorphoVaultV2Adapter). */
+export type VaultAllocationKind = 'market' | 'idle' | 'vault';
 
 export interface VaultMarketAllocation {
   id: string;
   kind: VaultAllocationKind;
   marketId?: string;
+  /** `vault` rows: the Vault V2 the adapter deposits into. */
+  vaultAddress?: string;
   name: string;
   morphoUrl?: string;
   allocatedUsd: number;
@@ -67,6 +70,20 @@ const MARKET_V1_ADAPTER_SELECTION = `
           }
 `;
 
+const VAULT_V2_ADAPTER_SELECTION = `
+          ... on MorphoVaultV2Adapter {
+            assets
+            assetsUsd
+            innerVault {
+              address
+              name
+              netApy
+              liquidityUsd
+              totalAssetsUsd
+            }
+          }
+`;
+
 const VAULT_ALLOCATIONS_QUERY = `
   query VaultV2Allocations($address: String!, $chainId: Int!) {
     vaultV2ByAddress(address: $address, chainId: $chainId) {
@@ -83,6 +100,7 @@ const VAULT_ALLOCATIONS_QUERY = `
         items {
           __typename
           ${MARKET_V1_ADAPTER_SELECTION}
+          ${VAULT_V2_ADAPTER_SELECTION}
         }
       }
     }
@@ -91,6 +109,16 @@ const VAULT_ALLOCATIONS_QUERY = `
 
 type AdapterItem = {
   __typename?: string;
+  /** MorphoVaultV2Adapter: assets held in the inner vault. */
+  assets?: number | string;
+  assetsUsd?: number | null;
+  innerVault?: {
+    address?: string;
+    name?: string;
+    netApy?: number | null;
+    liquidityUsd?: number | null;
+    totalAssetsUsd?: number | null;
+  } | null;
   positions?: {
     items?: Array<{
       market?: {
@@ -256,6 +284,45 @@ function parseMarketRowsFromAdapters(
   return Array.from(byMarketId.values()).sort((a, b) => b.allocatedUsd - a.allocatedUsd);
 }
 
+function finiteOrNull(value: number | null | undefined): number | null {
+  if (value == null) return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** A fee wrapper's deposit into its underlying vault: one row per MorphoVaultV2Adapter. */
+function parseVaultRowsFromAdapters(
+  items: AdapterItem[],
+  assetSymbol: string,
+  assetDecimals: number
+): VaultMarketAllocation[] {
+  const rows: VaultMarketAllocation[] = [];
+  for (const adapter of items) {
+    if (adapter.__typename !== 'MorphoVaultV2Adapter') continue;
+    const inner = adapter.innerVault;
+    if (!inner?.address) continue;
+
+    const allocatedAssetsRaw = morphoRawAmount(adapter.assets);
+    const allocatedUsd = finiteOrNull(adapter.assetsUsd) ?? 0;
+    if (allocatedUsd <= 0 && !isPositiveRaw(allocatedAssetsRaw)) continue;
+
+    rows.push({
+      id: `vault-${inner.address.toLowerCase()}`,
+      kind: 'vault',
+      vaultAddress: inner.address,
+      name: inner.name ?? inner.address,
+      allocatedUsd,
+      allocatedAssetsRaw,
+      tokenSymbol: assetSymbol,
+      tokenDecimals: assetDecimals,
+      marketSizeUsd: finiteOrNull(inner.totalAssetsUsd),
+      liquidityUsd: finiteOrNull(inner.liquidityUsd),
+      apy: finiteOrNull(inner.netApy),
+    });
+  }
+  return rows.sort((a, b) => b.allocatedUsd - a.allocatedUsd);
+}
+
 export function parseVaultV2AllocationsFromGraphQL(
   vault: VaultAllocationGraphQL,
   chainId: number
@@ -267,6 +334,7 @@ export function parseVaultV2AllocationsFromGraphQL(
 
   const items = vault.adapters?.items ?? [];
   const marketRows = parseMarketRowsFromAdapters(items, chainId, assetSymbol);
+  const vaultRows = parseVaultRowsFromAdapters(items, assetSymbol, assetDecimals);
 
   const idleRow = buildIdleRow({
     id: 'idle',
@@ -277,7 +345,7 @@ export function parseVaultV2AllocationsFromGraphQL(
     idleApy,
   });
 
-  const allocations = [...(idleRow ? [idleRow] : []), ...marketRows];
+  const allocations = [...(idleRow ? [idleRow] : []), ...vaultRows, ...marketRows];
 
   return { allocations };
 }

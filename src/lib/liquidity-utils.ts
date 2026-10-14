@@ -5,7 +5,7 @@ import {
   type WalletClient,
 } from 'viem';
 import { builderWriteOpts } from './builder-code';
-import { BASE_CHAIN_ID, getMorphoChainSlug } from './constants';
+import { getMorphoChainSlug } from './constants';
 import { ERC4626_ABI } from './abis';
 import type { VaultLiquidityBreakdown } from '@/types/vault';
 
@@ -43,37 +43,6 @@ export function resolveTotalUnderlyingLiquidityUsd(
     return breakdown.totalUnderlyingLiquidityUsd;
   }
   return fallbackInstantUsd ?? 0;
-}
-
-export async function fetchInstantLiquidityAssets(
-  vaultAddress: string,
-  chainId: number = BASE_CHAIN_ID
-): Promise<bigint | null> {
-  try {
-    const response = await fetch(
-      `/api/vault/v2/${vaultAddress}/complete?chainId=${chainId}`,
-      { cache: 'no-store' }
-    );
-    if (!response.ok) return null;
-
-    const data = await response.json();
-    const breakdown = data.data?.vaultByAddress?.liquidityBreakdown as
-      | VaultLiquidityBreakdown
-      | undefined;
-
-    if (breakdown?.instantLiquidityAssets) {
-      return BigInt(breakdown.instantLiquidityAssets);
-    }
-
-    const liquidity = data.data?.vaultByAddress?.liquidity;
-    if (liquidity != null) {
-      return BigInt(liquidity);
-    }
-
-    return null;
-  } catch {
-    return null;
-  }
 }
 
 /** Returns true when the withdraw/redeem would likely succeed on-chain. */

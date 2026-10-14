@@ -9,7 +9,8 @@
     "dev": "next dev --turbopack",
     "build": "next build --turbopack",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "vitest run"
   },
   "dependencies": {
     "@base-org/account": "2.5.13",
@@ -38,7 +39,9 @@
     "eslint-config-next": "16.4.0",
     "postcss": "8.5.29",
     "tailwindcss": "4.3.3",
-    "typescript": "6.0.3"
+    "typescript": "6.0.3",
+    "vite": "8.3.4",
+    "vitest": "5.0.4"
   },
   "overrides": {
     "wagmi": "$wagmi",
@@ -61,6 +64,7 @@
   "allowScripts": {
     "@reown/appkit@1.8.24": true,
     "bufferutil@4.1.0": true,
+    "fsevents@2.3.3": true,
     "keccak@3.0.4": true,
     "unrs-resolver@1.12.2": true,
     "utf-8-validate@5.0.10": true

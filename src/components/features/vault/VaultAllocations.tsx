@@ -45,6 +45,7 @@ function formatOptionalUsd(value: number | null): string {
 
 function formatAllocationType(row: VaultMarketAllocation): string {
   if (row.kind === 'idle') return '—';
+  if (row.kind === 'vault') return 'Vault';
   return formatMorphoMarketRateLabel(row.rateType, row.lltv) ?? '—';
 }
 
@@ -69,7 +70,7 @@ function formatCompactRowSummary(
 ): string {
   const parts: string[] = [];
 
-  if (row.kind === 'market') {
+  if (row.kind !== 'idle') {
     const typeLabel = formatAllocationType(row);
     if (typeLabel !== '—') parts.push(typeLabel);
   }
@@ -88,7 +89,42 @@ function formatCompactRowSummary(
   return parts.join(' · ');
 }
 
+/** In-app link when the wallet can open the vault's page, else Muscadine Analytics. */
+function useVaultRowHref(): (vaultAddress: string) => { href: string; internal: boolean } {
+  const { listedVaultAddresses } = useExplorerVaults();
+  const { eligibleVaultAddresses } = useVaultDepositGates();
+  const { morphoHoldings } = useWallet();
+  return (vaultAddress: string) => {
+    const key = vaultAddress.toLowerCase();
+    // Same rule as the vault page's access check: listed, depositable, or held.
+    const pageOpen =
+      !!findVaultByAddress(vaultAddress) &&
+      (listedVaultAddresses.has(key) ||
+        eligibleVaultAddresses.has(key) ||
+        getDepositedVaultAddressSet(morphoHoldings.positions).has(key));
+    return pageOpen
+      ? { href: getVaultRoute(vaultAddress), internal: true }
+      : { href: getVaultAnalyticsUrl(vaultAddress), internal: false };
+  };
+}
+
+const NAME_LINK_CLASS =
+  'font-medium text-[var(--primary)] hover:text-[var(--primary-hover)] hover:underline';
+
 function AllocationMarketName({ row }: { row: VaultMarketAllocation }) {
+  const vaultRowHref = useVaultRowHref();
+  if (row.kind === 'vault' && row.vaultAddress) {
+    const { href, internal } = vaultRowHref(row.vaultAddress);
+    return internal ? (
+      <Link href={href} className={NAME_LINK_CLASS}>
+        {row.name}
+      </Link>
+    ) : (
+      <a href={href} target="_blank" rel="noopener noreferrer" className={NAME_LINK_CLASS}>
+        {row.name}
+      </a>
+    );
+  }
   if (row.kind === 'market' && row.morphoUrl) {
     return (
       <a
@@ -122,7 +158,7 @@ function AllocationMobileCard({
       <AllocationMarketName row={row} />
 
       <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
-        {row.kind === 'market' && (
+        {row.kind !== 'idle' && (
           <div>
             <dt className="text-[var(--foreground-muted)]">Type</dt>
             <dd className="text-[var(--foreground-secondary)] tabular-nums">{formatAllocationType(row)}</dd>
@@ -141,7 +177,9 @@ function AllocationMobileCard({
           <dd className="text-[var(--foreground-secondary)] tabular-nums">{formatOptionalUsd(row.liquidityUsd)}</dd>
         </div>
         <div className="col-span-2">
-          <dt className="text-[var(--foreground-muted)]">Market size</dt>
+          <dt className="text-[var(--foreground-muted)]">
+            {row.kind === 'vault' ? 'Total deposits' : 'Market size'}
+          </dt>
           <dd className="text-[var(--foreground-secondary)] tabular-nums">{formatOptionalUsd(row.marketSizeUsd)}</dd>
         </div>
       </dl>
@@ -173,8 +211,7 @@ export function VaultAllocations({
   const fetchKey = `${vaultData.address}:${vaultData.chainId}`;
 
   useEffect(() => {
-    // A wrapper holds no Blue markets of its own (its capital sits in the underlying vault).
-    if (!active || vaultData.underlyingAddress) return;
+    if (!active) return;
 
     if (cacheRef.current?.key === fetchKey) {
       setAllocations(cacheRef.current.allocations);
@@ -228,22 +265,16 @@ export function VaultAllocations({
     return () => {
       abortController.abort();
     };
-  }, [active, fetchKey, vaultData.address, vaultData.chainId, vaultData.underlyingAddress]);
+  }, [active, fetchKey, vaultData.address, vaultData.chainId]);
 
   const vaultTokenLabel = vaultData.symbol || 'Token';
+  // A wrapper allocates only to its underlying vault: label the columns for a vault.
+  const vaultRowsOnly =
+    allocations.some((row) => row.kind === 'vault') &&
+    allocations.every((row) => row.kind !== 'market');
   const allocatedHeader =
     allocatedValueType === 'usd' ? 'Allocated (USD)' : `Allocated (${vaultTokenLabel})`;
   const analyticsHref = getVaultAnalyticsUrl(vaultData.underlyingAddress ?? vaultData.address);
-  const { listedVaultAddresses } = useExplorerVaults();
-  const { eligibleVaultAddresses } = useVaultDepositGates();
-  const { morphoHoldings } = useWallet();
-  const underlyingKey = vaultData.underlyingAddress?.toLowerCase();
-  // Same rule as the vault page's access check: listed, depositable, or held.
-  const underlyingPageOpen =
-    !!underlyingKey &&
-    (listedVaultAddresses.has(underlyingKey) ||
-      eligibleVaultAddresses.has(underlyingKey) ||
-      getDepositedVaultAddressSet(morphoHoldings.positions).has(underlyingKey));
   const underlyingVault = vaultData.underlyingAddress
     ? findVaultByAddress(vaultData.underlyingAddress)
     : null;
@@ -260,31 +291,12 @@ export function VaultAllocations({
       )}
       {underlyingVault ? (
         <p className="text-xs text-[var(--foreground-secondary)]">
-          This wrapper deposits into{' '}
-          {underlyingPageOpen ? (
-            <Link
-              href={getVaultRoute(underlyingVault.address)}
-              className="text-[var(--primary)] hover:underline"
-            >
-              {underlyingVault.name} ({underlyingVault.vaultSymbol})
-            </Link>
-          ) : (
-            // A wallet that cannot open the underlying's page (gated, not held, not listed)
-            // still gets its allocations on Muscadine Analytics.
-            <a
-              href={getVaultAnalyticsUrl(underlyingVault.address)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-[var(--primary)] hover:underline"
-            >
-              {underlyingVault.name} ({underlyingVault.vaultSymbol})
-            </a>
-          )}
-          . Its market allocations are on that vault&apos;s page.
+          This wrapper deposits into {underlyingVault.name} ({underlyingVault.vaultSymbol}), which
+          allocates to Morpho markets.
         </p>
       ) : null}
 
-      {underlyingVault ? null : loading ? (
+      {loading ? (
         <div className="p-2 space-y-3">
           {[1, 2, 3].map((row) => (
             <Skeleton key={row} width="100%" height="4.5rem" />
@@ -341,13 +353,15 @@ export function VaultAllocations({
             <table className="table-auto text-xs sm:text-sm">
               <thead>
                 <tr className="border-b border-[var(--border-subtle)] text-left text-[10px] sm:text-xs">
-                  <th className={`${MARKET_CELL} ${TH} text-left`}>Market</th>
+                  <th className={`${MARKET_CELL} ${TH} text-left`}>
+                    {vaultRowsOnly ? 'Vault' : 'Market'}
+                  </th>
                   <th className={`${TYPE_CELL} ${TH} text-left hidden min-[40rem]:table-cell`}>Type</th>
                   <th className={`${AMOUNT_CELL} ${TH} hidden min-[40rem]:table-cell`}>{allocatedHeader}</th>
                   <th className={`${METRIC_CELL} ${TH} text-right hidden min-[40rem]:table-cell`}>APY</th>
                   <th className={`${METRIC_CELL} ${TH} text-right hidden md:table-cell`}>Liquidity</th>
                   <th className={`${METRIC_CELL} ${TH} text-right hidden xl:table-cell`}>
-                    Market size
+                    {vaultRowsOnly ? 'Total deposits' : 'Market size'}
                   </th>
                 </tr>
               </thead>
@@ -407,7 +421,7 @@ export function VaultAllocations({
         </>
       )}
 
-      {(underlyingVault || !loading) && (
+      {!loading && (
         <p className="text-[10px] leading-snug text-[var(--foreground-muted)] pt-1 text-center sm:text-right">
           For full allocations and analytics, visit{' '}
           <a

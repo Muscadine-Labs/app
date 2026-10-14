@@ -65,7 +65,7 @@ npm run lint
 
 Never commit real keys. `.env.example` documents placeholders.
 
-`package.json` **`allowScripts`** allowlists native/postinstall scripts for `bufferutil`, `keccak`, `unrs-resolver`, `utf-8-validate`, and `@reown/appkit` (transitive; WalletConnect `ws` + eslint-next resolver + AppKit version check). Keep versions pinned to `package-lock.json`. Local npm 11.4 does not have `npm approve-scripts`; Vercel’s newer npm emits the pending-scripts warning without this field.
+`package.json` **`allowScripts`** allowlists native/postinstall scripts for `bufferutil`, `keccak`, `unrs-resolver`, `utf-8-validate`, `@reown/appkit`, and `fsevents` (transitive; WalletConnect `ws` + eslint-next resolver + AppKit version check + Vite file watching on macOS, dev only). Keep versions pinned to `package-lock.json`. Local npm 11.4 does not have `npm approve-scripts`; Vercel’s newer npm emits the pending-scripts warning without this field.
 
 `package.json` **`overrides`** also pins patched transitive packages GitHub Dependabot flags (`axios`, `hono`, `js-yaml` 4.x, `socket.io-parser`, `brace-expansion` 1.x/5.x, `browserslist` 4.29.3, `decode-uri-component` 0.5.0). Do not drop those pins without checking [Dependabot alerts](https://github.com/Muscadine-Labs/app/security).
 
@@ -180,6 +180,7 @@ All vault writes go through **`src/lib/transactionUtilsV2.ts`**. ERC-4626 ops an
 | Concern | Source |
 |---------|--------|
 | **Your balances (registry vaults)** | On chain: `readRegistryVaultBalances` (`lib/onchain-positions.ts`, `balanceOf` + `convertToAssets` multicalls) merged into `WalletContext.morphoHoldings`, priced with live token prices. Vault page position and the withdraw max also read on chain. |
+| **Deposit / withdraw amounts** | RPC only: deposit MAX is the wallet's on-chain `balanceOf` (Alchemy balances only while it loads); withdraw uses on-chain shares + `convertToAssets`, a simulate, the force planner, and `readInstantLiquidityAssets` (`force-withdraw-v2.ts`) for the warning's instant-liquidity figure. No API data feeds a transaction amount. |
 | **Live Morpho positions** | `/api/user/morpho-positions` → `WalletContext`: profit (`pnl`) and non-registry vaults; registry balances are replaced by the on-chain read |
 | **Liquid balances** | Alchemy + wagmi in `WalletContext` |
 | **Position history (charts)** | `vaultV2PositionByAddress` → `history` via `/api/vault/v2/.../position-history` |
@@ -392,7 +393,7 @@ Whitelisted registry vaults only — unknown / external addresses redirect home.
 
 Chart tabs (order): **APY** → **Total Deposits** → **Share Price** → **Allocations**. **Total Deposits** and **Share Price** support USD / token toggle. Axis labels and tooltips use full values with 2 decimals (`formatCurrency` / `formatAssetAmount`). Stat cards use `formatSmartCurrency`.
 
-**Allocations:** wrappers show only a note linking to their underlying (its vault page when this wallet can open it, otherwise Muscadine Analytics); underlying vaults show a flat Morpho Blue market table (Market / Type / Allocated / APY / Liquidity / Market size). Name and footer link to [Muscadine Analytics](https://analytics.muscadine.xyz/vault/v2/{address}) (`getVaultAnalyticsUrl`). Market names link to Morpho.
+**Allocations:** underlying vaults show a flat Morpho Blue market table (Market / Type / Allocated / APY / Liquidity / Market size). A wrapper shows one **Vault** row for its deposit into the underlying (`MorphoVaultV2Adapter` `assets` in USDC / WETH / cbBTC, with the underlying's APY, liquidity and total deposits from `innerVault`); the row links to the underlying's vault page when this wallet can open it, otherwise Muscadine Analytics. Name and footer link to [Muscadine Analytics](https://analytics.muscadine.xyz/vault/v2/{address}) (`getVaultAnalyticsUrl`). Market names link to Morpho.
 
 ---
 
@@ -603,6 +604,7 @@ UI and send path:
 npm run dev      # Turbopack dev server
 npm run build
 npm run lint
+npm test         # Vitest unit tests (src/**/*.test.ts)
 npm start        # Production server
 ```
 

@@ -790,3 +790,24 @@ export async function simulateForceWithdrawPlan(
 }
 
 export { VAULT_V2_FORCE_ABI };
+
+/**
+ * What a plain withdraw can pay right now, read on chain: idle cash plus what the liquidity
+ * route can pull (for a wrapper, what its adapter can pull from the underlying). Null on failure.
+ */
+export async function readInstantLiquidityAssets(
+  publicClient: PublicClient,
+  vaultAddress: Address
+): Promise<bigint | null> {
+  try {
+    const vault = getAddress(vaultAddress);
+    const wrapper = findWrapperDefinition(vault);
+    if (wrapper?.underlyingAddress) {
+      return await readWrapperInstantAssets(publicClient, vault, getAddress(wrapper.underlyingAddress));
+    }
+    const cash = await readVaultCashLiquidity(publicClient, vault);
+    return cash.idleAssets + cash.routeAssets;
+  } catch {
+    return null;
+  }
+}
