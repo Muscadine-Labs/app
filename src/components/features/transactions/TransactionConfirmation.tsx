@@ -91,6 +91,7 @@ function PartyRow({
   label: string;
   account: Account;
   walletAddress?: string;
+  /** Picks the logo. "ETH + WETH" shows the ETH logo. */
   assetSymbol: string;
   amount: string;
   amountUsd: number;
@@ -104,7 +105,7 @@ function PartyRow({
   return (
     <div className="flex items-center justify-between gap-3">
       <div className="flex items-center gap-3 flex-1 min-w-0">
-        <PartyAvatar symbol={assetSymbol} alt={title} />
+        <PartyAvatar symbol={assetSymbol.includes('+') ? 'ETH' : assetSymbol} alt={title} />
         <div className="flex-1 min-w-0">
           <p className="text-[10px] md:text-xs text-[var(--foreground-secondary)] uppercase tracking-wide">
             {label}
@@ -154,6 +155,8 @@ interface TransactionConfirmationProps {
   toAccount: Account;
   amount: string;
   assetSymbol: string;
+  /** Wallet side when it differs from the vault asset (WETH vaults: ETH, or ETH + WETH). */
+  walletAssetSymbol?: string;
   assetDecimals?: number;
   transactionType: TransactionType | null;
   isLoading: boolean;
@@ -161,6 +164,8 @@ interface TransactionConfirmationProps {
   showProgress?: boolean;
   isSuccess?: boolean;
   isPartialFailure?: boolean;
+  /** Secondary button label after a partial failure (default "Start over"). */
+  partialFailureCancelLabel?: string;
   errorMessage?: string;
   txHash?: string | null;
   onCancel: () => void;
@@ -176,6 +181,7 @@ export function TransactionConfirmation({
   toAccount,
   amount,
   assetSymbol,
+  walletAssetSymbol,
   assetDecimals,
   transactionType,
   isLoading,
@@ -183,6 +189,7 @@ export function TransactionConfirmation({
   showProgress = false,
   isSuccess = false,
   isPartialFailure = false,
+  partialFailureCancelLabel = 'Start over',
   errorMessage,
   txHash,
   onCancel,
@@ -255,6 +262,12 @@ export function TransactionConfirmation({
 
   const formattedAmount = formatAmount();
   const amountUsd = amountUsdValue(amount, assetSymbol, btcPrice, ethPrice);
+  const walletSymbol = walletAssetSymbol ?? assetSymbol;
+  const walletFormattedAmount =
+    walletSymbol === assetSymbol
+      ? formattedAmount
+      : formatAssetBalance(amount || '0', walletSymbol, assetDecimals, true);
+  const fromIsWallet = fromAccount.type === 'wallet';
 
   // Get current date for transaction details
   const getCurrentDate = () => {
@@ -289,8 +302,8 @@ export function TransactionConfirmation({
         label="From"
         account={fromAccount}
         walletAddress={address}
-        assetSymbol={assetSymbol}
-        amount={formattedAmount}
+        assetSymbol={fromIsWallet ? walletSymbol : assetSymbol}
+        amount={fromIsWallet ? walletFormattedAmount : formattedAmount}
         amountUsd={amountUsd}
         amountTone="debit"
         onCopy={handleCopyValue}
@@ -316,8 +329,8 @@ export function TransactionConfirmation({
         label="To"
         account={toAccount}
         walletAddress={address}
-        assetSymbol={assetSymbol}
-        amount={formattedAmount}
+        assetSymbol={fromIsWallet ? assetSymbol : walletSymbol}
+        amount={fromIsWallet ? formattedAmount : walletFormattedAmount}
         amountUsd={amountUsd}
         amountTone="credit"
         onCopy={handleCopyValue}
@@ -486,7 +499,7 @@ export function TransactionConfirmation({
               fullWidth
               className="min-h-11 touch-manipulation"
             >
-              {isPartialFailure ? 'Start over' : 'Cancel'}
+              {isPartialFailure ? partialFailureCancelLabel : 'Cancel'}
             </Button>
             <Button
               onClick={onConfirm}

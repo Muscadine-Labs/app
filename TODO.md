@@ -1,6 +1,5 @@
 **To Work on Today:**
 
-- see if we should add morpho bundler contracts for eth deposits / withdraws.
 - when a wallet is not connected, still show the vaults on the vault list.
 
 **To work on another day:**

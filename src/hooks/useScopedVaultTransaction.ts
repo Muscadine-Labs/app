@@ -1,7 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useAccount, useReadContract } from 'wagmi';
+import { useQuery } from '@tanstack/react-query';
+import { useAccount, useBalance, usePublicClient, useReadContract } from 'wagmi';
 import { formatUnits } from 'viem';
 import { useTransactionState } from '@/contexts/TransactionContext';
 import { useWallet } from '@/contexts/WalletContext';
@@ -17,6 +18,11 @@ import {
   isWethVault,
 } from '@/lib/transaction-form-utils';
 import { useVaultDepositCapacity } from '@/hooks/useVaultDepositCapacity';
+import {
+  canReceiveWethUnwrap,
+  maxDepositForFunding,
+  type DepositFunding,
+} from '@/lib/native-eth';
 import type { VaultAccount, WalletAccount } from '@/types/vault';
 
 export type VaultTransactionTab = 'deposit' | 'withdraw';
@@ -81,12 +87,15 @@ export function useScopedVaultTransaction({
     amount,
     status,
     derivedAsset,
+    preferredAsset,
     setFromAccount,
     setToAccount,
     setAmount,
     setStatus,
+    setPreferredAsset,
     reset,
   } = useTransactionState();
+  const wethVault = isWethVault(vaultAddress, vaultSymbol);
 
   const [activeTab, setActiveTab] = useState<VaultTransactionTab>(initialTab);
   /** Amount the Deposit click lowered to the cap. Cleared once the user edits the amount. */
@@ -129,12 +138,38 @@ export function useScopedVaultTransaction({
     query: { enabled: !!walletAddress && !!assetTokenAddress },
   });
 
-  // Re-read both after every positions refresh (the app refreshes after each transaction).
+  // Native ETH, for ETH and ETH + WETH deposits into a WETH vault.
+  const { data: onChainEthBalance, refetch: refetchOnChainEthBalance } = useBalance({
+    address: walletAddress,
+    chainId: BASE_CHAIN_ID,
+    query: { enabled: !!walletAddress && wethVault },
+  });
+
+  // Smart wallets cannot receive WETH's unwrap (2300-gas transfer): withdraw as ETH is hidden
+  // for them. `null` (read failed) keeps the option; the send path checks again.
+  const publicClient = usePublicClient({ chainId: BASE_CHAIN_ID });
+  const { data: canUnwrapToEth } = useQuery({
+    queryKey: ['weth-unwrap-receiver', walletAddress],
+    queryFn: () => canReceiveWethUnwrap(publicClient!, walletAddress!),
+    enabled: !!publicClient && !!walletAddress && wethVault,
+    staleTime: 5 * 60_000,
+  });
+  const ethExitUnavailable = canUnwrapToEth === false;
+
+  // Re-read after every positions refresh (the app refreshes after each transaction).
   useEffect(() => {
     if (!walletAddress) return;
     void refetchOnChainShares();
     void refetchOnChainAssetBalance();
-  }, [walletAddress, morphoHoldings.positions, refetchOnChainShares, refetchOnChainAssetBalance]);
+    if (wethVault) void refetchOnChainEthBalance();
+  }, [
+    walletAddress,
+    wethVault,
+    morphoHoldings.positions,
+    refetchOnChainShares,
+    refetchOnChainAssetBalance,
+    refetchOnChainEthBalance,
+  ]);
 
   const vaultShareBalance =
     onChainShares !== undefined ? onChainShares.toString() : vaultPosition?.shares ?? null;
@@ -165,6 +200,12 @@ export function useScopedVaultTransaction({
     }
     return activeTab;
   }, [status, fromAccount, toAccount, activeTab]);
+
+  useEffect(() => {
+    if (ethExitUnavailable && effectiveActiveTab === 'withdraw' && preferredAsset === 'ETH') {
+      setPreferredAsset('WETH');
+    }
+  }, [ethExitUnavailable, effectiveActiveTab, preferredAsset, setPreferredAsset]);
 
   const { capRaw: depositCapRaw, readCapForSubmit } = useVaultDepositCapacity(
     vaultAddress,
@@ -255,6 +296,7 @@ export function useScopedVaultTransaction({
       setActiveTab(tab);
       setAmount('');
       setDepositCapAppliedRaw(null);
+      setPreferredAsset('WETH');
       applyTabAccounts(tab);
     },
     [
@@ -263,8 +305,19 @@ export function useScopedVaultTransaction({
       fromAccount,
       toAccount,
       setAmount,
+      setPreferredAsset,
       applyTabAccounts,
     ]
+  );
+
+  /** WETH vaults: pick WETH / ETH / ETH + WETH (deposit) or WETH / ETH (withdraw). */
+  const handlePreferredAssetChange = useCallback(
+    (asset: DepositFunding) => {
+      if (status !== 'idle' || !wethVault) return;
+      setDepositCapAppliedRaw(null);
+      setPreferredAsset(asset);
+    },
+    [status, wethVault, setPreferredAsset]
   );
 
   const { data: exactAssetAmount, isPending: isExactAssetAmountPending } = useReadContract({
@@ -300,9 +353,15 @@ export function useScopedVaultTransaction({
     if (!derivedAsset) return null;
 
     if (effectiveActiveTab === 'deposit') {
+      if (wethVault) {
+        // On-chain reads; wallet state only while they load.
+        const weth = onChainAssetBalance ?? getTokenBalanceRaw('WETH', tokenBalances);
+        const eth = onChainEthBalance?.value ?? getTokenBalanceRaw('ETH', tokenBalances);
+        return maxDepositForFunding(preferredAsset, weth, eth);
+      }
       if (onChainAssetBalance !== undefined) return onChainAssetBalance;
       // Only while the on-chain read loads (or for an asset without a known token address).
-      if (isWethVault(vaultAddress, vaultSymbol) || derivedAsset.symbol === 'WETH') {
+      if (derivedAsset.symbol === 'WETH') {
         return getTokenBalanceRaw('WETH', tokenBalances);
       }
       return getTokenBalanceRaw(derivedAsset.symbol, tokenBalances);
@@ -317,10 +376,11 @@ export function useScopedVaultTransaction({
   }, [
     derivedAsset,
     effectiveActiveTab,
-    vaultAddress,
-    vaultSymbol,
+    wethVault,
+    preferredAsset,
     tokenBalances,
     onChainAssetBalance,
+    onChainEthBalance,
     vaultShareBalanceBn,
     exactAssetAmount,
     isExactAssetAmountPending,
@@ -525,5 +585,9 @@ export function useScopedVaultTransaction({
     isWithdrawMaxLoading,
     vaultAddress,
     vaultSymbol,
+    isWethVault: wethVault,
+    ethExitUnavailable,
+    preferredAsset,
+    handlePreferredAssetChange,
   };
 }
