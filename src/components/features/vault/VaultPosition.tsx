@@ -38,6 +38,7 @@ import { VaultTransactPanel } from './VaultTransactPanel';
 import { resolveAssetDecimals } from '@/lib/asset-decimals';
 import { BASE_CHAIN_ID } from '@/lib/constants';
 import { getPairedVaultAddress } from '@/lib/vaults';
+import { useVaultDataFetch } from '@/hooks/useVaultDataFetch';
 import { mergeVaultPositionSeries } from '@/lib/portfolio-utils';
 import type { Transaction } from '@/types/api';
 import type { VaultTransactionTab } from '@/hooks/useScopedVaultTransaction';
@@ -157,6 +158,8 @@ export default function VaultPosition({
     () => (pairedVaultAddress ? findVaultByAddress(pairedVaultAddress) : null),
     [pairedVaultAddress]
   );
+  // The pair's APY, so future earnings project its share of a combined position at its own rate.
+  const { vaultData: pairVaultData } = useVaultDataFetch(pairVault);
 
   const { data: sharesRaw } = useReadContract({
     address: address ? vaultData.address as `0x${string}` : undefined,
@@ -778,37 +781,6 @@ export default function VaultPosition({
   }, [selectedTimeFrame, chartData]);
   
 
-  // Combined earned interest, split by contract, once the pair contract has earned anything.
-  const earnedSplit = useMemo(() => {
-    if (!showCombined || !pairedVaultAddress || !isConnected) return null;
-    if (pageEarnedInterest.isLoading || pairEarnedInterest.isLoading) return null;
-    if (pageEarnedInterest.error || pairEarnedInterest.error) return null;
-    const toBig = (raw: string) => {
-      try {
-        return BigInt(raw || '0');
-      } catch {
-        return BigInt(0);
-      }
-    };
-    const pageRaw = toBig(pageEarnedInterest.earnedInterestRaw);
-    const pairRaw = toBig(pairEarnedInterest.earnedInterestRaw);
-    if (pairRaw <= BigInt(0)) return null;
-    const pageLabel = vaultData.kind === 'wrapper' ? 'Wrapper' : 'Underlying';
-    const format = (raw: bigint) =>
-      formatVaultDetailTokenAmount(raw.toString(), interestDecimals, vaultData.symbol);
-    return `${pageLabel} ${format(pageRaw)} · ${pairKindLabel} ${format(pairRaw)}`;
-  }, [
-    showCombined,
-    pairedVaultAddress,
-    isConnected,
-    pageEarnedInterest,
-    pairEarnedInterest,
-    vaultData.kind,
-    vaultData.symbol,
-    interestDecimals,
-    pairKindLabel,
-  ]);
-
   const formatChartValue = useCallback(
     (value: number) => {
       if (valueType === 'usd') {
@@ -908,11 +880,6 @@ export default function VaultPosition({
               isConnected={isConnected}
               isLoading={earnedInterest.isLoading}
             />
-            {earnedSplit ? (
-              <p className="text-[10px] text-right text-[var(--foreground-muted)] tabular-nums">
-                {earnedSplit}
-              </p>
-            ) : null}
           </div>
         </div>
       }
@@ -935,6 +902,8 @@ export default function VaultPosition({
           activityLoading={activityLoading}
           activityError={activityError}
           canDeposit={canDeposit}
+          pairAssetsRaw={showCombined ? pairAssets : undefined}
+          pairApy={showCombined ? pairVaultData?.apy : undefined}
         />
       }
     >

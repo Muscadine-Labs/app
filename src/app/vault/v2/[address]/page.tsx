@@ -18,7 +18,6 @@ import { useVaultDataFetch } from '@/hooks/useVaultDataFetch';
 import { useVaultDepositGates } from '@/hooks/useVaultDepositGates';
 import { useWallet } from '@/contexts/WalletContext';
 import VaultHero from '@/components/features/vault/VaultHero';
-import { VaultPairSwitch } from '@/components/features/vault/VaultPairSwitch';
 import VaultTabs from '@/components/features/vault/VaultTabs';
 import VaultHistory from '@/components/features/vault/VaultHistory';
 import { Button } from '@/components/ui';
@@ -242,9 +241,8 @@ export default function VaultV2Page() {
 
   return (
     <div className={pageShellClassName}>
-      <div className="flex-shrink-0 mb-5 flex flex-col gap-3 min-[640px]:flex-row min-[640px]:items-end min-[640px]:justify-between">
+      <div className="flex-shrink-0 mb-5">
         <VaultHero vaultData={vaultData} />
-        <VaultPairSwitch vaultData={vaultData} disabled={transactBusy} />
       </div>
 
       <div className="flex flex-col w-full mx-auto">

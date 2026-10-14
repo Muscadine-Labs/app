@@ -144,10 +144,10 @@ Fee wrappers (`kind: 'wrapper'`, `underlyingAddress` = the vault above they depo
 
 - **Lists** (`/vaults` and dashboard Your Vaults, `VaultExplorerTable`): `groupVaultFamilies` in `vault-utils.ts` groups listed vaults. A family with both contracts listed is a parent row (chevron) with the two vaults as indented child rows, like Morpho's market families. The parent shows the combined position and profit, the underlying's deposits / TVL / liquidity (it already holds the wrapper's funds, so adding the wrapper would double count) and the APY range of both. Children show each contract alone and carry the **Wrapper** / **Underlying** labels (`VaultKindMark`, `selectVaultKindMarkAddresses`). A family starts expanded when the wallet holds both contracts; a tap toggles it. Dashboard families sort by combined USD. A single listed contract is a plain row.
 - **Profit carry:** a row whose pair contract has no shares left adds that contract's lifetime profit (`closedPairEarnedPnl`), so a move to the wrapper and back keeps all interest on the row.
-- **Vault page My Position** (`VaultPosition.tsx`): holding one contract (or none) shows the pair as one position, so a user who went underlying → wrapper → underlying sees no gap. Holding both shows this vault, with a **This vault | Combined** toggle. Combined view: summed on-chain balance, merged chart (`mergeVaultPositionSeries` in `portfolio-utils.ts`), summed earned interest with a per-contract split line, a shaded chart band where funds sat in the other contract, and a note linking to it (withdraws act on the page's own contract).
+- **Vault page My Position** (`VaultPosition.tsx`): holding one contract (or none) shows the pair as one position, so a user who went underlying → wrapper → underlying sees no gap. Holding both shows this vault, with a **This vault | Combined** toggle. Combined view: summed on-chain balance, merged chart (`mergeVaultPositionSeries` in `portfolio-utils.ts`), summed earned interest (no per-contract split), a shaded chart band where funds sat in the other contract, and a note linking to it (withdraws act on the page's own contract). Future rewards project each side at its own APY (`pairAssetsRaw` / `pairApy` on `VaultTransactPanel`).
 - **History tab:** your activity always merges both contracts; rows get a Wrapper / Underlying tag when the other contract has activity.
 - **Dashboard chart** always merges each pair.
-- **Header switch:** `VaultPairSwitch` shows **Underlying | Wrapper** and links to the other contract, only when the wallet can deposit into or holds that contract; inert while a transaction is in progress.
+- **No header switch** between the pair on vault pages; the other contract is reached from the explorer, the dashboard family rows, or the combined-view note.
 
 **Vault page access** (`resolveVaultPageAccess` in `vault-access.ts`) allows a vault the wallet can deposit into, holds, or that the explorer lists for it (`listedVaultAddresses`, so a view-only pair default opens with deposit disabled). It also reads the wallet's share balance on chain, so a holder reaches the page even when the Morpho positions API fails or lags. Once allowed, the page stays open for that wallet so a full withdraw does not redirect away mid-success.
 
@@ -159,7 +159,7 @@ Fee wrappers (`kind: 'wrapper'`, `underlyingAddress` = the vault above they depo
 | `wrappers` | The wrapper |
 | `all` | Both contracts |
 
-The `/vaults` **Advanced** filter sets `kindMode`: **Recommended**, **Switch to Wrapper Vaults**, **Show All Vaults**. A listed vault the wallet cannot deposit into gets an **Approved wallets only** pill; that needs a successful read saying no (`blockedVaultAddresses` from `useVaultDepositGates`, `resolveDepositBlocked`), so a failed gate read never shows it.
+The `/vaults` **Advanced** filter is a panel of switches with info icons (like Morpho's): **Switch to Wrapper Vaults** and **Show All Vaults**. Turning one on turns the other off; both off is `recommended`. A listed vault the wallet cannot deposit into gets an **Approved wallets only** pill; that needs a successful read saying no (`blockedVaultAddresses` from `useVaultDepositGates`, `resolveDepositBlocked`), so a failed gate read never shows it.
 
 Explorer filters default to **All** (network, strategy, asset). **No v1/v2 version filter** (v1 removed). There is no developer/over-balance bypass mode.
 
@@ -374,7 +374,7 @@ Adaptive layout (content-sized panels; empty sections omitted):
 | Network | All, Base | Default **All**; `base` filters `chainId === 8453` |
 | Strategy | All, Prime, Frontier | Default **All** (shows Prime + Frontier) |
 | Asset | All, USDC, cbBTC, WETH | Local filter state. |
-| Advanced | Recommended, Switch to Wrapper Vaults, Show All Vaults | Sets `kindMode` (see Vault registry). Session only. |
+| Advanced | Switches: Switch to Wrapper Vaults, Show All Vaults | Sets `kindMode` (both off = recommended; see Vault registry). Session only. |
 | Scope | Deposits + whitelisted, In wallet, **Whitelisted** | Default **Deposits + whitelisted**. Wallet modes can list external deposits as **External** (not clickable). |
 
 **Table columns** (`VaultExplorerTable.tsx`): Vault, **Your Position**, **Earned Interest**, **APY / TVL** (compact layout). **Whitelisted** rows navigate to `/vault/v2/{address}`; external rows are display-only.

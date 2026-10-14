@@ -238,33 +238,66 @@ function WalletFilterControl({
   );
 }
 
-const KIND_MODE_OPTIONS: Array<{
-  value: VaultKindMode;
+const ADVANCED_TOGGLES: Array<{
+  mode: Exclude<VaultKindMode, 'recommended'>;
   label: string;
-  short: string;
-  description: string;
+  info: string;
 }> = [
   {
-    value: 'recommended',
-    label: 'Recommended',
-    short: 'Recommended',
-    description: 'The vault you can deposit into for each asset',
-  },
-  {
-    value: 'wrappers',
+    mode: 'wrappers',
     label: 'Switch to Wrapper Vaults',
-    short: 'Wrappers',
-    description: 'Fee wrappers that deposit into the underlying vaults',
+    info: 'List the fee wrapper of each vault instead of the vault you can deposit into. Wrappers deposit into the underlying vaults and charge a performance fee.',
   },
   {
-    value: 'all',
+    mode: 'all',
     label: 'Show All Vaults',
-    short: 'All vaults',
-    description: 'Every wrapper and underlying vault',
+    info: 'List every wrapper and underlying vault, grouped by vault. Vaults your wallet cannot deposit into are marked.',
   },
 ];
 
-/** Advanced: which contracts of each wrapper / underlying pair the list shows. */
+function InfoIcon({ text }: { text: string }) {
+  return (
+    <span
+      title={text}
+      aria-label={text}
+      role="img"
+      className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-[var(--foreground-muted)] text-[10px] font-semibold leading-none text-[var(--foreground-muted)] cursor-help"
+    >
+      i
+    </span>
+  );
+}
+
+function Switch({
+  checked,
+  onChange,
+  label,
+}: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      onClick={() => onChange(!checked)}
+      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors cursor-pointer ${
+        checked ? 'bg-[var(--primary)]' : 'bg-[var(--surface-hover)] border border-[var(--border)]'
+      }`}
+    >
+      <span
+        className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${
+          checked ? 'translate-x-[22px]' : 'translate-x-0.5'
+        }`}
+      />
+    </button>
+  );
+}
+
+/** Advanced: which contracts of each wrapper / underlying pair the list shows, as switches. */
 function AdvancedFilterControl({
   value,
   onChange,
@@ -274,8 +307,7 @@ function AdvancedFilterControl({
 }) {
   const [open, setOpen] = useState(false);
   const isActive = value !== 'recommended';
-  const selected =
-    KIND_MODE_OPTIONS.find((option) => option.value === value) ?? KIND_MODE_OPTIONS[0];
+  const activeLabel = value === 'wrappers' ? 'Wrappers' : value === 'all' ? 'All vaults' : null;
 
   const { refs, floatingStyles, context } = useFloating({
     open,
@@ -287,7 +319,7 @@ function AdvancedFilterControl({
 
   const click = useClick(context);
   const dismiss = useDismiss(context);
-  const role = useRole(context, { role: 'menu' });
+  const role = useRole(context, { role: 'dialog' });
   const { getReferenceProps, getFloatingProps } = useInteractions([click, dismiss, role]);
 
   return (
@@ -303,7 +335,7 @@ function AdvancedFilterControl({
         }`}
       >
         <span className={isActive ? '' : 'text-[var(--foreground-secondary)]'}>Advanced</span>
-        {isActive ? <span className="whitespace-nowrap">{selected.short}</span> : null}
+        {activeLabel ? <span className="whitespace-nowrap">{activeLabel}</span> : null}
         <svg
           className={`w-3 h-3 transition-transform ${open ? 'rotate-180' : ''} ${
             isActive ? '' : 'text-[var(--foreground-secondary)]'
@@ -323,37 +355,23 @@ function AdvancedFilterControl({
             ref={refs.setFloating}
             style={floatingStyles}
             {...getFloatingProps()}
-            className="z-[9999] w-60 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] py-1 shadow-lg"
+            className="z-[9999] w-72 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-2 shadow-lg"
           >
-            {KIND_MODE_OPTIONS.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                role="menuitemradio"
-                aria-checked={option.value === value}
-                onClick={() => {
-                  onChange(option.value);
-                  setOpen(false);
-                }}
-                className={`w-full px-3 py-2 text-left transition-colors cursor-pointer ${
-                  option.value === value
-                    ? 'bg-[var(--primary-subtle)]'
-                    : 'hover:bg-[var(--surface-hover)]'
-                }`}
+            {ADVANCED_TOGGLES.map((toggle) => (
+              <div
+                key={toggle.mode}
+                className="flex items-center justify-between gap-3 rounded-lg px-2 py-2.5"
               >
-                <span
-                  className={`block text-xs font-medium ${
-                    option.value === value
-                      ? 'text-[var(--primary)]'
-                      : 'text-[var(--foreground)]'
-                  }`}
-                >
-                  {option.label}
+                <span className="flex min-w-0 items-center gap-2 text-sm text-[var(--foreground)]">
+                  <span>{toggle.label}</span>
+                  <InfoIcon text={toggle.info} />
                 </span>
-                <span className="block text-[10px] text-[var(--foreground-muted)] mt-0.5">
-                  {option.description}
-                </span>
-              </button>
+                <Switch
+                  label={toggle.label}
+                  checked={value === toggle.mode}
+                  onChange={(checked) => onChange(checked ? toggle.mode : 'recommended')}
+                />
+              </div>
             ))}
           </div>
         </FloatingPortal>

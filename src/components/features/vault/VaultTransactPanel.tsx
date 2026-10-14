@@ -43,6 +43,12 @@ interface VaultTransactPanelProps {
   activityLoading: boolean;
   activityError: boolean;
   canDeposit: boolean;
+  /**
+   * Part of `currentAssetsRaw` held in the paired wrapper / underlying (combined view), with
+   * that contract's APY, so future earnings project each side at its own rate.
+   */
+  pairAssetsRaw?: bigint;
+  pairApy?: number;
 }
 
 function amountUsdValue(
@@ -99,6 +105,8 @@ export function VaultTransactPanel({
   activityLoading,
   activityError,
   canDeposit,
+  pairAssetsRaw,
+  pairApy,
 }: VaultTransactPanelProps) {
   const { btc: btcPrice, eth: ethPrice } = usePrices();
   const [rewardsModeOverride, setRewardsModeOverride] = useState<RewardsMode | null>(
@@ -193,14 +201,33 @@ export function VaultTransactPanel({
         projectedAssets = BigInt(0);
       }
     }
+    // Deposits and withdraws act on this vault; the pair's share keeps its own APY.
+    const pairPart =
+      pairAssetsRaw !== undefined && pairApy !== undefined && pairAssetsRaw > BigInt(0)
+        ? pairAssetsRaw < projectedAssets
+          ? pairAssetsRaw
+          : projectedAssets
+        : BigInt(0);
+    const pageRows = buildProjectedEarningsRows({
+      currentAssetsRaw: projectedAssets - pairPart,
+      netApy: vaultData.apy,
+      decimals: positionDecimals,
+      assetPriceUsd,
+    });
+    if (pairPart === BigInt(0)) return { typedRaw, rows: pageRows };
+    const pairRows = buildProjectedEarningsRows({
+      currentAssetsRaw: pairPart,
+      netApy: pairApy ?? 0,
+      decimals: positionDecimals,
+      assetPriceUsd,
+    });
     return {
       typedRaw,
-      rows: buildProjectedEarningsRows({
-        currentAssetsRaw: projectedAssets,
-        netApy: vaultData.apy,
-        decimals: positionDecimals,
-        assetPriceUsd,
-      }),
+      rows: pageRows.map((row, i) => ({
+        ...row,
+        raw: row.raw + pairRows[i].raw,
+        usd: row.usd + pairRows[i].usd,
+      })),
     };
   }, [
     assetPriceUsd,
@@ -210,6 +237,8 @@ export function VaultTransactPanel({
     tx.derivedAsset?.decimals,
     tx.effectiveActiveTab,
     vaultData.apy,
+    pairAssetsRaw,
+    pairApy,
   ]);
   const futureRows = futureProjection.rows;
   const includesTypedAmount = futureProjection.typedRaw > BigInt(0);
