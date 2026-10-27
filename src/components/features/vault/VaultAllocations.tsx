@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { MorphoVaultData } from '@/types/vault';
 import type { VaultMarketAllocation } from '@/lib/vault-v2-allocations';
@@ -8,9 +8,10 @@ import { formatMorphoMarketRateLabel } from '@/lib/morpho-market-url';
 import {
   findVaultByAddress,
   getDepositedVaultAddressSet,
-  getVaultAnalyticsUrl,
   getVaultRoute,
 } from '@/lib/vault-utils';
+import { getMorphoVaultUrl } from '@/lib/liquidity-utils';
+import { BASE_CHAIN_ID } from '@/lib/constants';
 import { useExplorerVaults } from '@/contexts/ExplorerVaultsContext';
 import { useVaultDepositGates } from '@/hooks/useVaultDepositGates';
 import { useWallet } from '@/contexts/WalletContext';
@@ -21,14 +22,13 @@ import {
   formatPositionUsd,
 } from '@/lib/formatter';
 import { Skeleton } from '@/components/ui/Skeleton';
-import { logger } from '@/lib/logger';
 
 interface VaultAllocationsProps {
   vaultData: MorphoVaultData;
-  /** Hide section title when rendered inside Overview tab bar. */
-  embedded?: boolean;
-  /** When false, skip fetch (parent keeps component mounted but hidden). */
-  active?: boolean;
+  /** From `useVaultAllocations` (shared with the Overview exposure figures). */
+  allocations: VaultMarketAllocation[];
+  loading: boolean;
+  error: string | null;
 }
 
 type AllocatedValueType = 'usd' | 'token';
@@ -89,7 +89,7 @@ function formatCompactRowSummary(
   return parts.join(' · ');
 }
 
-/** In-app link when the wallet can open the vault's page, else Muscadine Analytics. */
+/** In-app link when the wallet can open the vault's page, else the vault on Morpho. */
 function useVaultRowHref(): (vaultAddress: string) => { href: string; internal: boolean } {
   const { listedVaultAddresses } = useExplorerVaults();
   const { eligibleVaultAddresses } = useVaultDepositGates();
@@ -104,7 +104,7 @@ function useVaultRowHref(): (vaultAddress: string) => { href: string; internal: 
         getDepositedVaultAddressSet(morphoHoldings.positions).has(key));
     return pageOpen
       ? { href: getVaultRoute(vaultAddress), internal: true }
-      : { href: getVaultAnalyticsUrl(vaultAddress), internal: false };
+      : { href: getMorphoVaultUrl(BASE_CHAIN_ID, vaultAddress), internal: false };
   };
 }
 
@@ -199,73 +199,11 @@ const TH = 'font-medium text-[var(--foreground-secondary)]';
 
 export function VaultAllocations({
   vaultData,
-  embedded = false,
-  active = true,
+  allocations,
+  loading,
+  error,
 }: VaultAllocationsProps) {
-  const [allocations, setAllocations] = useState<VaultMarketAllocation[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [allocatedValueType, setAllocatedValueType] = useState<AllocatedValueType>('token');
-  const cacheRef = useRef<{ key: string; allocations: VaultMarketAllocation[] } | null>(null);
-
-  const fetchKey = `${vaultData.address}:${vaultData.chainId}`;
-
-  useEffect(() => {
-    if (!active) return;
-
-    if (cacheRef.current?.key === fetchKey) {
-      setAllocations(cacheRef.current.allocations);
-      setLoading(false);
-      setError(null);
-      return;
-    }
-
-    const abortController = new AbortController();
-
-    const load = async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const response = await fetch(
-          `/api/vault/v2/${vaultData.address}/allocations?chainId=${vaultData.chainId}`,
-          { signal: abortController.signal }
-        );
-        const data = await response.json();
-
-        if (abortController.signal.aborted) return;
-
-        if (!response.ok && response.status !== 503) {
-          throw new Error(data.details || data.error || 'Failed to load allocations');
-        }
-
-        const rows = Array.isArray(data.allocations) ? data.allocations : [];
-        cacheRef.current = { key: fetchKey, allocations: rows };
-        setAllocations(rows);
-        if (data.error && rows.length === 0) {
-          setError(data.error);
-        } else {
-          setError(null);
-        }
-      } catch (err) {
-        if (err instanceof Error && err.name === 'AbortError') return;
-        logger.warn('Vault allocations fetch failed', {
-          vaultAddress: vaultData.address,
-          error: err instanceof Error ? err.message : String(err),
-        });
-        setAllocations([]);
-        setError('Failed to load allocations');
-      } finally {
-        if (!abortController.signal.aborted) {
-          setLoading(false);
-        }
-      }
-    };
-
-    void load();
-    return () => {
-      abortController.abort();
-    };
-  }, [active, fetchKey, vaultData.address, vaultData.chainId]);
 
   const vaultTokenLabel = vaultData.symbol || 'Token';
   // A wrapper allocates only to its underlying vault: label the columns for a vault.
@@ -274,21 +212,12 @@ export function VaultAllocations({
     allocations.every((row) => row.kind !== 'market');
   const allocatedHeader =
     allocatedValueType === 'usd' ? 'Allocated (USD)' : `Allocated (${vaultTokenLabel})`;
-  const analyticsHref = getVaultAnalyticsUrl(vaultData.underlyingAddress ?? vaultData.address);
   const underlyingVault = vaultData.underlyingAddress
     ? findVaultByAddress(vaultData.underlyingAddress)
     : null;
 
   return (
-    <div className="space-y-3 min-h-[10rem]">
-      {!embedded && (
-        <div>
-          <h3 className="text-base font-semibold text-[var(--foreground)]">Allocations</h3>
-          <p className="text-xs text-[var(--foreground-muted)] mt-0.5">
-            Vault capital deployed to Morpho markets and idle liquidity
-          </p>
-        </div>
-      )}
+    <div className="space-y-3">
       {underlyingVault ? (
         <p className="text-xs text-[var(--foreground-secondary)]">
           This wrapper deposits into {underlyingVault.name} ({underlyingVault.vaultSymbol}), which
@@ -421,20 +350,6 @@ export function VaultAllocations({
         </>
       )}
 
-      {!loading && (
-        <p className="text-[10px] leading-snug text-[var(--foreground-muted)] pt-1 text-center sm:text-right">
-          For full allocations and analytics, visit{' '}
-          <a
-            href={analyticsHref}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-[var(--primary)] hover:text-[var(--primary-hover)] hover:underline"
-          >
-            Muscadine Analytics
-          </a>
-          .
-        </p>
-      )}
     </div>
   );
 }

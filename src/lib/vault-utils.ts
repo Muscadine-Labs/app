@@ -341,13 +341,6 @@ export function getVaultRoute(address: string): string {
   return `/vault/v2/${address}`;
 }
 
-export const MUSCADINE_ANALYTICS_ORIGIN = 'https://analytics.muscadine.xyz';
-
-/** Muscadine Analytics vault page (markets, TVL, allocations). */
-export function getVaultAnalyticsUrl(address: string): string {
-  return `${MUSCADINE_ANALYTICS_ORIGIN}/vault/v2/${address}`;
-}
-
 export function isValidEthereumAddress(address: string): boolean {
   return /^0x[a-fA-F0-9]{40}$/.test(address);
 }
