@@ -55,7 +55,6 @@ const OVERVIEW_SECTIONS = [
   { id: 'vault-performance', label: 'Performance' },
   { id: 'vault-allocation', label: 'Allocation' },
   { id: 'vault-risk', label: 'Risk' },
-  { id: 'vault-details', label: 'Vault details' },
 ] as const;
 
 function rawShareOf(partRaw: string | undefined, totalRaw: string | undefined): number | null {
@@ -1072,14 +1071,15 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
           title="Risk"
         >
           <VaultRiskFacts vaultData={vaultData} />
-        </VaultSection>
-
-        <VaultSection
-          id="vault-details"
-          title="Vault details"
-          summary="Addresses, timelocks and caps, for anyone who wants to check."
-        >
-          <VaultDetails vaultData={vaultData} />
+          <div className="space-y-2 pt-2">
+            <div className="space-y-0.5">
+              <h3 className="text-sm font-semibold text-[var(--foreground)]">Vault details</h3>
+              <p className="text-xs text-[var(--foreground-secondary)]">
+                Roles, timelocks, caps and contracts, for anyone who wants to check.
+              </p>
+            </div>
+            <VaultDetails vaultData={vaultData} />
+          </div>
         </VaultSection>
       </div>
     </div>
