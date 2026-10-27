@@ -103,6 +103,29 @@ const VAULT_ALLOCATIONS_QUERY = `
           ${VAULT_V2_ADAPTER_SELECTION}
         }
       }
+      caps(first: 100) {
+        items {
+          type
+          absoluteCap
+          allocation
+          data {
+            __typename
+            ... on MarketV1CapData {
+              market {
+                marketId
+                lltv
+                loanAsset { symbol decimals }
+                collateralAsset { symbol }
+                state {
+                  supplyAssetsUsd
+                  liquidityAssetsUsd
+                  netSupplyApy
+                }
+              }
+            }
+          }
+        }
+      }
     }
   }
 `;
@@ -140,6 +163,8 @@ type AdapterItem = {
   };
 };
 
+type CapMarket = NonNullable<NonNullable<AdapterItem['positions']>['items']>[number]['market'];
+
 type VaultAllocationGraphQL = {
   idleAssets?: number | string;
   idleAssetsUsd?: number;
@@ -149,6 +174,15 @@ type VaultAllocationGraphQL = {
     yield?: { apr?: number | null } | null;
   };
   adapters?: { items?: AdapterItem[] };
+  /** Markets the vault may lend to, including ones with nothing allocated. */
+  caps?: {
+    items?: Array<{
+      type?: string | null;
+      absoluteCap?: number | string | null;
+      allocation?: number | string | null;
+      data?: { market?: CapMarket | null } | null;
+    } | null> | null;
+  } | null;
 };
 
 function morphoRawAmount(value: number | string | null | undefined): string {
@@ -284,6 +318,63 @@ function parseMarketRowsFromAdapters(
   return Array.from(byMarketId.values()).sort((a, b) => b.allocatedUsd - a.allocatedUsd);
 }
 
+/**
+ * Market caps with nothing supplied. A cap at 0 that also holds 0 is a removed
+ * market and stays out. Markets already in `allocated` are not repeated.
+ */
+function parseUnallocatedMarketRows(
+  caps: VaultAllocationGraphQL['caps'],
+  allocated: readonly VaultMarketAllocation[],
+  chainId: number,
+  fallbackAssetSymbol: string
+): VaultMarketAllocation[] {
+  const seen = new Set(
+    allocated.map((row) => row.marketId).filter((id): id is string => !!id)
+  );
+  const rows: VaultMarketAllocation[] = [];
+
+  for (const cap of caps?.items ?? []) {
+    const market = cap?.data?.market;
+    const marketId = market?.marketId;
+    const loanSymbol = market?.loanAsset?.symbol;
+    const collateralSymbol = market?.collateralAsset?.symbol;
+    if (!marketId || !loanSymbol || !collateralSymbol || seen.has(marketId)) continue;
+    if (morphoRawAmount(cap?.absoluteCap) === '0' && morphoRawAmount(cap?.allocation) === '0') {
+      continue;
+    }
+    seen.add(marketId);
+
+    const marketSizeUsd = Number(market?.state?.supplyAssetsUsd ?? 0);
+    const liquidityUsd = Number(market?.state?.liquidityAssetsUsd ?? 0);
+    const marketApy = market?.state?.netSupplyApy;
+    const apy =
+      marketApy != null && Number.isFinite(Number(marketApy)) ? Number(marketApy) : null;
+    const rateType: MorphoMarketRateType =
+      cap?.type?.toLowerCase().includes('fixed') ? 'fixed' : 'variable';
+
+    rows.push({
+      id: marketId,
+      kind: 'market',
+      marketId,
+      name: formatMorphoMarketName(collateralSymbol, loanSymbol),
+      morphoUrl: getMorphoMarketUrl(chainId, marketId, collateralSymbol, loanSymbol),
+      allocatedUsd: 0,
+      allocatedAssetsRaw: '0',
+      tokenSymbol: loanSymbol,
+      tokenDecimals: resolveAssetDecimals(loanSymbol ?? fallbackAssetSymbol, market?.loanAsset?.decimals),
+      marketSizeUsd: Number.isFinite(marketSizeUsd) ? marketSizeUsd : null,
+      liquidityUsd: Number.isFinite(liquidityUsd) ? liquidityUsd : null,
+      apy,
+      loanSymbol,
+      collateralSymbol,
+      rateType,
+      lltv: market?.lltv ?? null,
+    });
+  }
+
+  return rows.sort((a, b) => a.name.localeCompare(b.name));
+}
+
 function finiteOrNull(value: number | null | undefined): number | null {
   if (value == null) return null;
   const n = Number(value);
@@ -333,7 +424,11 @@ export function parseVaultV2AllocationsFromGraphQL(
     vault.asset?.yield?.apr != null ? Number(vault.asset.yield.apr) : null;
 
   const items = vault.adapters?.items ?? [];
-  const marketRows = parseMarketRowsFromAdapters(items, chainId, assetSymbol);
+  const suppliedMarkets = parseMarketRowsFromAdapters(items, chainId, assetSymbol);
+  const marketRows = [
+    ...suppliedMarkets,
+    ...parseUnallocatedMarketRows(vault.caps, suppliedMarkets, chainId, assetSymbol),
+  ];
   const vaultRows = parseVaultRowsFromAdapters(items, assetSymbol, assetDecimals);
 
   const idleRow = buildIdleRow({

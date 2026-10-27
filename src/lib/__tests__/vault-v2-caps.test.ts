@@ -66,8 +66,15 @@ describe('mapVaultV2Caps', () => {
     expect(data.caps.map((row) => [row.kind, row.label])).toEqual([
       ['market', 'cbXRP / USDC'],
       ['collateral', 'cbXRP'],
-      ['adapter', 'All Morpho markets'],
+      ['adapter', 'Morpho Blue adapter'],
     ]);
+    expect(data.caps[0].href).toBe(
+      'https://app.morpho.org/base/variable/0xd4a9/cbxrp-usdc#market'
+    );
+    expect(data.caps[1].href).toBe(
+      'https://basescan.org/token/0xcb585250f852C6c6bf90434AB21A00f02833a4af'
+    );
+    expect(data.caps[2].href).toBeNull();
     expect(data.caps[0].lltv).toBe(0.625);
     expect(data.caps[0].rateType).toBe('variable');
     expect(data.caps[0].absoluteCapRaw).toBe('200000000000');

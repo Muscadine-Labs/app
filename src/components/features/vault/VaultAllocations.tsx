@@ -287,8 +287,9 @@ export function VaultAllocations({
   const vaultTokenLabel = vaultData.symbol || 'Token';
   const showsOwnMarkets = allocations.some((row) => row.kind === 'market');
   // A wrapper's own rows are its deposit into the underlying vault. The dropdown
-  // then lists that vault's markets and idle cash. An underlying vault already
-  // lists its markets, so the dropdown only keeps the dust and idle.
+  // then lists every market that vault can use, including ones with nothing in
+  // them, plus idle cash. An underlying vault already lists what it has allocated,
+  // so the dropdown is every other market, including a zero balance.
   const otherRows = sortOtherRows(
     showsOwnMarkets
       ? allocations.filter((row) => !isDefaultAllocation(row))
@@ -365,7 +366,7 @@ export function VaultAllocations({
           ) : otherRows.length > 0 ? (
             <details className="group border-t border-[var(--border-subtle)] pt-2">
               <summary className="flex cursor-pointer list-none items-center justify-between gap-3 py-1.5 [&::-webkit-details-marker]:hidden">
-                <span className="text-sm font-medium text-[var(--foreground)]">Other markets</span>
+                <span className="text-sm font-medium text-[var(--foreground)]">All markets</span>
                 <span className="flex items-center gap-2">
                   <span className="text-xs text-[var(--foreground-muted)]">
                     {otherMarketsMeta(otherRows)}

@@ -671,9 +671,6 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
             <p className="text-2xl font-bold text-[var(--foreground)]">
               {apyPercent}
             </p>
-            <p className="text-xs text-[var(--foreground-secondary)] mt-1">
-              After fees, changes with market rates
-            </p>
             {vaultData.apyChange !== undefined && vaultData.apyChange !== 0 && (
               <p className={`text-xs mt-2 ${vaultData.apyChange > 0 ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`}>
                 {vaultData.apyChange > 0 ? '↑' : '↓'} {formatPercentage(Math.abs(vaultData.apyChange))} from last period

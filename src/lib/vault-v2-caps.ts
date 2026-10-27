@@ -1,5 +1,6 @@
 import { fetchMorphoGraphQL, readMorphoGraphQLResponse } from '@/lib/api-utils';
-import type { MorphoMarketRateType } from '@/lib/morpho-market-url';
+import { getMorphoMarketUrl, type MorphoMarketRateType } from '@/lib/morpho-market-url';
+import { BASE_CHAIN_ID } from '@/lib/constants';
 import { MORPHO_GRAPHQL_REVALIDATE_SECONDS } from '@/lib/constants';
 import { logger } from '@/lib/logger';
 
@@ -19,6 +20,8 @@ export interface VaultCapRow {
   absoluteCapRaw: string;
   /** WAD-scaled (1e18 = 100%, which means no relative limit). */
   relativeCapWad: string;
+  /** Morpho market page, or the token on Basescan. Adapters have none. */
+  href: string | null;
 }
 
 export interface VaultCapData {
@@ -113,6 +116,10 @@ function shortAddress(address: string): string {
   return `${address.slice(0, 6)}…${address.slice(-4)}`;
 }
 
+function basescanTokenUrl(address: string): string {
+  return `https://basescan.org/token/${address}`;
+}
+
 const KIND_ORDER: Record<VaultCapKind, number> = { market: 0, collateral: 1, adapter: 2 };
 
 function compareRaw(a: string, b: string): number {
@@ -125,7 +132,7 @@ function compareRaw(a: string, b: string): number {
  * Readable cap rows. A cap whose absolute cap is 0 and holds nothing is a
  * removed market or token, so it is left out.
  */
-export function mapVaultV2Caps(vault: VaultCapsGraphQL): VaultCapData {
+export function mapVaultV2Caps(vault: VaultCapsGraphQL, chainId: number = BASE_CHAIN_ID): VaultCapData {
   const collateralSymbols = new Map<string, string>();
   for (const cap of vault.caps?.items ?? []) {
     const collateral = cap?.data?.market?.collateralAsset;
@@ -140,7 +147,7 @@ export function mapVaultV2Caps(vault: VaultCapsGraphQL): VaultCapData {
       adapter.__typename === 'MorphoVaultV2Adapter'
         ? adapter.innerVault?.name || 'Underlying vault'
         : adapter.__typename === 'MorphoMarketV1Adapter'
-          ? 'All Morpho markets'
+          ? 'Morpho Blue adapter'
           : 'Adapter';
     adapterLabels.set(adapter.address.toLowerCase(), label);
   }
@@ -160,8 +167,9 @@ export function mapVaultV2Caps(vault: VaultCapsGraphQL): VaultCapData {
       const lltv = Number(data.market.lltv ?? 0) / 1e18;
       const rateType: MorphoMarketRateType =
         cap.type?.toLowerCase().includes('fixed') ? 'fixed' : 'variable';
+      const marketId = data.market.marketId;
       caps.push({
-        id: `market-${data.market.marketId ?? index}`,
+        id: `market-${marketId ?? index}`,
         kind: 'market',
         label: `${collateral} / ${loan}`,
         lltv: Number.isFinite(lltv) && lltv > 0 ? lltv : null,
@@ -169,6 +177,10 @@ export function mapVaultV2Caps(vault: VaultCapsGraphQL): VaultCapData {
         allocationRaw,
         absoluteCapRaw,
         relativeCapWad,
+        href:
+          marketId && collateral !== '?' && loan !== '?'
+            ? getMorphoMarketUrl(chainId, marketId, collateral, loan)
+            : null,
       });
     } else if (data.collateralAddress) {
       const address = data.collateralAddress;
@@ -181,6 +193,7 @@ export function mapVaultV2Caps(vault: VaultCapsGraphQL): VaultCapData {
         allocationRaw,
         absoluteCapRaw,
         relativeCapWad,
+        href: basescanTokenUrl(address),
       });
     } else if (data.adapterAddress) {
       const address = data.adapterAddress;
@@ -193,6 +206,7 @@ export function mapVaultV2Caps(vault: VaultCapsGraphQL): VaultCapData {
         allocationRaw,
         absoluteCapRaw,
         relativeCapWad,
+        href: null,
       });
     }
   });
@@ -236,7 +250,7 @@ export async function fetchVaultV2Caps(
     }
     const vault = json.data?.vaultV2ByAddress;
     if (!vault) return { data: null, error: 'Vault not found' };
-    return { data: mapVaultV2Caps(vault) };
+    return { data: mapVaultV2Caps(vault, chainId) };
   } catch (error) {
     logger.error(
       'Vault caps fetch failed',

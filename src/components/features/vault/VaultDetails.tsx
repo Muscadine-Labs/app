@@ -215,7 +215,18 @@ function CapsTable({ vaultData, enabled }: { vaultData: MorphoVaultData; enabled
                       return (
                         <tr key={row.id} className="border-b border-[var(--border-subtle)] last:border-b-0">
                           <td className="py-2 pr-3 whitespace-nowrap">
-                            <span className="font-medium text-[var(--foreground)]">{row.label}</span>
+                            {row.href ? (
+                              <a
+                                href={row.href}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="font-medium text-[var(--primary)] hover:text-[var(--primary-hover)] hover:underline"
+                              >
+                                {row.label}
+                              </a>
+                            ) : (
+                              <span className="font-medium text-[var(--foreground)]">{row.label}</span>
+                            )}
                             {rate ? (
                               <span className="ml-1.5 rounded-full bg-[var(--surface-active)] px-1.5 py-0.5 text-[10px] text-[var(--foreground-secondary)] tabular-nums">
                                 {rate}
