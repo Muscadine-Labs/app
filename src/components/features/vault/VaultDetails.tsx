@@ -133,11 +133,18 @@ function formatCapUsed(row: VaultCapRow): string {
   }
 }
 
-const CAP_KIND_LABEL: Record<VaultCapRow['kind'], string> = {
-  market: 'Market',
-  collateral: 'Collateral',
-  adapter: 'Adapter',
-};
+const CAP_SECTIONS: { kind: VaultCapRow['kind']; title: string }[] = [
+  { kind: 'market', title: 'Markets' },
+  { kind: 'collateral', title: 'Tokens' },
+  { kind: 'adapter', title: 'Adapters' },
+];
+
+function formatCapMarketRate(row: VaultCapRow): string | null {
+  if (row.kind !== 'market' || !row.rateType) return null;
+  const kind = row.rateType === 'fixed' ? 'Fixed' : 'Variable';
+  if (row.lltv == null) return kind;
+  return `${kind} (${(row.lltv * 100).toFixed(1)}%)`;
+}
 
 async function fetchCaps(address: string, chainId: number): Promise<VaultCapData> {
   const response = await fetch(`/api/vault/v2/${address}/caps?chainId=${chainId}`);
@@ -182,47 +189,60 @@ function CapsTable({ vaultData, enabled }: { vaultData: MorphoVaultData; enabled
         The most this vault may put in each market, collateral token or adapter. Every deposit and
         reallocation must stay inside all of them.
       </p>
-      <div className="overflow-x-auto -mx-1 px-1">
-        <table className="w-full min-w-[34rem] text-xs sm:text-sm">
-          <thead>
-            <tr className="border-b border-[var(--border-subtle)] text-left text-[var(--foreground-secondary)]">
-              <th className="py-2 pr-3 font-medium">Name</th>
-              <th className="py-2 px-3 font-medium text-right">Allocated</th>
-              <th className="py-2 px-3 font-medium text-right">Cap</th>
-              <th className="py-2 px-3 font-medium text-right">Relative cap</th>
-              <th className="py-2 pl-3 font-medium text-right">Used</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <tr key={row.id} className="border-b border-[var(--border-subtle)] last:border-b-0">
-                <td className="py-2 pr-3 whitespace-nowrap">
-                  <span className="font-medium text-[var(--foreground)]">{row.label}</span>
-                  {row.lltv !== null ? (
-                    <span className="ml-1.5 rounded-full bg-[var(--surface-active)] px-1.5 py-0.5 text-[10px] text-[var(--foreground-secondary)] tabular-nums">
-                      {Math.round(row.lltv * 1000) / 10}%
-                    </span>
-                  ) : null}
-                  <span className="ml-2 text-[10px] uppercase tracking-wide text-[var(--foreground-muted)]">
-                    {CAP_KIND_LABEL[row.kind]}
-                  </span>
-                </td>
-                <td className="py-2 px-3 text-right tabular-nums whitespace-nowrap">
-                  {formatDashboardTokenAmount(row.allocationRaw, data.assetDecimals, symbol)}
-                </td>
-                <td className="py-2 px-3 text-right tabular-nums whitespace-nowrap">
-                  {formatCapAmount(row.absoluteCapRaw, data.assetDecimals, symbol)}
-                </td>
-                <td className="py-2 px-3 text-right tabular-nums whitespace-nowrap">
-                  {formatRelativeCap(row.relativeCapWad)}
-                </td>
-                <td className="py-2 pl-3 text-right tabular-nums whitespace-nowrap text-[var(--foreground-secondary)]">
-                  {formatCapUsed(row)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="space-y-4">
+        {CAP_SECTIONS.map((section) => {
+          const sectionRows = rows.filter((row) => row.kind === section.kind);
+          if (sectionRows.length === 0) return null;
+          return (
+            <div key={section.kind}>
+              <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-[var(--foreground-secondary)]">
+                {section.title}
+              </h3>
+              <div className="overflow-x-auto -mx-1 px-1">
+                <table className="w-full min-w-[34rem] text-xs sm:text-sm">
+                  <thead>
+                    <tr className="border-b border-[var(--border-subtle)] text-left text-[var(--foreground-secondary)]">
+                      <th className="py-2 pr-3 font-medium">Name</th>
+                      <th className="py-2 px-3 font-medium text-right">Allocated</th>
+                      <th className="py-2 px-3 font-medium text-right">Cap</th>
+                      <th className="py-2 px-3 font-medium text-right">Relative cap</th>
+                      <th className="py-2 pl-3 font-medium text-right">Used</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sectionRows.map((row) => {
+                      const rate = formatCapMarketRate(row);
+                      return (
+                        <tr key={row.id} className="border-b border-[var(--border-subtle)] last:border-b-0">
+                          <td className="py-2 pr-3 whitespace-nowrap">
+                            <span className="font-medium text-[var(--foreground)]">{row.label}</span>
+                            {rate ? (
+                              <span className="ml-1.5 rounded-full bg-[var(--surface-active)] px-1.5 py-0.5 text-[10px] text-[var(--foreground-secondary)] tabular-nums">
+                                {rate}
+                              </span>
+                            ) : null}
+                          </td>
+                          <td className="py-2 px-3 text-right tabular-nums whitespace-nowrap">
+                            {formatDashboardTokenAmount(row.allocationRaw, data.assetDecimals, symbol)}
+                          </td>
+                          <td className="py-2 px-3 text-right tabular-nums whitespace-nowrap">
+                            {formatCapAmount(row.absoluteCapRaw, data.assetDecimals, symbol)}
+                          </td>
+                          <td className="py-2 px-3 text-right tabular-nums whitespace-nowrap">
+                            {formatRelativeCap(row.relativeCapWad)}
+                          </td>
+                          <td className="py-2 pl-3 text-right tabular-nums whitespace-nowrap text-[var(--foreground-secondary)]">
+                            {formatCapUsed(row)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          );
+        })}
       </div>
       {hiddenCount > 0 && inUse.length > 0 ? (
         <button
@@ -305,7 +325,7 @@ export default function VaultDetails({ vaultData }: { vaultData: MorphoVaultData
         )}
       </Disclosure>
 
-      <Disclosure title="Caps" meta="Per market, collateral and adapter" onOpen={() => setCapsOpened(true)}>
+      <Disclosure title="Caps" meta="Markets, tokens and adapters" onOpen={() => setCapsOpened(true)}>
         <CapsTable vaultData={vaultData} enabled={capsOpened} />
       </Disclosure>
 

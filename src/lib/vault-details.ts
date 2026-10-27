@@ -88,6 +88,14 @@ export function maxRateToAnnualPercent(maxRate: string | null | undefined): numb
   }
 }
 
+/** One cent. Smaller positions stay out of the default allocation view. */
+export const ALLOCATION_DUST_USD = 0.01;
+
+/** True when a position is missing, zero, or at most {@link ALLOCATION_DUST_USD}. */
+export function isAllocationDust(usd: number): boolean {
+  return !Number.isFinite(usd) || usd <= ALLOCATION_DUST_USD;
+}
+
 export interface ExposureItem {
   symbol: string;
   usd: number;

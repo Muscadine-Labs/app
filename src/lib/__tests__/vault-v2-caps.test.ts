@@ -69,6 +69,7 @@ describe('mapVaultV2Caps', () => {
       ['adapter', 'All Morpho markets'],
     ]);
     expect(data.caps[0].lltv).toBe(0.625);
+    expect(data.caps[0].rateType).toBe('variable');
     expect(data.caps[0].absoluteCapRaw).toBe('200000000000');
     expect(data.caps[2].absoluteCapRaw).toBe(UINT128_MAX);
   });

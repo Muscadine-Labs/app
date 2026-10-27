@@ -1,4 +1,5 @@
 import { fetchMorphoGraphQL, readMorphoGraphQLResponse } from '@/lib/api-utils';
+import type { MorphoMarketRateType } from '@/lib/morpho-market-url';
 import { MORPHO_GRAPHQL_REVALIDATE_SECONDS } from '@/lib/constants';
 import { logger } from '@/lib/logger';
 
@@ -11,6 +12,8 @@ export interface VaultCapRow {
   label: string;
   /** Market LLTV as a fraction (0.625), market rows only. */
   lltv: number | null;
+  /** Morpho Blue market caps are variable-rate unless the cap type says fixed. */
+  rateType: MorphoMarketRateType | null;
   /** Raw vault-asset units. */
   allocationRaw: string;
   absoluteCapRaw: string;
@@ -155,11 +158,14 @@ export function mapVaultV2Caps(vault: VaultCapsGraphQL): VaultCapData {
       const collateral = data.market.collateralAsset?.symbol ?? '?';
       const loan = data.market.loanAsset?.symbol ?? '?';
       const lltv = Number(data.market.lltv ?? 0) / 1e18;
+      const rateType: MorphoMarketRateType =
+        cap.type?.toLowerCase().includes('fixed') ? 'fixed' : 'variable';
       caps.push({
         id: `market-${data.market.marketId ?? index}`,
         kind: 'market',
         label: `${collateral} / ${loan}`,
         lltv: Number.isFinite(lltv) && lltv > 0 ? lltv : null,
+        rateType,
         allocationRaw,
         absoluteCapRaw,
         relativeCapWad,
@@ -171,6 +177,7 @@ export function mapVaultV2Caps(vault: VaultCapsGraphQL): VaultCapData {
         kind: 'collateral',
         label: collateralSymbols.get(address.toLowerCase()) ?? shortAddress(address),
         lltv: null,
+        rateType: null,
         allocationRaw,
         absoluteCapRaw,
         relativeCapWad,
@@ -182,6 +189,7 @@ export function mapVaultV2Caps(vault: VaultCapsGraphQL): VaultCapData {
         kind: 'adapter',
         label: adapterLabels.get(address.toLowerCase()) ?? shortAddress(address),
         lltv: null,
+        rateType: null,
         allocationRaw,
         absoluteCapRaw,
         relativeCapWad,

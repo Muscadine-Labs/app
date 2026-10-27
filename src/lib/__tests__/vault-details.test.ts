@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   formatSharePercent,
   formatTimelockDuration,
+  isAllocationDust,
   groupTimelocks,
   maxRateToAnnualPercent,
   RISK_INCREASING_FUNCTIONS,
@@ -115,6 +116,15 @@ describe('summarizeExposure', () => {
     const summary = summarizeExposure([marketRow('cbBTC', 100), marketRow('cbBTC', 50)]);
     expect(summary.items).toEqual([{ symbol: 'cbBTC', usd: 150, share: 1 }]);
     expect(summary.marketCount).toBe(2);
+  });
+});
+
+describe('isAllocationDust', () => {
+  it('hides a cent or less and keeps anything above it', () => {
+    expect(isAllocationDust(0)).toBe(true);
+    expect(isAllocationDust(0.01)).toBe(true);
+    expect(isAllocationDust(0.0100001)).toBe(false);
+    expect(isAllocationDust(Number.NaN)).toBe(true);
   });
 });
 

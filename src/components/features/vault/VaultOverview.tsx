@@ -20,12 +20,11 @@ import { MorphoVaultData } from '@/types/vault';
 import { VaultLiquidityInfo } from './VaultLiquidityInfo';
 import { VaultApyInfo } from './VaultApyInfo';
 import { VaultAllocations } from './VaultAllocations';
-import { ExposureBar, ExposureChips } from './VaultExposure';
 import { VaultSection, VaultSectionNav } from './VaultSectionNav';
 import VaultRiskFacts from './VaultRiskFacts';
 import VaultDetails from './VaultDetails';
 import { useVaultAllocations } from '@/hooks/useVaultAllocations';
-import { formatSharePercent, summarizeExposure, type ExposureSummary } from '@/lib/vault-details';
+import { formatSharePercent } from '@/lib/vault-details';
 import { useToast } from '@/contexts/ToastContext';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -68,34 +67,6 @@ function rawShareOf(partRaw: string | undefined, totalRaw: string | undefined): 
   } catch {
     return null;
   }
-}
-
-/** One-line answer at the top of the Allocation section. */
-function allocationSummary(
-  exposure: ExposureSummary,
-  assetSymbol: string,
-  underlyingName: string | null
-): string | null {
-  if (exposure.totalUsd <= 0) return null;
-  const marketText =
-    exposure.marketCount === 1 ? '1 Morpho market' : `${exposure.marketCount} Morpho markets`;
-  const collateral = exposure.items.map((item) => item.symbol);
-  const collateralText =
-    collateral.length <= 3
-      ? collateral.join(', ')
-      : `${collateral.slice(0, 3).join(', ')} and ${collateral.length - 3} more`;
-  const lends =
-    exposure.marketCount > 0
-      ? `lends ${assetSymbol} in ${marketText} against ${collateralText}`
-      : `holds ${assetSymbol} without lending it`;
-  const idleShare = exposure.idleUsd / exposure.totalUsd;
-  const idleText =
-    exposure.idleUsd <= 0
-      ? ' None is sitting idle.'
-      : ` ${formatSharePercent(idleShare)} is idle in the vault, ready for withdrawals.`;
-  return underlyingName
-    ? `Deposits go into ${underlyingName}, which ${lends}.${idleText}`
-    : `${lends.charAt(0).toUpperCase()}${lends.slice(1)}.${idleText}`;
 }
 
 type Period = 'all' | '7d' | '30d' | '90d' | '1y';
@@ -193,11 +164,6 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
     underlyingVault?.address ?? vaultData.address,
     vaultData.chainId
   );
-  const exposure = useMemo(
-    () => summarizeExposure(exposureAllocations.allocations),
-    [exposureAllocations.allocations]
-  );
-  const exposureSummary = allocationSummary(exposure, vaultData.symbol, underlyingVault?.name ?? null);
 
   const chartEndTimestamp = useMemo(() => {
     let maxTs = 0;
@@ -691,7 +657,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
       {/* Performance Section */}
       <div className="space-y-5">
         {/* Current Performance */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-5 overflow-visible">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-5 overflow-visible">
           <div className="overflow-visible">
             <div className="flex items-center gap-1.5 mb-1">
               <p className="text-xs text-[var(--foreground-secondary)]">Net APY</p>
@@ -744,17 +710,6 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
             <p className="text-xs text-[var(--foreground-secondary)] mt-1">
               {liquidityUsd}
               {liquidityShare !== null ? ` · ${formatSharePercent(liquidityShare)} of deposits` : ''}
-            </p>
-          </div>
-          <div className="min-w-0">
-            <p className="text-xs text-[var(--foreground-secondary)] mb-1.5">Exposure</p>
-            {exposureAllocations.loading ? (
-              <Skeleton width="8rem" height="1.5rem" />
-            ) : (
-              <ExposureChips exposure={exposure} />
-            )}
-            <p className="text-xs text-[var(--foreground-secondary)] mt-1.5">
-              {underlyingVault ? `Through ${underlyingVault.name}` : 'Collateral behind the loans'}
             </p>
           </div>
         </div>
@@ -1102,14 +1057,15 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
         </div>
         </VaultSection>
 
-        <VaultSection id="vault-allocation" title="Allocation" summary={exposureSummary}>
-          <ExposureBar exposure={exposure} />
+        <VaultSection id="vault-allocation" title="Allocation">
           <div className="bg-[var(--surface-elevated)] rounded-lg border border-[var(--border-subtle)] p-2 sm:p-3">
             <VaultAllocations
               vaultData={vaultData}
               allocations={ownAllocations.allocations}
               loading={ownAllocations.loading}
               error={ownAllocations.error}
+              marketBook={exposureAllocations.allocations}
+              marketBookLoading={exposureAllocations.loading}
             />
           </div>
         </VaultSection>
