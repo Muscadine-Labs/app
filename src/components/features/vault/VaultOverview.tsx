@@ -63,7 +63,8 @@ function rawShareOf(partRaw: string | undefined, totalRaw: string | undefined): 
   try {
     const total = BigInt(totalRaw || '0');
     if (total <= BigInt(0)) return null;
-    return Number((BigInt(partRaw || '0') * BigInt(10_000)) / total) / 10_000;
+    // Morpho's liquidity figures can run slightly ahead of totalAssets; never show over 100%.
+    return Math.min(1, Number((BigInt(partRaw || '0') * BigInt(10_000)) / total) / 10_000);
   } catch {
     return null;
   }

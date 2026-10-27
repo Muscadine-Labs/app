@@ -1,4 +1,4 @@
-import type { VaultTimelock, VaultWarning } from '@/types/vault';
+import type { VaultTimelock } from '@/types/vault';
 import type { VaultMarketAllocation } from '@/lib/vault-v2-allocations';
 
 const SECONDS_PER_YEAR = BigInt(31_536_000);
@@ -136,35 +136,14 @@ export function formatSharePercent(share: number): string {
   return `${Math.round(share * 100)}%`;
 }
 
-const WARNING_TEXT: Record<string, string> = {
-  not_whitelisted: 'Not listed in Morpho’s app, so it does not appear in Morpho’s vault list.',
-  timelock: 'Short timelocks: some settings can change without a waiting period. See Timelocks under Vault details.',
-  short_timelock: 'Morpho flags the timelock as short. Risk changes can take effect soon after they are proposed.',
-  bad_debt_realized: 'A market this vault used has realized bad debt.',
-  bad_debt_unrealized: 'A market this vault uses has unrealized bad debt.',
-  unrecognized_deposit_asset: 'Morpho does not recognize the deposit token.',
-  unrecognized_oracle: 'A market this vault uses has an oracle Morpho does not recognize.',
-  unrecognized_market: 'This vault uses a market Morpho does not recognize.',
-};
-
-/**
- * Plain-language text for a Morpho vault warning. `wrapperUnderlyingName`: set for a
- * fee wrapper whose adapter list is abdicated, so it can only deposit into that vault.
- */
-export function describeVaultWarning(
-  warning: VaultWarning,
-  context: { wrapperUnderlyingName?: string | null } = {}
-): string {
-  if (warning.type === 'timelock' && context.wrapperUnderlyingName) {
-    return `Short timelocks: this wrapper’s cap can rise without a waiting period. It can only deposit into ${context.wrapperUnderlyingName}, and adding a market there waits out that vault’s own timelock.`;
-  }
-  const known = WARNING_TEXT[warning.type];
-  if (known) return known;
-  const words = warning.type.replace(/_/g, ' ').trim();
-  return words ? `${words.charAt(0).toUpperCase()}${words.slice(1)}.` : 'Morpho flagged this vault.';
-}
-
-/** Morpho levels: RED is serious, everything else is a caution. */
-export function isSevereWarning(warning: VaultWarning): boolean {
-  return warning.level.toUpperCase() === 'RED';
+/** When a pending change can take effect: `Takes effect in 3 days`, or `Can take effect now`. */
+export function formatTimeUntil(validAt: number, nowSeconds: number): string {
+  if (!validAt) return 'Waiting on its timelock';
+  const remaining = validAt - nowSeconds;
+  if (remaining <= 0) return 'Can take effect now';
+  const plural = (value: number, unit: string) => `${value} ${unit}${value === 1 ? '' : 's'}`;
+  // Nearest unit: a 7-day timelock queued a minute ago still reads 7 days.
+  if (remaining >= 86_400) return `Takes effect in ${plural(Math.round(remaining / 86_400), 'day')}`;
+  if (remaining >= 3_600) return `Takes effect in ${plural(Math.round(remaining / 3_600), 'hour')}`;
+  return `Takes effect in ${plural(Math.max(1, Math.ceil(remaining / 60)), 'minute')}`;
 }

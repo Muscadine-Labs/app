@@ -1,14 +1,17 @@
 'use client';
 
+import { useQuery } from '@tanstack/react-query';
 import type { MorphoVaultData } from '@/types/vault';
 import { formatDashboardTokenAmount } from '@/lib/formatter';
+import { MORPHO_GRAPHQL_REVALIDATE_SECONDS } from '@/lib/constants';
+import { useUnixTimestamp } from '@/hooks/useClientOnly';
+import type { PendingChangeDirection, VaultPendingChange } from '@/lib/vault-v2-pending';
 import { findVaultByAddress } from '@/lib/vault-utils';
 import {
-  describeVaultWarning,
   FEE_INCREASING_FUNCTIONS,
   formatSharePercent,
   formatTimelockDuration,
-  isSevereWarning,
+  formatTimeUntil,
   RISK_INCREASING_FUNCTIONS,
   shortestGuard,
 } from '@/lib/vault-details';
@@ -139,10 +142,67 @@ function buildFacts(vaultData: MorphoVaultData): Fact[] {
   return facts;
 }
 
+const DIRECTION_MARK: Record<PendingChangeDirection, { symbol: string; label: string; className: string }> = {
+  add: { symbol: '+', label: 'Adds', className: 'text-[var(--warning)] border-[var(--warning)]' },
+  remove: { symbol: '−', label: 'Removes', className: 'text-[var(--foreground-secondary)] border-[var(--border-strong)]' },
+  change: { symbol: '•', label: 'Changes', className: 'text-[var(--foreground-secondary)] border-[var(--border-strong)]' },
+};
+
+async function fetchPendingChanges(address: string, chainId: number): Promise<VaultPendingChange[]> {
+  const response = await fetch(`/api/vault/v2/${address}/pending?chainId=${chainId}`);
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || 'Failed to load pending changes');
+  return Array.isArray(data.pending) ? data.pending : [];
+}
+
+/**
+ * Curator changes waiting out their timelock. Hidden when there are none (or the read
+ * fails): it is a heads-up, not a status.
+ */
+function PendingChanges({ vaultData }: { vaultData: MorphoVaultData }) {
+  const { data: pending } = useQuery({
+    queryKey: ['vault-pending', vaultData.address.toLowerCase(), vaultData.chainId],
+    staleTime: MORPHO_GRAPHQL_REVALIDATE_SECONDS * 1000,
+    retry: 1,
+    queryFn: () => fetchPendingChanges(vaultData.address, vaultData.chainId),
+  });
+  const now = useUnixTimestamp();
+  if (!pending || pending.length === 0) return null;
+
+  return (
+    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--warning-subtle)] px-3 py-2.5 sm:px-4 space-y-2">
+      <p className="text-xs sm:text-sm font-semibold text-[var(--foreground)]">
+        Pending change{pending.length === 1 ? '' : 's'}
+        <span className="ml-1.5 font-normal text-[var(--foreground-secondary)]">
+          Proposed by the curator, public until the timelock ends
+        </span>
+      </p>
+      <ul className="space-y-1.5">
+        {pending.map((change) => {
+          const mark = DIRECTION_MARK[change.direction];
+          return (
+            <li key={change.id} className="flex items-start gap-2 text-xs sm:text-sm">
+              <span
+                className={`mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[11px] font-bold leading-none ${mark.className}`}
+                aria-label={mark.label}
+                title={mark.label}
+              >
+                {mark.symbol}
+              </span>
+              <span className="min-w-0 text-[var(--foreground)]">
+                {change.title}
+                <span className="text-[var(--foreground-secondary)]"> · {formatTimeUntil(change.validAt, now)}</span>
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
 export default function VaultRiskFacts({ vaultData }: { vaultData: MorphoVaultData }) {
   const facts = buildFacts(vaultData);
-  const warnings = vaultData.warnings ?? [];
-  const wrapperUnderlyingName = lockedWrapperUnderlyingName(vaultData);
 
   return (
     <div className="space-y-3">
@@ -162,30 +222,7 @@ export default function VaultRiskFacts({ vaultData }: { vaultData: MorphoVaultDa
           </div>
         ))}
       </dl>
-      {warnings.length > 0 ? (
-        <ul className="space-y-2">
-          {warnings.map((warning) => {
-            const severe = isSevereWarning(warning);
-            return (
-              <li
-                key={warning.type}
-                className={`flex items-start gap-2 rounded-lg px-3 py-2 text-xs sm:text-sm ${
-                  severe
-                    ? 'bg-[var(--danger-subtle)] text-[var(--foreground)]'
-                    : 'bg-[var(--warning-subtle)] text-[var(--foreground)]'
-                }`}
-              >
-                <span
-                  className={`shrink-0 font-semibold ${severe ? 'text-[var(--danger)]' : 'text-[var(--warning)]'}`}
-                >
-                  Morpho flag
-                </span>
-                <span>{describeVaultWarning(warning, { wrapperUnderlyingName })}</span>
-              </li>
-            );
-          })}
-        </ul>
-      ) : null}
+      <PendingChanges vaultData={vaultData} />
     </div>
   );
 }

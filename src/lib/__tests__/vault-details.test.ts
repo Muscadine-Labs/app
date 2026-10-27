@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  describeVaultWarning,
   formatSharePercent,
   formatTimelockDuration,
   groupTimelocks,
@@ -124,23 +123,5 @@ describe('formatSharePercent', () => {
     expect(formatSharePercent(0.676)).toBe('68%');
     expect(formatSharePercent(0.001)).toBe('<1%');
     expect(formatSharePercent(0)).toBe('0%');
-  });
-});
-
-describe('describeVaultWarning', () => {
-  it('explains known warnings and humanizes unknown ones', () => {
-    expect(describeVaultWarning({ type: 'not_whitelisted', level: 'YELLOW' })).toMatch(
-      /Not listed in Morpho/
-    );
-    expect(describeVaultWarning({ type: 'some_new_flag', level: 'RED' })).toBe('Some new flag.');
-  });
-
-  it('explains the timelock flag on a wrapper locked to its underlying vault', () => {
-    const text = describeVaultWarning(
-      { type: 'timelock', level: 'RED' },
-      { wrapperUnderlyingName: 'Muscadine USDC Frontier' }
-    );
-    expect(text).toMatch(/only deposit into Muscadine USDC Frontier/);
-    expect(describeVaultWarning({ type: 'timelock', level: 'RED' })).toMatch(/Short timelocks/);
   });
 });

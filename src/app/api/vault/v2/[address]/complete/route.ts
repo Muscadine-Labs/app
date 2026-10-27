@@ -220,12 +220,6 @@ export async function GET(
             abdicated: entry.abdicatedAt != null && Number(entry.abdicatedAt) > 0,
           })
         );
-      const warnings = (vault.warnings ?? [])
-        .filter((entry: { type?: string | null } | null) => !!entry?.type)
-        .map((entry: { type: string; level?: string | null }) => ({
-          type: entry.type,
-          level: entry.level ?? 'YELLOW',
-        }));
 
       // Headline: Morpho netApy; popover uses gross apy → fees → netApy.
       const morphoGrossApy = vault.apy ?? vault.netApy ?? 0;
@@ -288,7 +282,6 @@ export async function GET(
         allocators: normalizedAllocators,
         sentinels,
         timelocks,
-        warnings,
         maxRate: vault.maxRate != null ? String(vault.maxRate) : null,
         liquidityAdapterAddress: vault.liquidityAdapter?.address ?? null,
         state: {

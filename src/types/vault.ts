@@ -22,12 +22,6 @@ export interface VaultTimelock {
   abdicated: boolean;
 }
 
-/** Morpho API vault warning (e.g. `not_whitelisted`). */
-export interface VaultWarning {
-  type: string;
-  level: string;
-}
-
 // Unified Vault type definition
 export interface Vault {
     // Basic Information
@@ -80,7 +74,6 @@ export interface Vault {
     allocators?: string[]; // Array of allocator addresses
     sentinels?: string[];
     timelocks?: VaultTimelock[];
-    warnings?: VaultWarning[];
     /** Max share price growth, per second, WAD-scaled (Vault V2 `maxRate`). */
     maxRate?: string | null;
     liquidityAdapterAddress?: string | null;

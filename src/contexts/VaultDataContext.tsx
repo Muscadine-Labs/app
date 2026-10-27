@@ -220,7 +220,6 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
           allocators: vaultInfo.allocators?.map((alloc: { address: string }) => alloc.address) || [],
           sentinels: vaultInfo.sentinels ?? [],
           timelocks: vaultInfo.timelocks ?? [],
-          warnings: vaultInfo.warnings ?? [],
           maxRate: vaultInfo.maxRate ?? null,
           liquidityAdapterAddress: vaultInfo.liquidityAdapterAddress ?? null,
           performanceFee:
@@ -296,7 +295,6 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
       allocators: basic.allocators || [],
       sentinels: basic.sentinels ?? [],
       timelocks: basic.timelocks ?? [],
-      warnings: basic.warnings ?? [],
       status: basic.status || 'active',
       curator: basic.curator || 'Morpho Labs',
       curatorAddress: basic.curatorAddress || '',
