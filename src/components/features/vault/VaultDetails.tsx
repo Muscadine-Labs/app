@@ -7,7 +7,8 @@ import type { MorphoVaultData } from '@/types/vault';
 import type { VaultCapData, VaultCapRow } from '@/lib/vault-v2-caps';
 import CopiableAddress from '@/components/common/CopiableAddress';
 import { formatDashboardTokenAmount, formatPercentage } from '@/lib/formatter';
-import { findVaultByAddress, getVaultRoute } from '@/lib/vault-utils';
+import { findVaultByAddress } from '@/lib/vault-utils';
+import { useVaultPageHref, type VaultPageHref } from '@/hooks/useVaultPageHref';
 import { getPairedVaultAddress } from '@/lib/vaults';
 import { getMorphoVaultUrl } from '@/lib/liquidity-utils';
 import { MORPHO_GRAPHQL_REVALIDATE_SECONDS } from '@/lib/constants';
@@ -270,6 +271,21 @@ function CapsTable({ vaultData, enabled }: { vaultData: MorphoVaultData; enabled
   );
 }
 
+const LINK_CLASS = 'font-medium text-[var(--primary)] hover:text-[var(--primary-hover)] hover:underline';
+
+/** The vault page when this wallet can open it, else the vault on Morpho. */
+function UnderlyingVaultLink({ name, link }: { name: string; link: VaultPageHref }) {
+  return link.internal ? (
+    <Link href={link.href} className={LINK_CLASS}>
+      {name}
+    </Link>
+  ) : (
+    <a href={link.href} target="_blank" rel="noopener noreferrer" className={LINK_CLASS}>
+      {name}
+    </a>
+  );
+}
+
 export default function VaultDetails({ vaultData }: { vaultData: MorphoVaultData }) {
   const [capsOpened, setCapsOpened] = useState(false);
   const allocators = vaultData.allocators ?? [];
@@ -278,6 +294,7 @@ export default function VaultDetails({ vaultData }: { vaultData: MorphoVaultData
   const timelockGroups = groupTimelocks(timelocks);
   const maxRatePercent = maxRateToAnnualPercent(vaultData.maxRate);
 
+  const vaultPageHref = useVaultPageHref();
   const pairAddress = getPairedVaultAddress(vaultData.address);
   // The underlying page does not list its fee wrapper. The wrapper page lists the vault it deposits into.
   const underlyingVault =
@@ -348,12 +365,10 @@ export default function VaultDetails({ vaultData }: { vaultData: MorphoVaultData
           </DetailRow>
           {underlyingVault ? (
             <DetailRow label="Underlying vault">
-              <Link
-                href={getVaultRoute(underlyingVault.address)}
-                className="font-medium text-[var(--primary)] hover:text-[var(--primary-hover)] hover:underline"
-              >
-                {underlyingVault.name}
-              </Link>
+              <UnderlyingVaultLink
+                name={underlyingVault.name}
+                link={vaultPageHref(underlyingVault.address)}
+              />
               <div>
                 <AddressLine address={underlyingVault.address} />
               </div>
