@@ -6,7 +6,7 @@ import { useQuery } from '@tanstack/react-query';
 import type { MorphoVaultData } from '@/types/vault';
 import type { VaultCapData, VaultCapRow } from '@/lib/vault-v2-caps';
 import CopiableAddress from '@/components/common/CopiableAddress';
-import { formatDashboardTokenAmount } from '@/lib/formatter';
+import { formatDashboardTokenAmount, formatPercentage } from '@/lib/formatter';
 import { findVaultByAddress, getVaultRoute } from '@/lib/vault-utils';
 import { getPairedVaultAddress } from '@/lib/vaults';
 import { getMorphoVaultUrl } from '@/lib/liquidity-utils';
@@ -279,8 +279,9 @@ export default function VaultDetails({ vaultData }: { vaultData: MorphoVaultData
   const maxRatePercent = maxRateToAnnualPercent(vaultData.maxRate);
 
   const pairAddress = getPairedVaultAddress(vaultData.address);
-  const pairVault = pairAddress ? findVaultByAddress(pairAddress) : null;
-  const pairLabel = vaultData.kind === 'wrapper' ? 'Underlying vault' : 'Fee wrapper';
+  // The underlying page does not list its fee wrapper. The wrapper page lists the vault it deposits into.
+  const underlyingVault =
+    vaultData.kind === 'wrapper' && pairAddress ? findVaultByAddress(pairAddress) : null;
 
   const roleCount = [
     vaultData.ownerAddress ? 'owner' : null,
@@ -345,16 +346,16 @@ export default function VaultDetails({ vaultData }: { vaultData: MorphoVaultData
           <DetailRow label="Vault">
             <AddressLine address={vaultData.address} />
           </DetailRow>
-          {pairVault ? (
-            <DetailRow label={pairLabel}>
+          {underlyingVault ? (
+            <DetailRow label="Underlying vault">
               <Link
-                href={getVaultRoute(pairVault.address)}
+                href={getVaultRoute(underlyingVault.address)}
                 className="font-medium text-[var(--primary)] hover:text-[var(--primary-hover)] hover:underline"
               >
-                {pairVault.name}
+                {underlyingVault.name}
               </Link>
               <div>
-                <AddressLine address={pairVault.address} />
+                <AddressLine address={underlyingVault.address} />
               </div>
             </DetailRow>
           ) : null}
@@ -364,6 +365,14 @@ export default function VaultDetails({ vaultData }: { vaultData: MorphoVaultData
               <p className="text-xs text-[var(--foreground-muted)]">Where new deposits go first, and where instant withdrawals come from.</p>
             </DetailRow>
           ) : null}
+          <DetailRow label="Performance fee">
+            <span className="tabular-nums">{formatPercentage((vaultData.performanceFee ?? 0) / 100)}</span>
+            <p className="text-xs text-[var(--foreground-muted)]">Taken from the yield, not from the deposit.</p>
+          </DetailRow>
+          <DetailRow label="Management fee">
+            <span className="tabular-nums">{formatPercentage((vaultData.managementFee ?? 0) / 100)}</span>
+            <p className="text-xs text-[var(--foreground-muted)]">Charged on assets over the year.</p>
+          </DetailRow>
           {maxRatePercent !== null ? (
             <DetailRow label="Max rate">
               <span className="tabular-nums">{maxRatePercent.toLocaleString('en-US')}% a year</span>

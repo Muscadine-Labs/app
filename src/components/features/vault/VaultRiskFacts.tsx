@@ -3,13 +3,13 @@
 import type { ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { MorphoVaultData } from '@/types/vault';
-import { BASE_CHAIN_ID, MORPHO_GRAPHQL_REVALIDATE_SECONDS } from '@/lib/constants';
+import { MORPHO_GRAPHQL_REVALIDATE_SECONDS } from '@/lib/constants';
 import { useUnixTimestamp } from '@/hooks/useClientOnly';
 import type { PendingChangeDirection, VaultPendingChange } from '@/lib/vault-v2-pending';
 import { findVaultByAddress } from '@/lib/vault-utils';
-import { getMorphoVaultUrl } from '@/lib/liquidity-utils';
 import { formatTimeUntil } from '@/lib/vault-details';
 
+const CURATOR_URL = 'https://curator.muscadine.xyz';
 const RISK_FRAMEWORK_URL = 'https://muscadine.xyz/risk';
 const MORPHO_DISCLAIMER_URL = 'https://morpho.org/disclaimers';
 
@@ -28,7 +28,7 @@ const SCREENING: ReadonlyArray<{ label: string; body: string }> = [
   },
   {
     label: 'Market liquidity',
-    body: 'How much can be withdrawn from the market and how much of it is borrowed, so exits stay possible.',
+    body: 'How much can be withdrawn from the market and how much of it is borrowed, so exits stay possible. Collateral also needs secondary-market liquidity, so it can be sold if a loan is liquidated.',
   },
   {
     label: 'Oracle and LTV',
@@ -115,8 +115,6 @@ export default function VaultRiskFacts({ vaultData }: { vaultData: MorphoVaultDa
       ? findVaultByAddress(vaultData.underlyingAddress)
       : null;
   const strategy = vaultData.strategy ?? underlying?.strategy;
-  // A wrapper holds no markets itself; its markets are the underlying vault's.
-  const marketsVaultAddress = underlying?.address ?? vaultData.address;
 
   return (
     <div className="space-y-3">
@@ -149,9 +147,7 @@ export default function VaultRiskFacts({ vaultData }: { vaultData: MorphoVaultDa
       <PendingChanges vaultData={vaultData} />
 
       <p className="flex flex-wrap gap-x-4 gap-y-1 text-xs sm:text-sm">
-        <ExternalLink href={getMorphoVaultUrl(vaultData.chainId || BASE_CHAIN_ID, marketsVaultAddress)}>
-          View markets on Morpho
-        </ExternalLink>
+        <ExternalLink href={CURATOR_URL}>View Muscadine Curator Risk Analytics</ExternalLink>
         <ExternalLink href={RISK_FRAMEWORK_URL}>Risk framework</ExternalLink>
         <ExternalLink href={MORPHO_DISCLAIMER_URL}>Morpho’s disclaimer</ExternalLink>
       </p>

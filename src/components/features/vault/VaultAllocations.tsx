@@ -22,7 +22,7 @@ import {
   formatPositionUsd,
 } from '@/lib/formatter';
 import { Skeleton } from '@/components/ui/Skeleton';
-import { formatAllocationSharePercent, isAllocationDust } from '@/lib/vault-details';
+import { isAllocationDust } from '@/lib/vault-details';
 
 interface VaultAllocationsProps {
   vaultData: MorphoVaultData;
@@ -68,11 +68,6 @@ function formatAllocated(
     row.tokenDecimals,
     row.tokenSymbol
   );
-}
-
-function allocationShare(row: VaultMarketAllocation, totalUsd: number): string {
-  if (totalUsd <= 0) return '—';
-  return formatAllocationSharePercent(row.allocatedUsd / totalUsd);
 }
 
 /** In-app link when the wallet can open the vault's page, else the vault on Morpho. */
@@ -192,18 +187,17 @@ function isDefaultAllocation(row: VaultMarketAllocation): boolean {
   return !isAllocationDust(row.allocatedUsd);
 }
 
-type DroppedColumns = { percent: boolean; liquidity: boolean; type: boolean };
+type DroppedColumns = { liquidity: boolean; type: boolean };
 
-const NO_DROPPED_COLUMNS: DroppedColumns = { percent: false, liquidity: false, type: false };
+const NO_DROPPED_COLUMNS: DroppedColumns = { liquidity: false, type: false };
 
-/** Hide % first, then liquidity, then type, and only once the row would overflow. */
+/** Hide liquidity, then type, and only once the row would overflow. */
 function columnsThatFit(container: HTMLElement): DroppedColumns {
   const cells = () => [...container.querySelectorAll<HTMLElement>('[data-col]')];
   const apply = (dropped: DroppedColumns) => {
     for (const cell of cells()) {
       const col = cell.dataset.col;
       const hide =
-        (col === 'percent' && dropped.percent) ||
         (col === 'liquidity' && dropped.liquidity) ||
         (col === 'type' && dropped.type);
       cell.style.display = hide ? 'none' : 'table-cell';
@@ -212,8 +206,6 @@ function columnsThatFit(container: HTMLElement): DroppedColumns {
   const overflows = () => container.scrollWidth > container.clientWidth + 1;
 
   const dropped: DroppedColumns = { ...NO_DROPPED_COLUMNS };
-  apply(dropped);
-  if (overflows()) dropped.percent = true;
   apply(dropped);
   if (overflows()) dropped.liquidity = true;
   apply(dropped);
@@ -236,10 +228,6 @@ function AllocationRowList({
   allocatedHeader: string;
 }) {
   const tableRef = useRef<HTMLDivElement>(null);
-  const totalUsd = rows.reduce(
-    (sum, row) => sum + (Number.isFinite(row.allocatedUsd) ? row.allocatedUsd : 0),
-    0
-  );
 
   useLayoutEffect(() => {
     const container = tableRef.current;
@@ -277,7 +265,6 @@ function AllocationRowList({
               </th>
               <th data-col="type" className={`${TYPE_CELL} ${TH} text-left`}>Type</th>
               <th data-col="allocated" className={`${AMOUNT_CELL} ${TH}`}>{allocatedHeader}</th>
-              <th data-col="percent" className={`${METRIC_CELL} ${TH} text-right`}>%</th>
               <th data-col="apy" className={`${METRIC_CELL} ${TH} text-right`}>APY</th>
               <th data-col="liquidity" className={`${METRIC_CELL} ${TH} text-right`}>Liquidity</th>
             </tr>
@@ -297,9 +284,6 @@ function AllocationRowList({
                 </td>
                 <td data-col="allocated" className={AMOUNT_CELL}>
                   {formatAllocated(row, allocatedValueType)}
-                </td>
-                <td data-col="percent" className={`${METRIC_CELL} text-right text-[var(--foreground-secondary)]`}>
-                  {allocationShare(row, totalUsd)}
                 </td>
                 <td data-col="apy" className={`${METRIC_CELL} text-right text-[var(--foreground)]`}>
                   {formatApy(row.apy)}
