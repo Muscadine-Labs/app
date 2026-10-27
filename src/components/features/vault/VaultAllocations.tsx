@@ -5,16 +5,8 @@ import Link from 'next/link';
 import { MorphoVaultData } from '@/types/vault';
 import type { VaultMarketAllocation } from '@/lib/vault-v2-allocations';
 import { formatMorphoMarketRateLabel } from '@/lib/morpho-market-url';
-import {
-  findVaultByAddress,
-  getDepositedVaultAddressSet,
-  getVaultRoute,
-} from '@/lib/vault-utils';
-import { getMorphoVaultUrl } from '@/lib/liquidity-utils';
-import { BASE_CHAIN_ID } from '@/lib/constants';
-import { useExplorerVaults } from '@/contexts/ExplorerVaultsContext';
-import { useVaultDepositGates } from '@/hooks/useVaultDepositGates';
-import { useWallet } from '@/contexts/WalletContext';
+import { findVaultByAddress } from '@/lib/vault-utils';
+import { useVaultPageHref } from '@/hooks/useVaultPageHref';
 import {
   formatSmartCurrency,
   formatPercentage,
@@ -70,32 +62,13 @@ function formatAllocated(
   );
 }
 
-/** In-app link when the wallet can open the vault's page, else the vault on Morpho. */
-function useVaultRowHref(): (vaultAddress: string) => { href: string; internal: boolean } {
-  const { listedVaultAddresses } = useExplorerVaults();
-  const { eligibleVaultAddresses } = useVaultDepositGates();
-  const { morphoHoldings } = useWallet();
-  return (vaultAddress: string) => {
-    const key = vaultAddress.toLowerCase();
-    // Same rule as the vault page's access check: listed, depositable, or held.
-    const pageOpen =
-      !!findVaultByAddress(vaultAddress) &&
-      (listedVaultAddresses.has(key) ||
-        eligibleVaultAddresses.has(key) ||
-        getDepositedVaultAddressSet(morphoHoldings.positions).has(key));
-    return pageOpen
-      ? { href: getVaultRoute(vaultAddress), internal: true }
-      : { href: getMorphoVaultUrl(BASE_CHAIN_ID, vaultAddress), internal: false };
-  };
-}
-
 const NAME_LINK_CLASS =
   'font-medium text-[var(--primary)] hover:text-[var(--primary-hover)] hover:underline';
 
 function AllocationMarketName({ row }: { row: VaultMarketAllocation }) {
-  const vaultRowHref = useVaultRowHref();
+  const vaultPageHref = useVaultPageHref();
   if (row.kind === 'vault' && row.vaultAddress) {
-    const { href, internal } = vaultRowHref(row.vaultAddress);
+    const { href, internal } = vaultPageHref(row.vaultAddress);
     return internal ? (
       <Link href={href} className={NAME_LINK_CLASS}>
         {row.name}
@@ -182,9 +155,22 @@ const MARKET_CELL_BASE =
 const MARKET_CELL = `${MARKET_CELL_BASE} pl-2 sm:pl-2.5 lg:pl-3 whitespace-nowrap`;
 const TH = 'font-medium text-[var(--foreground-secondary)]';
 
-/** Default rows are positions above one cent, including idle cash above that. */
+/**
+ * Default rows are positions above one cent, including idle cash above that. A wrapper's
+ * row into its underlying vault always shows while it holds tokens: Morpho can omit its
+ * USD value, and a missing price is not dust.
+ */
 function isDefaultAllocation(row: VaultMarketAllocation): boolean {
+  if (row.kind === 'vault' && hasPositiveRaw(row.allocatedAssetsRaw)) return true;
   return !isAllocationDust(row.allocatedUsd);
+}
+
+function hasPositiveRaw(raw: string): boolean {
+  try {
+    return BigInt(raw || '0') > BigInt(0);
+  } catch {
+    return false;
+  }
 }
 
 type DroppedColumns = { liquidity: boolean; type: boolean };

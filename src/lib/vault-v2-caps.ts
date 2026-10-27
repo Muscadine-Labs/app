@@ -169,7 +169,8 @@ export function mapVaultV2Caps(vault: VaultCapsGraphQL, chainId: number = BASE_C
         cap.type?.toLowerCase().includes('fixed') ? 'fixed' : 'variable';
       const marketId = data.market.marketId;
       caps.push({
-        id: `market-${marketId ?? index}`,
+        // Two adapters can cap the same market; the list position keeps keys unique.
+        id: `market-${marketId ?? 'unknown'}-${index}`,
         kind: 'market',
         label: `${collateral} / ${loan}`,
         lltv: Number.isFinite(lltv) && lltv > 0 ? lltv : null,

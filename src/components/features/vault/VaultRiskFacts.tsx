@@ -7,9 +7,9 @@ import { MORPHO_GRAPHQL_REVALIDATE_SECONDS } from '@/lib/constants';
 import { useUnixTimestamp } from '@/hooks/useClientOnly';
 import type { PendingChangeDirection, VaultPendingChange } from '@/lib/vault-v2-pending';
 import { findVaultByAddress } from '@/lib/vault-utils';
+import { getMorphoVaultUrl } from '@/lib/liquidity-utils';
 import { formatTimeUntil } from '@/lib/vault-details';
 
-const CURATOR_URL = 'https://curator.muscadine.xyz';
 const RISK_FRAMEWORK_URL = 'https://muscadine.xyz/risk';
 const MORPHO_DISCLAIMER_URL = 'https://morpho.org/disclaimers';
 
@@ -115,6 +115,8 @@ export default function VaultRiskFacts({ vaultData }: { vaultData: MorphoVaultDa
       ? findVaultByAddress(vaultData.underlyingAddress)
       : null;
   const strategy = vaultData.strategy ?? underlying?.strategy;
+  // A wrapper's markets are on its underlying vault's Morpho page.
+  const marketsVaultAddress = underlying?.address ?? vaultData.address;
 
   return (
     <div className="space-y-3">
@@ -147,7 +149,9 @@ export default function VaultRiskFacts({ vaultData }: { vaultData: MorphoVaultDa
       <PendingChanges vaultData={vaultData} />
 
       <p className="flex flex-wrap gap-x-4 gap-y-1 text-xs sm:text-sm">
-        <ExternalLink href={CURATOR_URL}>View Muscadine Curator Risk Analytics</ExternalLink>
+        <ExternalLink href={getMorphoVaultUrl(vaultData.chainId, marketsVaultAddress)}>
+          View markets on Morpho
+        </ExternalLink>
         <ExternalLink href={RISK_FRAMEWORK_URL}>Risk framework</ExternalLink>
         <ExternalLink href={MORPHO_DISCLAIMER_URL}>Morpho’s disclaimer</ExternalLink>
       </p>
