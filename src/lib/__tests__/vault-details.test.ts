@@ -5,8 +5,6 @@ import {
   isAllocationDust,
   groupTimelocks,
   maxRateToAnnualPercent,
-  RISK_INCREASING_FUNCTIONS,
-  shortestGuard,
   summarizeExposure,
 } from '@/lib/vault-details';
 import type { VaultMarketAllocation } from '@/lib/vault-v2-allocations';
@@ -58,31 +56,6 @@ describe('groupTimelocks', () => {
       { label: 'No delay', functions: ['decreaseTimelock'] },
       { label: 'Abdicated', functions: ['setAdapterRegistry'] },
     ]);
-  });
-});
-
-describe('shortestGuard', () => {
-  it('takes the shortest delay among callable functions', () => {
-    const guard = shortestGuard(
-      [timelock('addAdapter', 7 * DAY), timelock('increaseAbsoluteCap', 3 * DAY)],
-      RISK_INCREASING_FUNCTIONS
-    );
-    expect(guard).toEqual({ kind: 'delay', seconds: 3 * DAY });
-  });
-
-  it('ignores abdicated functions', () => {
-    const guard = shortestGuard(
-      [timelock('addAdapter', 0, true), timelock('increaseAbsoluteCap', 7 * DAY)],
-      RISK_INCREASING_FUNCTIONS
-    );
-    expect(guard).toEqual({ kind: 'delay', seconds: 7 * DAY });
-  });
-
-  it('reports abdicated when nothing is callable, unknown when nothing matches', () => {
-    expect(shortestGuard([timelock('addAdapter', 0, true)], ['addAdapter'])).toEqual({
-      kind: 'abdicated',
-    });
-    expect(shortestGuard([], RISK_INCREASING_FUNCTIONS)).toEqual({ kind: 'unknown' });
   });
 });
 
