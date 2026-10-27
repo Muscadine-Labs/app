@@ -1,145 +1,52 @@
 'use client';
 
+import type { ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { MorphoVaultData } from '@/types/vault';
-import { formatDashboardTokenAmount } from '@/lib/formatter';
-import { MORPHO_GRAPHQL_REVALIDATE_SECONDS } from '@/lib/constants';
+import { BASE_CHAIN_ID, MORPHO_GRAPHQL_REVALIDATE_SECONDS } from '@/lib/constants';
 import { useUnixTimestamp } from '@/hooks/useClientOnly';
 import type { PendingChangeDirection, VaultPendingChange } from '@/lib/vault-v2-pending';
 import { findVaultByAddress } from '@/lib/vault-utils';
-import {
-  FEE_INCREASING_FUNCTIONS,
-  formatSharePercent,
-  formatTimelockDuration,
-  formatTimeUntil,
-  RISK_INCREASING_FUNCTIONS,
-  shortestGuard,
-} from '@/lib/vault-details';
+import { getMorphoVaultUrl } from '@/lib/liquidity-utils';
+import { formatTimeUntil } from '@/lib/vault-details';
 
-interface Fact {
-  key: string;
-  label: string;
-  value: string;
-  body: string;
-}
+const RISK_FRAMEWORK_URL = 'https://muscadine.xyz/risk';
+const MORPHO_DISCLAIMER_URL = 'https://morpho.org/disclaimers';
 
-function toBigInt(value: string | undefined | null): bigint {
-  try {
-    return value ? BigInt(value) : BigInt(0);
-  } catch {
-    return BigInt(0);
-  }
-}
+const STRATEGY_TEXT: Record<'prime' | 'frontier', string> = {
+  prime:
+    'Prime lends only against blue-chip collateral, such as BTC and ETH and their wrapped or staked versions, in deep markets with conservative loan-to-value limits. It aims for steady yield over the highest yield.',
+  frontier:
+    'Frontier aims for higher yield. It lends against a wider set of crypto assets and tokenized stocks, with lower loan-to-value limits to offset more volatile collateral.',
+};
 
-function formatPercentValue(value: number): string {
-  return `${Number.isInteger(value) ? value : value.toFixed(2)}%`;
-}
+/** What the curator checks before a market can hold funds. */
+const SCREENING: ReadonlyArray<{ label: string; body: string }> = [
+  {
+    label: 'Collateral',
+    body: 'What backs each loan: a native asset, a wrapped or staked version of one, or a tokenized stock, and how it can be redeemed.',
+  },
+  {
+    label: 'Market liquidity',
+    body: 'How much can be withdrawn from the market and how much of it is borrowed, so exits stay possible.',
+  },
+  {
+    label: 'Oracle and LTV',
+    body: 'Where the price comes from and how often it updates, and how much can be borrowed against the collateral before liquidation.',
+  },
+];
 
-/**
- * Name of the vault a fee wrapper is locked to: a wrapper whose `addAdapter` is
- * abdicated can only ever deposit into its underlying vault.
- */
-function lockedWrapperUnderlyingName(vaultData: MorphoVaultData): string | null {
-  if (vaultData.kind !== 'wrapper' || !vaultData.underlyingAddress) return null;
-  if (shortestGuard(vaultData.timelocks ?? [], ['addAdapter']).kind !== 'abdicated') return null;
-  return findVaultByAddress(vaultData.underlyingAddress)?.name ?? 'its underlying vault';
-}
-
-function buildFacts(vaultData: MorphoVaultData): Fact[] {
-  const decimals = vaultData.assetDecimals || 18;
-  const symbol = vaultData.symbol;
-  const timelocks = vaultData.timelocks ?? [];
-  const isWrapper = vaultData.kind === 'wrapper';
-  const facts: Fact[] = [];
-
-  const instantRaw = toBigInt(
-    vaultData.liquidityBreakdown?.instantLiquidityAssets ?? vaultData.liquidityAssets
+function ExternalLink({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="font-medium text-[var(--primary)] hover:text-[var(--primary-hover)] hover:underline"
+    >
+      {children}
+    </a>
   );
-  const deallocatableRaw = toBigInt(vaultData.liquidityBreakdown?.deallocatableLiquidityAssets);
-  const totalAssetsRaw = toBigInt(vaultData.totalAssets);
-  const instantShare =
-    totalAssetsRaw > BigInt(0) ? Number((instantRaw * BigInt(10_000)) / totalAssetsRaw) / 10_000 : 0;
-  const instantLabel = formatDashboardTokenAmount(instantRaw.toString(), decimals, symbol);
-  let withdrawBody: string;
-  if (isWrapper) {
-    withdrawBody =
-      'This wrapper has no force withdraw. A larger withdrawal waits until borrowers repay or new deposits arrive.';
-  } else if (deallocatableRaw > BigInt(0)) {
-    const total = formatDashboardTokenAmount((instantRaw + deallocatableRaw).toString(), decimals, symbol);
-    withdrawBody = `Up to ${total} with a force withdraw, which pulls funds out of markets for a small penalty shown before you sign.`;
-  } else {
-    withdrawBody = 'A larger withdrawal waits until borrowers repay or new deposits arrive.';
-  }
-  facts.push({
-    key: 'withdraw',
-    label: 'Withdraw now',
-    value: totalAssetsRaw > BigInt(0) ? `${instantLabel} · ${formatSharePercent(instantShare)} of deposits` : instantLabel,
-    body: withdrawBody,
-  });
-
-  const riskGuard = shortestGuard(timelocks, RISK_INCREASING_FUNCTIONS);
-  const lockedUnderlying = lockedWrapperUnderlyingName(vaultData);
-  if (lockedUnderlying) {
-    // Raising a locked wrapper's cap only lets more flow into the same underlying vault.
-    facts.push({
-      key: 'risk',
-      label: 'New risk',
-      value: `Set by ${lockedUnderlying}`,
-      body: `This wrapper can only deposit into ${lockedUnderlying}. Adding a market there waits out that vault’s own timelock.`,
-    });
-  } else if (riskGuard.kind === 'delay') {
-    facts.push(
-      riskGuard.seconds > 0
-        ? {
-            key: 'risk',
-            label: 'New risk waits',
-            value: formatTimelockDuration(riskGuard.seconds),
-            body: `Adding a market or raising a cap is public for ${formatTimelockDuration(riskGuard.seconds)} before it can take effect, so you can withdraw first.`,
-          }
-        : {
-            key: 'risk',
-            label: 'New risk waits',
-            value: 'No delay',
-            body: 'Adding a market or raising a cap can take effect right away.',
-          }
-    );
-  } else if (riskGuard.kind === 'abdicated') {
-    facts.push({
-      key: 'risk',
-      label: 'New risk',
-      value: 'Locked',
-      body: 'The ability to add markets or raise caps has been given up for good.',
-    });
-  }
-
-  const feeGuard = shortestGuard(timelocks, FEE_INCREASING_FUNCTIONS);
-  const feeBody =
-    feeGuard.kind === 'delay'
-      ? feeGuard.seconds > 0
-        ? `A fee increase waits ${formatTimelockDuration(feeGuard.seconds)}.`
-        : 'Fees can change without notice.'
-      : feeGuard.kind === 'abdicated'
-        ? 'Fees can never be changed.'
-        : 'As set on the vault contract.';
-  facts.push({
-    key: 'fees',
-    label: 'Fees',
-    value: `${formatPercentValue(vaultData.performanceFee ?? 0)} performance · ${formatPercentValue(vaultData.managementFee ?? 0)} management`,
-    body: feeBody,
-  });
-
-  const sentinelCount = vaultData.sentinels?.length ?? 0;
-  facts.push({
-    key: 'sentinels',
-    label: 'Emergency controls',
-    value: sentinelCount === 0 ? 'No sentinels' : `${sentinelCount} sentinel${sentinelCount === 1 ? '' : 's'}`,
-    body:
-      sentinelCount === 0
-        ? 'No one is assigned to pull funds back or cancel a pending change.'
-        : 'They can pull funds back to the vault, lower caps or cancel a pending change. They cannot add risk.',
-  });
-
-  return facts;
 }
 
 const DIRECTION_MARK: Record<PendingChangeDirection, { symbol: string; label: string; className: string }> = {
@@ -201,28 +108,53 @@ function PendingChanges({ vaultData }: { vaultData: MorphoVaultData }) {
   );
 }
 
+/** Risk in plain words: the strategy, how markets are screened, and pending curator changes. */
 export default function VaultRiskFacts({ vaultData }: { vaultData: MorphoVaultData }) {
-  const facts = buildFacts(vaultData);
+  const underlying =
+    vaultData.kind === 'wrapper' && vaultData.underlyingAddress
+      ? findVaultByAddress(vaultData.underlyingAddress)
+      : null;
+  const strategy = vaultData.strategy ?? underlying?.strategy;
+  // A wrapper holds no markets itself; its markets are the underlying vault's.
+  const marketsVaultAddress = underlying?.address ?? vaultData.address;
 
   return (
     <div className="space-y-3">
-      <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {facts.map((fact) => (
-          <div
-            key={fact.key}
-            className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-3 sm:p-4 space-y-1 min-w-0"
-          >
-            <dt className="text-xs text-[var(--foreground-secondary)]">{fact.label}</dt>
-            <dd className="space-y-1">
-              <p className="text-sm sm:text-base font-semibold text-[var(--foreground)] tabular-nums">
-                {fact.value}
-              </p>
-              <p className="text-xs sm:text-sm text-[var(--foreground-secondary)] leading-relaxed">{fact.body}</p>
-            </dd>
-          </div>
-        ))}
-      </dl>
+      <div className="space-y-2 text-sm text-[var(--foreground-secondary)] leading-relaxed max-w-3xl">
+        {strategy ? <p>{STRATEGY_TEXT[strategy]}</p> : null}
+        {underlying ? (
+          <p>
+            This is a fee wrapper: deposits go into {underlying.name}. It has no force withdraw, so a
+            large withdrawal may have to wait until that vault has liquidity.
+          </p>
+        ) : null}
+      </div>
+
+      <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-3 sm:p-4 space-y-2">
+        <p className="text-xs font-medium text-[var(--foreground-secondary)]">
+          Every market is screened on
+        </p>
+        <dl className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {SCREENING.map((item) => (
+            <div key={item.label} className="min-w-0 space-y-0.5">
+              <dt className="text-sm font-semibold text-[var(--foreground)]">{item.label}</dt>
+              <dd className="text-xs sm:text-sm text-[var(--foreground-secondary)] leading-relaxed">
+                {item.body}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+
       <PendingChanges vaultData={vaultData} />
+
+      <p className="flex flex-wrap gap-x-4 gap-y-1 text-xs sm:text-sm">
+        <ExternalLink href={getMorphoVaultUrl(vaultData.chainId || BASE_CHAIN_ID, marketsVaultAddress)}>
+          View markets on Morpho
+        </ExternalLink>
+        <ExternalLink href={RISK_FRAMEWORK_URL}>Risk framework</ExternalLink>
+        <ExternalLink href={MORPHO_DISCLAIMER_URL}>Morpho’s disclaimer</ExternalLink>
+      </p>
     </div>
   );
 }

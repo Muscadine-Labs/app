@@ -1070,7 +1070,6 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
         <VaultSection
           id="vault-risk"
           title="Risk"
-          summary="What protects your deposit, read from the vault contract and Morpho."
         >
           <VaultRiskFacts vaultData={vaultData} />
         </VaultSection>

@@ -4,15 +4,6 @@ import type { VaultMarketAllocation } from '@/lib/vault-v2-allocations';
 const SECONDS_PER_YEAR = BigInt(31_536_000);
 const WAD = BigInt(10) ** BigInt(18);
 
-/** Vault V2 functions that let the curator add risk (new markets, bigger caps). */
-export const RISK_INCREASING_FUNCTIONS = [
-  'addAdapter',
-  'increaseAbsoluteCap',
-  'increaseRelativeCap',
-] as const;
-
-export const FEE_INCREASING_FUNCTIONS = ['setPerformanceFee', 'setManagementFee'] as const;
-
 /** `604800` → `7 days`, `259200` → `3 days`, `0` → `No delay`. */
 export function formatTimelockDuration(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds <= 0) return 'No delay';
@@ -49,28 +40,6 @@ export function groupTimelocks(timelocks: readonly VaultTimelock[]): TimelockGro
     groups.push({ label: 'Abdicated', functions: abdicated });
   }
   return groups;
-}
-
-export type GuardedChange =
-  | { kind: 'delay'; seconds: number }
-  /** Every listed function is abdicated: the change can never be made. */
-  | { kind: 'abdicated' }
-  | { kind: 'unknown' };
-
-/**
- * The shortest wait before any of `functionNames` can take effect. Abdicated
- * functions can never run, so they do not count. The shortest wait is the one
- * that matters to a depositor.
- */
-export function shortestGuard(
-  timelocks: readonly VaultTimelock[],
-  functionNames: readonly string[]
-): GuardedChange {
-  const matching = timelocks.filter((timelock) => functionNames.includes(timelock.functionName));
-  if (matching.length === 0) return { kind: 'unknown' };
-  const callable = matching.filter((timelock) => !timelock.abdicated);
-  if (callable.length === 0) return { kind: 'abdicated' };
-  return { kind: 'delay', seconds: Math.min(...callable.map((timelock) => timelock.duration)) };
 }
 
 /**
