@@ -4,14 +4,15 @@ Comprehensive context for AI assistants and developers. This is the canonical �
 
 **Product:** **Muscadine Vaults** — web app for curated Morpho vaults on **Base (chain id 8453)** — deposit, withdraw, portfolio view, vault analytics. **v2 Prime and Frontier** vaults for USDC, cbBTC, and WETH. **v1 MetaMorpho removed** from registry and codebase (v2-only writes).
 
-**Version:** `package.json` → `1.4.6`
+**Version:** `package.json` → `1.5.0`
 
 ---
 
 ## Working agreement (read first)
 
 - **Review `TODO.md` at the start of every session.** It is the canonical task list: items under “TO work on today” are actionable now; “To work on another day” is backlog. Remove or update entries as work completes.
-- **Before every push to GitHub:** run `npm run lint` and `npm run build` locally and make sure both pass. GitHub Actions only lints — never put API keys or a dummy-key build in the workflow. NEVER PUSH TO Github without users explicit permission or order.
+- **Before every push to GitHub:** run `npm run lint` and `npm run build` locally and make sure both pass. GitHub Actions only lints — never put API keys or a dummy-key build in the workflow.
+- **Git, branches and PRs:** AI assistants may commit, create branches, push those branches, and open pull requests without asking first. **Never push to, commit directly on, force-push, or merge into `main`** — every change reaches `main` only through a PR that the user merges. Work on a feature branch (create one if you are on `main`).
 - Keep `CLAUDE.md` and `AGENTS.md` in sync when conventions or architecture knowledge change.
 
 ---
@@ -136,7 +137,7 @@ Fee wrappers (`kind: 'wrapper'`, `underlyingAddress` = the vault above they depo
 | cbBTC | `0x0e0a857d2AF1A2d43c82d1FA54766239CAb70147` (wmpcbBTC) | — |
 
 **Routes:** `/vault/v2/{address}` only (curated registry addresses).  
-**API:** `/api/vault/v2/{address}/{complete|history|activity|position-history|earned-interest}`
+**API:** `/api/vault/v2/{address}/{complete|history|activity|position-history|earned-interest|allocations|caps|pending}`
 
 **Vault registry fields:** `symbol` (underlying asset), `vaultSymbol` (share token label), `strategy` (`prime` | `frontier`), `kind` (`underlying` | `wrapper`), `underlyingAddress` (wrappers only).
 
@@ -268,7 +269,7 @@ v2-only: `depositToVaultV2` / `withdrawFromVaultV2` / `redeemFromVaultV2` / `for
 
 Query root: `vaultV2ByAddress(address, chainId)`.
 
-Notable fields: `asset`, `totalAssets`, `totalSupply`, `liquidity`, `liquidityUsd`, `idleAssetsUsd`, `avgNetApy`, `avgNetApyExcludingRewards`, `maxApy`, `adapters`, `rewards`, `warnings`, etc. Response is normalized toward v1-shaped JSON (`vaultByAddress` shape) for shared UI. Headline APY maps from Morpho **`netApy`** (with fallbacks), matching the Morpho deposit widget.
+Notable fields: `asset`, `totalAssets`, `totalSupply`, `liquidity`, `liquidityUsd`, `idleAssetsUsd`, `avgNetApy`, `avgNetApyExcludingRewards`, `maxApy`, `adapters`, `rewards`, `warnings`, etc. Governance fields for the Overview: `owner { address }`, `curator { address }` (the `curators` list can be empty while `curator` is set — use the single field), `sentinels`, `timelocks { functionName duration abdicatedAt }`, `maxRate`, `liquidityAdapter`. The route flattens these to `state.owner` / `state.curator` address strings and top-level `sentinels`, `timelocks` (`{ functionName, duration, abdicated }`), `maxRate`, `liquidityAdapterAddress`. Response is normalized toward v1-shaped JSON (`vaultByAddress` shape) for shared UI. Headline APY maps from Morpho **`netApy`** (with fallbacks), matching the Morpho deposit widget.
 
 ### V2 history route (`src/app/api/vault/v2/[address]/history/route.ts`)
 
@@ -396,11 +397,18 @@ Adaptive layout (content-sized panels; empty sections omitted):
 
 Whitelisted registry vaults only — unknown / external addresses redirect home. Deposit/Withdraw is an inline `VaultTransactPanel` top-aligned with Your Position + Earned Interest (chart under those totals). Below 1000px: totals → chart → panel. Stats box: Network, APY, Past/Future rewards (no duplicate position or all-time earned). Past is the default when the user has a vault position; Future is the default when they do not. WETH vaults take and pay WETH only. Mobile sticky Deposit/Withdraw on Overview jumps to My Position. Tab switches away from My Position are blocked while a tx is in preview/signing.
 
-### Vault detail charts (`VaultOverview.tsx`)
+### Vault Overview (`VaultOverview.tsx`) — three layers of detail
 
-Chart tabs (order): **APY** → **Total Deposits** → **Share Price** → **Allocations**. **Total Deposits** and **Share Price** support USD / token toggle. Axis labels and tooltips use full values with 2 decimals (`formatCurrency` / `formatAssetAmount`). Stat cards use `formatSmartCurrency`.
+The analytics site (`analytics.muscadine.xyz`) is retired; its vault information lives here. It is **not** split into more tabs (Overview / My Position / History stay). Overview is one scroll page; each section leads with a one-line plain-English summary and the detail sits below it.
 
-**Allocations:** underlying vaults show a flat Morpho Blue market table (Market / Type / Allocated / APY / Liquidity / Market size). A wrapper shows one **Vault** row for its deposit into the underlying (`MorphoVaultV2Adapter` `assets` in USDC / WETH / cbBTC, with the underlying's APY, liquidity and total deposits from `innerVault`); the row links to the underlying's vault page when this wallet can open it, otherwise Muscadine Analytics. Name and footer link to [Muscadine Analytics](https://analytics.muscadine.xyz/vault/v2/{address}) (`getVaultAnalyticsUrl`). Market names link to Morpho.
+1. **Key numbers (always visible):** Net APY (with `VaultApyInfo`), Total deposits, Liquidity (total underlying, `VaultLiquidityInfo`, plus "% of deposits"), and **Exposure** chips (top 3 collateral tokens by share, `ExposureChips`). A wrapper's exposure is its underlying vault's markets ("Through …"). Exposure replaced the old Status card, which always read Active.
+2. **Sticky jump links** (`VaultSectionNav`): Performance · Allocation · Risk · Vault details. Buttons call `scrollIntoView`; the app scrolls inside `[data-app-scroll]`, so `sticky top-0` works there.
+3. **Performance:** chart tabs **APY** → **Total Deposits** → **Share Price** (Allocations is no longer a chart tab). **Total Deposits** and **Share Price** support USD / token toggle. Axis labels and tooltips use full values with 2 decimals (`formatCurrency` / `formatAssetAmount`).
+4. **Allocation:** summary line + collateral exposure bar (`ExposureBar`, idle shown separately), then the market table (`VaultAllocations`). Underlying vaults show a flat Morpho Blue market table (Market / Type / Allocated / APY / Liquidity / Market size). A wrapper shows one **Vault** row for its deposit into the underlying (`MorphoVaultV2Adapter` `assets`, with the underlying's APY, liquidity and total deposits from `innerVault`); the row links to the underlying's vault page when this wallet can open it, otherwise to the vault on Morpho (`getMorphoVaultUrl`). Market names link to Morpho. Allocations load once through `useVaultAllocations` (React Query, shared by the exposure chips, bar and table).
+5. **Risk** (`VaultRiskFacts`): four facts read from vault data — **Withdraw now** (instant liquidity and share of deposits; force-withdraw ceiling on underlyings, "no force withdraw" on wrappers), **New risk waits** (shortest non-abdicated timelock of `addAdapter` / `increaseAbsoluteCap` / `increaseRelativeCap`; a wrapper whose `addAdapter` is abdicated reads "Set by {underlying}" — its cap is already unlimited), **Fees** (+ fee-increase timelock), **Emergency controls** (sentinel count). **Morpho `warnings` are not shown to users** (every vault is unlisted on Morpho, and wrappers' RED `timelock` flag is expected); Curator keeps them for risk management. Instead, **Pending changes** (`/api/vault/v2/{address}/pending`, Morpho `pendingConfigs`, `mapVaultV2Pending` in `lib/vault-v2-pending.ts`) lists curator changes still in their timelock with a small **+** (adds: adapter, cap raise, fee increase, allocator), **−** (removes: adapter, allocator, fee cut, abdication) or **•** (other) mark and a countdown. Hidden when nothing is pending or the read fails.
+6. **Vault details** (`VaultDetails`, collapsed `<details>`): Roles (owner, curator, allocators, sentinels with copy + Basescan), Timelocks grouped by delay with **Abdicated** last (`groupTimelocks`), Caps (lazy `/api/vault/v2/{address}/caps` on first open; only caps holding funds by default, "Show all" toggle; uint128 max = No limit, relative cap 1e18 = No limit), Contracts and limits (vault, paired wrapper/underlying, liquidity adapter, max rate as %/yr, Morpho + Basescan links).
+
+Pure helpers and their tests: `src/lib/vault-details.ts` (`__tests__/vault-details.test.ts`), `src/lib/vault-v2-caps.ts` (`__tests__/vault-v2-caps.test.ts`), `src/lib/vault-v2-pending.ts` (`__tests__/vault-v2-pending.test.ts`).
 
 ---
 
@@ -444,7 +452,7 @@ Same Risk Framework / Morpho’s Disclaimer links appear in **NavBar** Muscadine
 
 **Re-acceptance:** `TERMS_VERSION` in `AdvisoryAgreementContext.tsx` (currently **`2.3.0`**) — bump when legal copy changes; stored in localStorage as `advisory-agreement-version` alongside `advisory-agreement-accepted`.
 
-**Advisory:** the first-connect modal covers custody, terms, and the Morpho disclaimer, with a link to [Muscadine Analytics](https://analytics.muscadine.xyz).
+**Advisory:** the first-connect modal covers custody, terms, and the Morpho disclaimer, and points to each vault's page for allocations, risk controls and fees (the analytics site is retired; do not link `analytics.muscadine.xyz`).
 
 ---
 
@@ -659,7 +667,7 @@ Do not bump without checking compatibility:
 - Minimize scope; keep v1 and v2 paths separate
 - Use `logger` from `lib/logger.ts` instead of ad-hoc `console.log`. `error` / `warn` always log; `info` / `debug` are development-only.
 - Resolve a vault from `vaults.ts` via `findVaultByAddress`
-- **Git commits:** only when the user explicitly asks
+- **Git:** commits, feature branches, pushes of those branches and PRs are fine; never push to or merge into `main` (see Working agreement)
 - Match existing style in touched files; avoid drive-by refactors
 
 ---

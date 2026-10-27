@@ -81,16 +81,7 @@ export function AdvisoryAgreementModal() {
           </p>
 
           <p className="text-xs sm:text-sm text-[var(--foreground)] leading-relaxed">
-            The vaults listed here are Muscadine’s curated Morpho vaults. Some are fee wrappers that deposit into Muscadine’s underlying Morpho vaults; a wrapper charges a performance fee. Deposits open when a vault’s send-assets gate allows your wallet. Withdrawals stay open for shares you already hold.{' '}
-            <a
-              href="https://analytics.muscadine.xyz"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-[var(--primary)] hover:underline"
-            >
-              See analytics
-            </a>{' '}
-            for more details.
+            The vaults listed here are Muscadine’s curated Morpho vaults. Some are fee wrappers that deposit into Muscadine’s underlying Morpho vaults; a wrapper charges a performance fee. Deposits open when a vault’s send-assets gate allows your wallet. Withdrawals stay open for shares you already hold. Each vault’s page lists its allocations, risk controls and fees.
           </p>
 
           <p className="text-xs sm:text-sm text-[var(--foreground)] leading-relaxed">
@@ -182,12 +173,12 @@ export function AdvisoryAgreementModal() {
               </h3>
               <div className="space-y-0">
                 <a
-                  href="https://analytics.muscadine.xyz"
+                  href="https://muscadine.xyz"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="block py-1 sm:py-1.5 text-xs sm:text-sm text-[var(--foreground)] hover:text-[var(--primary)] transition-colors cursor-pointer"
                 >
-                  Risk Analytics
+                  Muscadine.xyz
                 </a>
               </div>
             </div>

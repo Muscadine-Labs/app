@@ -13,13 +13,19 @@ import {
   formatSharePriceUsd,
   formatVaultDetailTokenAmount,
 } from '@/lib/formatter';
-import { calculateYAxisDomain } from '@/lib/vault-utils';
+import { calculateYAxisDomain, findVaultByAddress } from '@/lib/vault-utils';
 import { CHART_MARGIN, getChartYAxisWidth, withLeadingChartTick, VAULT_DETAIL_CHART_HEIGHT_CLASS, VAULT_DETAIL_CHART_MIN_HEIGHT } from '@/lib/chart-utils';
 import { logger } from '@/lib/logger';
 import { MorphoVaultData } from '@/types/vault';
 import { VaultLiquidityInfo } from './VaultLiquidityInfo';
 import { VaultApyInfo } from './VaultApyInfo';
 import { VaultAllocations } from './VaultAllocations';
+import { ExposureBar, ExposureChips } from './VaultExposure';
+import { VaultSection, VaultSectionNav } from './VaultSectionNav';
+import VaultRiskFacts from './VaultRiskFacts';
+import VaultDetails from './VaultDetails';
+import { useVaultAllocations } from '@/hooks/useVaultAllocations';
+import { formatSharePercent, summarizeExposure, type ExposureSummary } from '@/lib/vault-details';
 import { useToast } from '@/contexts/ToastContext';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -44,7 +50,53 @@ interface HistoryDataPoint {
   assetPriceUsd?: number;
 }
 
-type ChartType = 'apy' | 'tvl' | 'sharePrice' | 'allocations';
+type ChartType = 'apy' | 'tvl' | 'sharePrice';
+
+const OVERVIEW_SECTIONS = [
+  { id: 'vault-performance', label: 'Performance' },
+  { id: 'vault-allocation', label: 'Allocation' },
+  { id: 'vault-risk', label: 'Risk' },
+  { id: 'vault-details', label: 'Vault details' },
+] as const;
+
+function rawShareOf(partRaw: string | undefined, totalRaw: string | undefined): number | null {
+  try {
+    const total = BigInt(totalRaw || '0');
+    if (total <= BigInt(0)) return null;
+    // Morpho's liquidity figures can run slightly ahead of totalAssets; never show over 100%.
+    return Math.min(1, Number((BigInt(partRaw || '0') * BigInt(10_000)) / total) / 10_000);
+  } catch {
+    return null;
+  }
+}
+
+/** One-line answer at the top of the Allocation section. */
+function allocationSummary(
+  exposure: ExposureSummary,
+  assetSymbol: string,
+  underlyingName: string | null
+): string | null {
+  if (exposure.totalUsd <= 0) return null;
+  const marketText =
+    exposure.marketCount === 1 ? '1 Morpho market' : `${exposure.marketCount} Morpho markets`;
+  const collateral = exposure.items.map((item) => item.symbol);
+  const collateralText =
+    collateral.length <= 3
+      ? collateral.join(', ')
+      : `${collateral.slice(0, 3).join(', ')} and ${collateral.length - 3} more`;
+  const lends =
+    exposure.marketCount > 0
+      ? `lends ${assetSymbol} in ${marketText} against ${collateralText}`
+      : `holds ${assetSymbol} without lending it`;
+  const idleShare = exposure.idleUsd / exposure.totalUsd;
+  const idleText =
+    exposure.idleUsd <= 0
+      ? ' None is sitting idle.'
+      : ` ${formatSharePercent(idleShare)} is idle in the vault, ready for withdrawals.`;
+  return underlyingName
+    ? `Deposits go into ${underlyingName}, which ${lends}.${idleText}`
+    : `${lends.charAt(0).toUpperCase()}${lends.slice(1)}.${idleText}`;
+}
 
 type Period = 'all' | '7d' | '30d' | '90d' | '1y';
 
@@ -126,8 +178,26 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
     vaultData.symbol
   );
 
+  const liquidityShare = rawShareOf(totalUnderlyingAssets, vaultData.totalAssets);
+
   // Format APY
   const apyPercent = formatPercentage(vaultData.apy);
+
+  // A wrapper's exposure is its underlying vault's markets.
+  const ownAllocations = useVaultAllocations(vaultData.address, vaultData.chainId);
+  const underlyingVault =
+    vaultData.kind === 'wrapper' && vaultData.underlyingAddress
+      ? findVaultByAddress(vaultData.underlyingAddress)
+      : null;
+  const exposureAllocations = useVaultAllocations(
+    underlyingVault?.address ?? vaultData.address,
+    vaultData.chainId
+  );
+  const exposure = useMemo(
+    () => summarizeExposure(exposureAllocations.allocations),
+    [exposureAllocations.allocations]
+  );
+  const exposureSummary = allocationSummary(exposure, vaultData.symbol, underlyingVault?.name ?? null);
 
   const chartEndTimestamp = useMemo(() => {
     let maxTs = 0;
@@ -624,7 +694,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-5 overflow-visible">
           <div className="overflow-visible">
             <div className="flex items-center gap-1.5 mb-1">
-              <p className="text-xs text-[var(--foreground-secondary)]">Current Earnings Rate</p>
+              <p className="text-xs text-[var(--foreground-secondary)]">Net APY</p>
               <VaultApyInfo
                 grossApy={vaultData.grossApy ?? vaultData.apy}
                 netApy={vaultData.apy}
@@ -636,7 +706,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
               {apyPercent}
             </p>
             <p className="text-xs text-[var(--foreground-secondary)] mt-1">
-              Annual return you can expect
+              After fees, changes with market rates
             </p>
             {vaultData.apyChange !== undefined && vaultData.apyChange !== 0 && (
               <p className={`text-xs mt-2 ${vaultData.apyChange > 0 ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`}>
@@ -645,7 +715,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
             )}
           </div>
           <div>
-            <p className="text-xs text-[var(--foreground-secondary)] mb-1">Total Deposited</p>
+            <p className="text-xs text-[var(--foreground-secondary)] mb-1">Total deposits</p>
             <p className="text-xl sm:text-2xl font-bold text-[var(--foreground)]">
               {formatVaultDetailTokenAmount(
                 vaultData.totalAssets || '0',
@@ -673,23 +743,25 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
             </p>
             <p className="text-xs text-[var(--foreground-secondary)] mt-1">
               {liquidityUsd}
+              {liquidityShare !== null ? ` · ${formatSharePercent(liquidityShare)} of deposits` : ''}
             </p>
           </div>
-          <div>
-            <p className="text-xs text-[var(--foreground-secondary)] mb-1">Status</p>
-            <p className={`text-lg sm:text-xl font-bold ${
-              vaultData.status === 'active' ? 'text-[var(--success)]' :
-              vaultData.status === 'paused' ? 'text-[var(--warning)]' :
-              'text-[var(--foreground-muted)]'
-            }`}>
-              {vaultData.status === 'active' ? 'Active' : vaultData.status === 'paused' ? 'Paused' : 'Deprecated'}
-            </p>
-            <p className="text-xs text-[var(--foreground-secondary)] mt-1">
-              {vaultData.status === 'active' ? 'Accepting deposits' : 'Not accepting deposits'}
+          <div className="min-w-0">
+            <p className="text-xs text-[var(--foreground-secondary)] mb-1.5">Exposure</p>
+            {exposureAllocations.loading ? (
+              <Skeleton width="8rem" height="1.5rem" />
+            ) : (
+              <ExposureChips exposure={exposure} />
+            )}
+            <p className="text-xs text-[var(--foreground-secondary)] mt-1.5">
+              {underlyingVault ? `Through ${underlyingVault.name}` : 'Collateral behind the loans'}
             </p>
           </div>
         </div>
 
+        <VaultSectionNav sections={OVERVIEW_SECTIONS} />
+
+        <VaultSection id="vault-performance" title="Performance">
         {/* Chart Type Selector */}
         <div className="flex gap-2 border-b border-[var(--border-subtle)] overflow-x-auto overscroll-x-contain flex-nowrap scrollbar-hide [-webkit-overflow-scrolling:touch]">
           <button
@@ -731,37 +803,10 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
               <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--primary)]" />
             )}
           </button>
-          <button
-            onClick={() => setChartType('allocations')}
-            className={`shrink-0 px-4 py-2 text-sm font-medium transition-colors relative cursor-pointer touch-manipulation ${
-              chartType === 'allocations'
-                ? 'text-[var(--foreground)]'
-                : 'text-[var(--foreground-secondary)] hover:text-[var(--foreground)]'
-            }`}
-          >
-            Allocations
-            {chartType === 'allocations' && (
-              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--primary)]" />
-            )}
-          </button>
         </div>
 
-        {/* Chart / Allocations panel */}
+        {/* Chart panel */}
         <div className="min-w-0">
-        <div
-          className={`bg-[var(--surface-elevated)] rounded-lg border border-[var(--border-subtle)] p-2 sm:p-3 min-h-[14rem] ${
-            chartType === 'allocations' ? '' : 'hidden'
-          }`}
-          aria-hidden={chartType !== 'allocations'}
-        >
-          <VaultAllocations
-            vaultData={vaultData}
-            embedded
-            active={chartType === 'allocations'}
-          />
-        </div>
-
-        <div className={chartType === 'allocations' ? 'hidden' : ''} aria-hidden={chartType === 'allocations'}>
         {loading ? (
           <div className="bg-[var(--surface-elevated)] rounded-lg border border-[var(--border-subtle)] p-2 sm:p-4">
             {/* Controls Row */}
@@ -1055,8 +1100,35 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
           </div>
         )}
         </div>
-        </div>
+        </VaultSection>
 
+        <VaultSection id="vault-allocation" title="Allocation" summary={exposureSummary}>
+          <ExposureBar exposure={exposure} />
+          <div className="bg-[var(--surface-elevated)] rounded-lg border border-[var(--border-subtle)] p-2 sm:p-3">
+            <VaultAllocations
+              vaultData={vaultData}
+              allocations={ownAllocations.allocations}
+              loading={ownAllocations.loading}
+              error={ownAllocations.error}
+            />
+          </div>
+        </VaultSection>
+
+        <VaultSection
+          id="vault-risk"
+          title="Risk"
+          summary="What protects your deposit, read from the vault contract and Morpho."
+        >
+          <VaultRiskFacts vaultData={vaultData} />
+        </VaultSection>
+
+        <VaultSection
+          id="vault-details"
+          title="Vault details"
+          summary="Addresses, timelocks and caps, for anyone who wants to check."
+        >
+          <VaultDetails vaultData={vaultData} />
+        </VaultSection>
       </div>
     </div>
   );

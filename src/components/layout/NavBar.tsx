@@ -153,16 +153,6 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                             Protocol
                                         </h3>
                                         <a
-                                            href="https://analytics.muscadine.xyz"
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="block py-2 text-sm text-[var(--foreground)] hover:text-[var(--primary)] transition-colors cursor-pointer"
-                                            onClick={() => setIsMenuOpen(false)}
-                                        >
-                                            Risk Analytics
-                                        </a>
-                                        <div className="border-t border-[var(--border)]"></div>
-                                        <a
                                             href="https://muscadine.xyz/terms"
                                             target="_blank"
                                             rel="noopener noreferrer"

@@ -14,6 +14,14 @@ export interface VaultLiquidityBreakdown {
   totalUnderlyingLiquidityUsd: number;
 }
 
+/** A Vault V2 function's timelock. `abdicated`: the function can never be called again. */
+export interface VaultTimelock {
+  functionName: string;
+  /** Seconds. */
+  duration: number;
+  abdicated: boolean;
+}
+
 // Unified Vault type definition
 export interface Vault {
     // Basic Information
@@ -64,6 +72,11 @@ export interface Vault {
     
     // Allocators
     allocators?: string[]; // Array of allocator addresses
+    sentinels?: string[];
+    timelocks?: VaultTimelock[];
+    /** Max share price growth, per second, WAD-scaled (Vault V2 `maxRate`). */
+    maxRate?: string | null;
+    liquidityAdapterAddress?: string | null;
     
     // Fees
     performanceFee?: number; // Percentage

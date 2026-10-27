@@ -105,6 +105,9 @@ export async function GET(
           owner {
             address
           }
+          curator {
+            address
+          }
           curators {
             items {
               addresses {
@@ -121,6 +124,7 @@ export async function GET(
             duration
             selector
             functionName
+            abdicatedAt
           }
           
           # Risk Indicators
@@ -195,6 +199,28 @@ export async function GET(
         address: alloc.allocator?.address || '',
       })) || [];
       
+      // `owner` / `curator` are objects in the V2 schema. The `curators` list can be empty
+      // while `curator` is set, so prefer the single field.
+      const ownerAddress: string = vault.owner?.address ?? '';
+      const curatorAddress: string =
+        vault.curator?.address ?? vault.curators?.items?.[0]?.addresses?.[0]?.address ?? '';
+      const sentinels: string[] = (vault.sentinels ?? [])
+        .map((entry: { sentinel?: { address?: string } | null } | null) => entry?.sentinel?.address)
+        .filter((value: string | undefined): value is string => !!value);
+      const timelocks = (vault.timelocks ?? [])
+        .filter((entry: { functionName?: string | null } | null) => !!entry?.functionName)
+        .map(
+          (entry: {
+            functionName: string;
+            duration?: number | string | null;
+            abdicatedAt?: number | string | null;
+          }) => ({
+            functionName: entry.functionName,
+            duration: Number(entry.duration ?? 0),
+            abdicated: entry.abdicatedAt != null && Number(entry.abdicatedAt) > 0,
+          })
+        );
+
       // Headline: Morpho netApy; popover uses gross apy → fees → netApy.
       const morphoGrossApy = vault.apy ?? vault.netApy ?? 0;
       const morphoNetApy =
@@ -254,6 +280,10 @@ export async function GET(
           totalUnderlyingLiquidityUsd,
         },
         allocators: normalizedAllocators,
+        sentinels,
+        timelocks,
+        maxRate: vault.maxRate != null ? String(vault.maxRate) : null,
+        liquidityAdapterAddress: vault.liquidityAdapter?.address ?? null,
         state: {
           totalAssets: vault.totalAssets,
           totalAssetsUsd: vault.totalAssetsUsd,
@@ -267,8 +297,8 @@ export async function GET(
           avgApy: morphoBaseApy,
           avgNetApy: morphoAvgNetApy,
           maxApy: vault.maxApy || 0,
-          owner: vault.owner || '',
-          curator: vault.curator || '',
+          owner: ownerAddress,
+          curator: curatorAddress,
           guardian: vault.guardian || '',
           timelock: vault.timelock || 0,
           fee: vault.fee || 0,
