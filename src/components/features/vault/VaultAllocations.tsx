@@ -182,9 +182,22 @@ const MARKET_CELL_BASE =
 const MARKET_CELL = `${MARKET_CELL_BASE} pl-2 sm:pl-2.5 lg:pl-3 whitespace-nowrap`;
 const TH = 'font-medium text-[var(--foreground-secondary)]';
 
-/** Default rows are positions above one cent, including idle cash above that. */
+/**
+ * Default rows are positions above one cent, including idle cash above that. A wrapper's
+ * row into its underlying vault always shows while it holds tokens: Morpho can omit its
+ * USD value, and a missing price is not dust.
+ */
 function isDefaultAllocation(row: VaultMarketAllocation): boolean {
+  if (row.kind === 'vault' && hasPositiveRaw(row.allocatedAssetsRaw)) return true;
   return !isAllocationDust(row.allocatedUsd);
+}
+
+function hasPositiveRaw(raw: string): boolean {
+  try {
+    return BigInt(raw || '0') > BigInt(0);
+  } catch {
+    return false;
+  }
 }
 
 type DroppedColumns = { liquidity: boolean; type: boolean };
