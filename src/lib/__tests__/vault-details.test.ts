@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  formatAllocationSharePercent,
   formatSharePercent,
   formatTimelockDuration,
   isAllocationDust,
@@ -106,5 +107,15 @@ describe('formatSharePercent', () => {
     expect(formatSharePercent(0.676)).toBe('68%');
     expect(formatSharePercent(0.001)).toBe('<1%');
     expect(formatSharePercent(0)).toBe('0%');
+  });
+});
+
+describe('formatAllocationSharePercent', () => {
+  it('always shows two decimal places, including trailing zeros', () => {
+    expect(formatAllocationSharePercent(0.42764)).toBe('42.76%');
+    expect(formatAllocationSharePercent(0.43)).toBe('43.00%');
+    expect(formatAllocationSharePercent(0.435)).toBe('43.50%');
+    expect(formatAllocationSharePercent(0.00004)).toBe('<0.01%');
+    expect(formatAllocationSharePercent(0)).toBe('0.00%');
   });
 });

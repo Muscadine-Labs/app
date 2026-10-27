@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { MorphoVaultData } from '@/types/vault';
 import type { VaultMarketAllocation } from '@/lib/vault-v2-allocations';
@@ -22,7 +22,7 @@ import {
   formatPositionUsd,
 } from '@/lib/formatter';
 import { Skeleton } from '@/components/ui/Skeleton';
-import { formatSharePercent, isAllocationDust } from '@/lib/vault-details';
+import { formatAllocationSharePercent, isAllocationDust } from '@/lib/vault-details';
 
 interface VaultAllocationsProps {
   vaultData: MorphoVaultData;
@@ -72,7 +72,7 @@ function formatAllocated(
 
 function allocationShare(row: VaultMarketAllocation, totalUsd: number): string {
   if (totalUsd <= 0) return '—';
-  return formatSharePercent(row.allocatedUsd / totalUsd);
+  return formatAllocationSharePercent(row.allocatedUsd / totalUsd);
 }
 
 /** In-app link when the wallet can open the vault's page, else the vault on Morpho. */
@@ -127,21 +127,42 @@ function AllocationMarketName({ row }: { row: VaultMarketAllocation }) {
   return <span className="font-medium text-[var(--foreground)]">{row.name}</span>;
 }
 
+function AllocationMarketSize({
+  row,
+  vaultRowsOnly,
+}: {
+  row: VaultMarketAllocation;
+  vaultRowsOnly: boolean;
+}) {
+  if (row.marketSizeUsd == null) return null;
+  const label = vaultRowsOnly || row.kind === 'vault' ? 'Total deposits' : 'Market size';
+  return (
+    <p className="text-[10px] leading-tight text-[var(--foreground-muted)] tabular-nums">
+      {label} {formatOptionalUsd(row.marketSizeUsd)}
+    </p>
+  );
+}
+
 function AllocationMobileCard({
   row,
   allocatedValueType,
   vaultTokenLabel,
+  vaultRowsOnly,
 }: {
   row: VaultMarketAllocation;
   allocatedValueType: AllocatedValueType;
   vaultTokenLabel: string;
+  vaultRowsOnly: boolean;
 }) {
   const allocatedLabel =
     allocatedValueType === 'usd' ? 'Allocated (USD)' : `Allocated (${vaultTokenLabel})`;
 
   return (
     <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface)]/40 px-3 py-2.5 space-y-2">
-      <AllocationMarketName row={row} />
+      <div>
+        <AllocationMarketName row={row} />
+        <AllocationMarketSize row={row} vaultRowsOnly={vaultRowsOnly} />
+      </div>
       <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
         <div>
           <dt className="text-[var(--foreground-muted)]">{allocatedLabel}</dt>
@@ -171,6 +192,36 @@ function isDefaultAllocation(row: VaultMarketAllocation): boolean {
   return !isAllocationDust(row.allocatedUsd);
 }
 
+type DroppedColumns = { percent: boolean; liquidity: boolean; type: boolean };
+
+const NO_DROPPED_COLUMNS: DroppedColumns = { percent: false, liquidity: false, type: false };
+
+/** Hide % first, then liquidity, then type, and only once the row would overflow. */
+function columnsThatFit(container: HTMLElement): DroppedColumns {
+  const cells = () => [...container.querySelectorAll<HTMLElement>('[data-col]')];
+  const apply = (dropped: DroppedColumns) => {
+    for (const cell of cells()) {
+      const col = cell.dataset.col;
+      const hide =
+        (col === 'percent' && dropped.percent) ||
+        (col === 'liquidity' && dropped.liquidity) ||
+        (col === 'type' && dropped.type);
+      cell.style.display = hide ? 'none' : 'table-cell';
+    }
+  };
+  const overflows = () => container.scrollWidth > container.clientWidth + 1;
+
+  const dropped: DroppedColumns = { ...NO_DROPPED_COLUMNS };
+  apply(dropped);
+  if (overflows()) dropped.percent = true;
+  apply(dropped);
+  if (overflows()) dropped.liquidity = true;
+  apply(dropped);
+  if (overflows()) dropped.type = true;
+  apply(dropped);
+  return dropped;
+}
+
 function AllocationRowList({
   rows,
   vaultRowsOnly,
@@ -184,14 +235,26 @@ function AllocationRowList({
   vaultTokenLabel: string;
   allocatedHeader: string;
 }) {
-  if (rows.length === 0) return null;
+  const tableRef = useRef<HTMLDivElement>(null);
   const totalUsd = rows.reduce(
     (sum, row) => sum + (Number.isFinite(row.allocatedUsd) ? row.allocatedUsd : 0),
     0
   );
-  // Type, share, and liquidity appear only once the table is wide enough to hold them.
-  const wideColumn = 'hidden @min-[42rem]:table-cell';
-  const sizeColumn = 'hidden @min-[58rem]:table-cell';
+
+  useLayoutEffect(() => {
+    const container = tableRef.current;
+    if (!container) return;
+    const fit = () => {
+      if (container.clientWidth === 0) return;
+      columnsThatFit(container);
+    };
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [rows, allocatedValueType, vaultRowsOnly, allocatedHeader]);
+
+  if (rows.length === 0) return null;
   return (
     <div className="@container">
       <div className="@min-[30rem]:hidden space-y-2">
@@ -201,24 +264,22 @@ function AllocationRowList({
             row={row}
             allocatedValueType={allocatedValueType}
             vaultTokenLabel={vaultTokenLabel}
+            vaultRowsOnly={vaultRowsOnly}
           />
         ))}
       </div>
-      <div className="@container hidden @min-[30rem]:block overflow-x-auto -mx-1 px-1">
+      <div ref={tableRef} className="@container hidden @min-[30rem]:block overflow-hidden -mx-1 px-1">
         <table className="table-auto text-xs sm:text-sm">
           <thead>
             <tr className="border-b border-[var(--border-subtle)] text-left text-[10px] sm:text-xs">
-              <th className={`${MARKET_CELL} ${TH} text-left`}>
+              <th data-col="market" className={`${MARKET_CELL} ${TH} text-left`}>
                 {vaultRowsOnly ? 'Vault' : 'Market'}
               </th>
-              <th className={`${TYPE_CELL} ${TH} text-left ${wideColumn}`}>Type</th>
-              <th className={`${AMOUNT_CELL} ${TH}`}>{allocatedHeader}</th>
-              <th className={`${METRIC_CELL} ${TH} text-right ${wideColumn}`}>%</th>
-              <th className={`${METRIC_CELL} ${TH} text-right`}>APY</th>
-              <th className={`${METRIC_CELL} ${TH} text-right ${wideColumn}`}>Liquidity</th>
-              <th className={`${METRIC_CELL} ${TH} text-right ${sizeColumn}`}>
-                {vaultRowsOnly ? 'Total deposits' : 'Market size'}
-              </th>
+              <th data-col="type" className={`${TYPE_CELL} ${TH} text-left`}>Type</th>
+              <th data-col="allocated" className={`${AMOUNT_CELL} ${TH}`}>{allocatedHeader}</th>
+              <th data-col="percent" className={`${METRIC_CELL} ${TH} text-right`}>%</th>
+              <th data-col="apy" className={`${METRIC_CELL} ${TH} text-right`}>APY</th>
+              <th data-col="liquidity" className={`${METRIC_CELL} ${TH} text-right`}>Liquidity</th>
             </tr>
           </thead>
           <tbody>
@@ -227,26 +288,24 @@ function AllocationRowList({
                 key={row.id}
                 className="border-b border-[var(--border-subtle)] last:border-b-0 hover:bg-[var(--surface)]/50"
               >
-                <td className={MARKET_CELL}>
+                <td data-col="market" className={MARKET_CELL}>
                   <AllocationMarketName row={row} />
+                  <AllocationMarketSize row={row} vaultRowsOnly={vaultRowsOnly} />
                 </td>
-                <td className={`${TYPE_CELL} ${wideColumn}`}>
+                <td data-col="type" className={TYPE_CELL}>
                   {formatAllocationType(row)}
                 </td>
-                <td className={AMOUNT_CELL}>
+                <td data-col="allocated" className={AMOUNT_CELL}>
                   {formatAllocated(row, allocatedValueType)}
                 </td>
-                <td className={`${METRIC_CELL} text-right text-[var(--foreground-secondary)] ${wideColumn}`}>
+                <td data-col="percent" className={`${METRIC_CELL} text-right text-[var(--foreground-secondary)]`}>
                   {allocationShare(row, totalUsd)}
                 </td>
-                <td className={`${METRIC_CELL} text-right text-[var(--foreground)]`}>
+                <td data-col="apy" className={`${METRIC_CELL} text-right text-[var(--foreground)]`}>
                   {formatApy(row.apy)}
                 </td>
-                <td className={`${METRIC_CELL} text-right text-[var(--foreground-secondary)] ${wideColumn}`}>
+                <td data-col="liquidity" className={`${METRIC_CELL} text-right text-[var(--foreground-secondary)]`}>
                   {formatOptionalUsd(row.liquidityUsd)}
-                </td>
-                <td className={`${METRIC_CELL} text-right text-[var(--foreground-secondary)] ${sizeColumn}`}>
-                  {formatOptionalUsd(row.marketSizeUsd)}
                 </td>
               </tr>
             ))}

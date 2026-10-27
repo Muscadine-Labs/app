@@ -113,6 +113,14 @@ export function formatSharePercent(share: number): string {
   return `${Math.round(share * 100)}%`;
 }
 
+/** Allocation share, always two decimal places. `0.43` → `43.00%`. */
+export function formatAllocationSharePercent(share: number): string {
+  if (!Number.isFinite(share) || share <= 0) return '0.00%';
+  const percent = Math.round(share * 10000) / 100;
+  if (percent < 0.01) return '<0.01%';
+  return `${percent.toFixed(2)}%`;
+}
+
 /** When a pending change can take effect: `Takes effect in 3 days`, or `Can take effect now`. */
 export function formatTimeUntil(validAt: number, nowSeconds: number): string {
   if (!validAt) return 'Waiting on its timelock';
