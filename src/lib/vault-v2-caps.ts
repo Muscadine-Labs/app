@@ -180,7 +180,7 @@ export function mapVaultV2Caps(vault: VaultCapsGraphQL, chainId: number = BASE_C
         relativeCapWad,
         href:
           marketId && collateral !== '?' && loan !== '?'
-            ? getMorphoMarketUrl(chainId, marketId, collateral, loan)
+            ? getMorphoMarketUrl(chainId, marketId, collateral, loan, rateType)
             : null,
       });
     } else if (data.collateralAddress) {

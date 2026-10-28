@@ -3,7 +3,7 @@
 import type { ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { MorphoVaultData } from '@/types/vault';
-import { MORPHO_GRAPHQL_REVALIDATE_SECONDS } from '@/lib/constants';
+import { MORPHO_DISCLAIMER_URL, MORPHO_GRAPHQL_REVALIDATE_SECONDS } from '@/lib/constants';
 import { useUnixTimestamp } from '@/hooks/useClientOnly';
 import type { PendingChangeDirection, VaultPendingChange } from '@/lib/vault-v2-pending';
 import { findVaultByAddress } from '@/lib/vault-utils';
@@ -11,7 +11,6 @@ import { getMorphoVaultUrl } from '@/lib/liquidity-utils';
 import { formatTimeUntil } from '@/lib/vault-details';
 
 const RISK_FRAMEWORK_URL = 'https://muscadine.xyz/risk';
-const MORPHO_DISCLAIMER_URL = 'https://morpho.org/disclaimers';
 
 const STRATEGY_TEXT: Record<'prime' | 'frontier', string> = {
   prime:

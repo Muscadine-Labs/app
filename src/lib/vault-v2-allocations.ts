@@ -281,6 +281,7 @@ function parseMarketRowsFromAdapters(
 
       const marketSizeUsd = Number(market.state?.supplyAssetsUsd ?? 0);
       const liquidityUsd = Number(market.state?.liquidityAssetsUsd ?? 0);
+      const rateType = resolveMorphoAdapterRateType(adapter.__typename);
       const existing = byMarketId.get(marketId);
       if (existing) {
         existing.allocatedUsd += allocatedUsd;
@@ -293,7 +294,7 @@ function parseMarketRowsFromAdapters(
         kind: 'market',
         marketId,
         name: formatMorphoMarketName(collateralSymbol, loanSymbol),
-        morphoUrl: getMorphoMarketUrl(chainId, marketId, collateralSymbol, loanSymbol),
+        morphoUrl: getMorphoMarketUrl(chainId, marketId, collateralSymbol, loanSymbol, rateType),
         allocatedUsd,
         allocatedAssetsRaw,
         tokenSymbol: loanSymbol,
@@ -303,7 +304,7 @@ function parseMarketRowsFromAdapters(
         apy,
         loanSymbol,
         collateralSymbol,
-        rateType: resolveMorphoAdapterRateType(adapter.__typename),
+        rateType,
         lltv: market.lltv ?? null,
       });
     }
@@ -351,7 +352,7 @@ function parseUnallocatedMarketRows(
       kind: 'market',
       marketId,
       name: formatMorphoMarketName(collateralSymbol, loanSymbol),
-      morphoUrl: getMorphoMarketUrl(chainId, marketId, collateralSymbol, loanSymbol),
+      morphoUrl: getMorphoMarketUrl(chainId, marketId, collateralSymbol, loanSymbol, rateType),
       allocatedUsd: 0,
       allocatedAssetsRaw: '0',
       tokenSymbol: loanSymbol,

@@ -81,6 +81,36 @@ describe('mapVaultV2Caps', () => {
     expect(data.caps[2].absoluteCapRaw).toBe(UINT128_MAX);
   });
 
+  it('links a fixed-rate market cap to the fixed market page', () => {
+    const data = mapVaultV2Caps({
+      asset: { symbol: 'USDC', decimals: 6 },
+      caps: {
+        items: [
+          {
+            type: 'MarketV1Fixed',
+            absoluteCap: 200000000000,
+            relativeCap: WAD,
+            allocation: 1,
+            data: {
+              __typename: 'MarketV1CapData',
+              market: {
+                marketId: '0xfixed',
+                lltv: '625000000000000000',
+                loanAsset: { symbol: 'USDC' },
+                collateralAsset: { symbol: 'cbBTC' },
+              },
+            },
+          },
+        ],
+      },
+    });
+
+    expect(data.caps[0].rateType).toBe('fixed');
+    expect(data.caps[0].href).toBe(
+      'https://app.morpho.org/base/fixed/0xfixed/cbbtc-usdc#market'
+    );
+  });
+
   it('names a wrapper adapter after its underlying vault', () => {
     const data = mapVaultV2Caps({
       asset: { symbol: 'USDC', decimals: 6 },

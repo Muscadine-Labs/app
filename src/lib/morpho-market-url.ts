@@ -48,9 +48,11 @@ export function getMorphoMarketUrl(
   chainId: number,
   marketId: string,
   collateralSymbol: string,
-  loanSymbol: string
+  loanSymbol: string,
+  rateType: MorphoMarketRateType = 'variable'
 ): string {
   const network = getMorphoChainSlug(chainId);
   const slug = morphoMarketUrlSlug(collateralSymbol, loanSymbol);
-  return `https://app.morpho.org/${network}/variable/${marketId}/${slug}#market`;
+  const rate = rateType === 'fixed' ? 'fixed' : 'variable';
+  return `https://app.morpho.org/${network}/${rate}/${marketId}/${slug}#market`;
 }
