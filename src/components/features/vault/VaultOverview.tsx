@@ -1073,6 +1073,8 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
         <VaultSection id="vault-details" title="Vault details">
           <VaultDetails vaultData={vaultData} />
         </VaultSection>
+        {/* Lets the last section scroll up under the sticky tabs. */}
+        <div aria-hidden className="h-[70vh]" />
       </div>
     </div>
   );

@@ -133,12 +133,20 @@ function AllocationMobileCard({
       </div>
       <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
         <div>
-          <dt className="text-[var(--foreground-muted)]">{allocatedLabel}</dt>
-          <dd className="text-[var(--foreground)] tabular-nums">{formatAllocated(row, allocatedValueType)}</dd>
+          <dt className="text-[var(--foreground-muted)]">Type</dt>
+          <dd className="text-[var(--foreground)]">{formatAllocationType(row)}</dd>
         </div>
         <div>
           <dt className="text-[var(--foreground-muted)]">APY</dt>
           <dd className="text-[var(--foreground)] tabular-nums">{formatApy(row.apy)}</dd>
+        </div>
+        <div>
+          <dt className="text-[var(--foreground-muted)]">{allocatedLabel}</dt>
+          <dd className="text-[var(--foreground)] tabular-nums">{formatAllocated(row, allocatedValueType)}</dd>
+        </div>
+        <div>
+          <dt className="text-[var(--foreground-muted)]">Liquidity</dt>
+          <dd className="text-[var(--foreground)] tabular-nums">{formatOptionalUsd(row.liquidityUsd)}</dd>
         </div>
       </dl>
     </div>
