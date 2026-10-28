@@ -6,9 +6,12 @@ export const VAULT_DETAIL_CHART_MIN_HEIGHT = 208;
 export const CHART_MARGIN = { top: 8, right: 12, bottom: 8, left: 0 } as const;
 
 /** Pixel width for a Y-axis gutter so the longest tick, including "$", stays inside the chart. */
-export function axisWidthForLabels(labels: readonly string[]): number {
+export function axisWidthForLabels(
+  labels: readonly string[],
+  { min = 48, max = 104 }: { min?: number; max?: number } = {}
+): number {
   const longest = labels.reduce((width, label) => Math.max(width, label.length), 0);
-  return Math.min(104, Math.max(48, longest * 8 + 8));
+  return Math.min(max, Math.max(min, longest * 8 + 8));
 }
 
 /** Ensure x-axis ticks include the first data point (fixes gap on "All" period). */
