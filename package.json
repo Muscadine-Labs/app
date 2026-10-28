@@ -27,7 +27,7 @@
     "react-server-dom-webpack": "19.3.1",
     "recharts": "3.10.1",
     "valtio": "2.3.2",
-    "viem": "2.57.12",
+    "viem": "2.57.13",
     "wagmi": "2.19.5"
   },
   "devDependencies": {

@@ -48,12 +48,14 @@ describe('groupTimelocks', () => {
       timelock('addAdapter', 7 * DAY),
       timelock('setAdapterRegistry', 0, true),
       timelock('increaseAbsoluteCap', 7 * DAY),
+      timelock('setReceiveAssetsGate', 0),
       timelock('decreaseTimelock', 0),
+      timelock('decreaseTimelock', 0, true),
     ]);
     expect(groups).toEqual([
       { label: '7 days', functions: ['addAdapter', 'increaseAbsoluteCap'] },
       { label: '3 days', functions: ['setPerformanceFee'] },
-      { label: 'No delay', functions: ['decreaseTimelock'] },
+      { label: 'No delay', functions: ['setReceiveAssetsGate'] },
       { label: 'Abdicated', functions: ['setAdapterRegistry'] },
     ]);
   });

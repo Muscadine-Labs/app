@@ -72,6 +72,7 @@ export async function GET(
           forceDeallocatableLiquidity
           forceDeallocatableLiquidityUsd
           liquidityAdapter {
+            __typename
             address
           }
           
@@ -284,6 +285,7 @@ export async function GET(
         timelocks,
         maxRate: vault.maxRate != null ? String(vault.maxRate) : null,
         liquidityAdapterAddress: vault.liquidityAdapter?.address ?? null,
+        liquidityAdapterType: vault.liquidityAdapter?.__typename ?? null,
         state: {
           totalAssets: vault.totalAssets,
           totalAssetsUsd: vault.totalAssetsUsd,

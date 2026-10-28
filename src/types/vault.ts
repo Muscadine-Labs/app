@@ -77,6 +77,8 @@ export interface Vault {
     /** Max share price growth, per second, WAD-scaled (Vault V2 `maxRate`). */
     maxRate?: string | null;
     liquidityAdapterAddress?: string | null;
+    /** Morpho GraphQL `__typename`, e.g. `MorphoMarketV1Adapter` or `MorphoVaultV2Adapter`. */
+    liquidityAdapterType?: string | null;
     
     // Fees
     performanceFee?: number; // Percentage

@@ -20,11 +20,15 @@ export interface TimelockGroup {
   functions: string[];
 }
 
+/** Abdicated on these vaults, so it can never be called. */
+const HIDDEN_TIMELOCKS = new Set(['decreaseTimelock']);
+
 /** Longest delay first, then functions with no delay, then abdicated functions. */
 export function groupTimelocks(timelocks: readonly VaultTimelock[]): TimelockGroup[] {
   const byDuration = new Map<number, string[]>();
   const abdicated: string[] = [];
   for (const timelock of timelocks) {
+    if (HIDDEN_TIMELOCKS.has(timelock.functionName)) continue;
     if (timelock.abdicated) {
       abdicated.push(timelock.functionName);
       continue;

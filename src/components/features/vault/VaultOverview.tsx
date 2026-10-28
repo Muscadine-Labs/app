@@ -1072,12 +1072,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
         >
           <VaultRiskFacts vaultData={vaultData} />
           <div className="space-y-2 pt-2">
-            <div className="space-y-0.5">
-              <h3 className="text-sm font-semibold text-[var(--foreground)]">Vault details</h3>
-              <p className="text-xs text-[var(--foreground-secondary)]">
-                Roles, timelocks, caps and contracts, for anyone who wants to check.
-              </p>
-            </div>
+            <h3 className="text-sm font-semibold text-[var(--foreground)]">Vault details</h3>
             <VaultDetails vaultData={vaultData} />
           </div>
         </VaultSection>
