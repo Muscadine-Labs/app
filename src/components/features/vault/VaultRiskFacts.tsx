@@ -117,6 +117,8 @@ export default function VaultRiskFacts({ vaultData }: { vaultData: MorphoVaultDa
   const strategy = vaultData.strategy ?? underlying?.strategy;
   // A wrapper's markets are on its underlying vault's Morpho page.
   const marketsVaultAddress = underlying?.address ?? vaultData.address;
+  const marketsVaultName = underlying?.name ?? vaultData.name;
+  const marketsUrl = `${getMorphoVaultUrl(vaultData.chainId, marketsVaultAddress, marketsVaultName)}#allocation`;
 
   return (
     <div className="space-y-3">
@@ -149,7 +151,7 @@ export default function VaultRiskFacts({ vaultData }: { vaultData: MorphoVaultDa
       <PendingChanges vaultData={vaultData} />
 
       <p className="flex flex-wrap gap-x-4 gap-y-1 text-xs sm:text-sm">
-        <ExternalLink href={getMorphoVaultUrl(vaultData.chainId, marketsVaultAddress)}>
+        <ExternalLink href={marketsUrl}>
           View markets on Morpho
         </ExternalLink>
         <ExternalLink href={RISK_FRAMEWORK_URL}>Risk framework</ExternalLink>

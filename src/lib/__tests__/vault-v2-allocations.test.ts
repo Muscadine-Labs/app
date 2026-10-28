@@ -27,8 +27,9 @@ describe('parseVaultV2AllocationsFromGraphQL', () => {
       },
       8453
     );
-    expect(allocations).toHaveLength(1);
-    expect(allocations[0]).toMatchObject({
+    expect(allocations.map((row) => row.kind)).toEqual(['idle', 'vault']);
+    expect(allocations[0]).toMatchObject({ kind: 'idle', name: 'USDC (Idle)', apy: 0, allocatedUsd: 0, liquidityUsd: 0 });
+    expect(allocations[1]).toMatchObject({
       kind: 'vault',
       name: 'Muscadine USDC Prime',
       vaultAddress: '0x89712980Cb434eF5aE4AB29349419eb976B0b496',
@@ -103,8 +104,8 @@ describe('parseVaultV2AllocationsFromGraphQL', () => {
       },
       8453
     );
-    expect(allocations).toHaveLength(1);
-    expect(allocations[0]).toMatchObject({
+    expect(allocations.map((row) => row.kind)).toEqual(['idle', 'market']);
+    expect(allocations[1]).toMatchObject({
       kind: 'market',
       marketId: '0xopen',
       name: 'WETH/USDC',

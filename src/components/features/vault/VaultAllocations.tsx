@@ -43,7 +43,7 @@ function formatOptionalUsd(value: number | null): string {
 }
 
 function formatAllocationType(row: VaultMarketAllocation): string {
-  if (row.kind === 'idle') return '—';
+  if (row.kind === 'idle') return 'Unallocated Capital';
   if (row.kind === 'vault') return 'Vault';
   return formatMorphoMarketRateLabel(row.rateType, row.lltv) ?? '—';
 }
@@ -286,21 +286,34 @@ function AllocationRowList({
   );
 }
 
-function sortOtherRows(rows: readonly VaultMarketAllocation[]): VaultMarketAllocation[] {
+/** Allocated markets listed above the dropdown; the rest move into it. */
+const MAX_SHOWN_MARKETS = 7;
+
+/** Largest allocation first, then larger markets among equal allocations (often zero). */
+function sortByAllocation(rows: readonly VaultMarketAllocation[]): VaultMarketAllocation[] {
   return [...rows].sort((a, b) => {
-    if (a.kind === 'idle') return 1;
-    if (b.kind === 'idle') return -1;
-    return b.allocatedUsd - a.allocatedUsd;
+    const byAllocation = b.allocatedUsd - a.allocatedUsd;
+    if (byAllocation !== 0) return byAllocation;
+    return (b.marketSizeUsd ?? 0) - (a.marketSizeUsd ?? 0);
   });
 }
 
+/** Same order as the main list, with idle cash last. It only ranks up when it holds funds. */
+function sortOtherRows(rows: readonly VaultMarketAllocation[]): VaultMarketAllocation[] {
+  return sortByAllocation(rows).sort((a, b) => {
+    if (a.kind === 'idle') return 1;
+    if (b.kind === 'idle') return -1;
+    return 0;
+  });
+}
+
+/** The top positions above one cent, at most seven. Idle joins them only while it holds funds. */
+function pickShownRows(sorted: readonly VaultMarketAllocation[]): VaultMarketAllocation[] {
+  return sorted.filter(isDefaultAllocation).slice(0, MAX_SHOWN_MARKETS);
+}
+
 function otherMarketsMeta(rows: readonly VaultMarketAllocation[]): string {
-  const markets = rows.filter((row) => row.kind !== 'idle').length;
-  const hasIdle = rows.some((row) => row.kind === 'idle');
-  const marketText = markets === 1 ? '1 market' : `${markets} markets`;
-  if (markets === 0 && hasIdle) return 'Idle';
-  if (hasIdle) return `${marketText} · idle`;
-  return marketText;
+  return rows.length === 1 ? '1 market' : `${rows.length} markets`;
 }
 
 export function VaultAllocations({
@@ -315,20 +328,19 @@ export function VaultAllocations({
 
   const vaultTokenLabel = vaultData.symbol || 'Token';
   const showsOwnMarkets = allocations.some((row) => row.kind === 'market');
+  const sortedAllocations = sortByAllocation(allocations);
+  const visibleRows = pickShownRows(sortedAllocations);
   // A wrapper's own rows are its deposit into the underlying vault. The dropdown
   // then lists every market that vault can use, including ones with nothing in
-  // them, plus idle cash. An underlying vault already lists what it has allocated,
-  // so the dropdown is every other market, including a zero balance.
+  // them, plus idle cash. An underlying vault lists its top allocations, so the
+  // dropdown is every other market: smaller positions and zero balances.
   const otherRows = sortOtherRows(
     showsOwnMarkets
-      ? allocations.filter((row) => !isDefaultAllocation(row))
+      ? sortedAllocations.filter((row) => !visibleRows.includes(row))
       : (marketBook ?? []).filter((row) => row.kind === 'market' || row.kind === 'idle')
   );
-  const visibleRows = allocations.filter(isDefaultAllocation);
   // A wrapper allocates only to its underlying vault: label the columns for a vault.
-  const vaultRowsOnly =
-    visibleRows.some((row) => row.kind === 'vault') &&
-    visibleRows.every((row) => row.kind !== 'market');
+  const vaultRowsOnly = visibleRows.length > 0 && visibleRows.every((row) => row.kind === 'vault');
   const otherRowsAreMarkets = otherRows.some((row) => row.kind === 'market');
   const allocatedHeader =
     allocatedValueType === 'usd' ? 'Allocated (USD)' : `Allocated (${vaultTokenLabel})`;

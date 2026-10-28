@@ -9,9 +9,16 @@ import { getMorphoChainSlug } from './constants';
 import { ERC4626_ABI } from './abis';
 import type { VaultLiquidityBreakdown } from '@/types/vault';
 
-export function getMorphoVaultUrl(chainId: number, vaultAddress: string): string {
+/** Lowercase slug for Morpho vault URLs (e.g. Muscadine USDC Frontier → muscadine-usdc-frontier). */
+export function morphoVaultUrlSlug(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+
+export function getMorphoVaultUrl(chainId: number, vaultAddress: string, name?: string): string {
   const network = getMorphoChainSlug(chainId);
-  return `https://app.morpho.org/${network}/vault/${vaultAddress}`;
+  const base = `https://app.morpho.org/${network}/vault/${vaultAddress}`;
+  const slug = name ? morphoVaultUrlSlug(name) : '';
+  return slug ? `${base}/${slug}` : base;
 }
 
 export function parseTransactionAmount(amount: string, decimals: number): bigint {

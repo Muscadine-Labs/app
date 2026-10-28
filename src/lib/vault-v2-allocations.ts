@@ -92,9 +92,6 @@ const VAULT_ALLOCATIONS_QUERY = `
       asset {
         symbol
         decimals
-        yield {
-          apr
-        }
       }
       adapters(first: 20) {
         items {
@@ -171,7 +168,6 @@ type VaultAllocationGraphQL = {
   asset?: {
     symbol?: string;
     decimals?: number;
-    yield?: { apr?: number | null } | null;
   };
   adapters?: { items?: AdapterItem[] };
   /** Markets the vault may lend to, including ones with nothing allocated. */
@@ -227,17 +223,15 @@ function isPositiveRaw(raw: string): boolean {
   }
 }
 
+/** Cash not lent to a market. Always present, including at zero: it earns nothing, and its liquidity is the cash itself. */
 function buildIdleRow(args: {
   id: string;
   assetSymbol: string;
   assetDecimals: number;
   idleAssetsUsd: number;
   idleAssetsRaw: string;
-  idleApy: number | null;
-}): VaultMarketAllocation | null {
+}): VaultMarketAllocation {
   const idleAllocatedUsd = Number.isFinite(args.idleAssetsUsd) ? args.idleAssetsUsd : 0;
-  const hasIdle = idleAllocatedUsd > 0 || isPositiveRaw(args.idleAssetsRaw);
-  if (!hasIdle) return null;
 
   return {
     id: args.id,
@@ -249,7 +243,7 @@ function buildIdleRow(args: {
     tokenDecimals: args.assetDecimals,
     marketSizeUsd: null,
     liquidityUsd: idleAllocatedUsd,
-    apy: args.idleApy,
+    apy: 0,
   };
 }
 
@@ -420,9 +414,6 @@ export function parseVaultV2AllocationsFromGraphQL(
 ): VaultAllocationData {
   const assetSymbol = vault.asset?.symbol ?? 'Asset';
   const assetDecimals = resolveAssetDecimals(assetSymbol, vault.asset?.decimals);
-  const idleApy =
-    vault.asset?.yield?.apr != null ? Number(vault.asset.yield.apr) : null;
-
   const items = vault.adapters?.items ?? [];
   const suppliedMarkets = parseMarketRowsFromAdapters(items, chainId, assetSymbol);
   const marketRows = [
@@ -437,10 +428,9 @@ export function parseVaultV2AllocationsFromGraphQL(
     assetDecimals,
     idleAssetsUsd: Number(vault.idleAssetsUsd ?? 0),
     idleAssetsRaw: morphoRawAmount(vault.idleAssets),
-    idleApy,
   });
 
-  const allocations = [...(idleRow ? [idleRow] : []), ...vaultRows, ...marketRows];
+  const allocations = [idleRow, ...vaultRows, ...marketRows];
 
   return { allocations };
 }

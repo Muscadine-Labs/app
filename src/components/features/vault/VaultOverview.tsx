@@ -20,7 +20,7 @@ import { MorphoVaultData } from '@/types/vault';
 import { VaultLiquidityInfo } from './VaultLiquidityInfo';
 import { VaultApyInfo } from './VaultApyInfo';
 import { VaultAllocations } from './VaultAllocations';
-import { VaultSection, VaultSectionNav } from './VaultSectionNav';
+import { VaultSection } from './VaultSectionNav';
 import VaultRiskFacts from './VaultRiskFacts';
 import VaultDetails from './VaultDetails';
 import { useVaultAllocations } from '@/hooks/useVaultAllocations';
@@ -50,12 +50,6 @@ interface HistoryDataPoint {
 }
 
 type ChartType = 'apy' | 'tvl' | 'sharePrice';
-
-const OVERVIEW_SECTIONS = [
-  { id: 'vault-performance', label: 'Performance' },
-  { id: 'vault-allocation', label: 'Allocation' },
-  { id: 'vault-risk', label: 'Risk' },
-] as const;
 
 function rawShareOf(partRaw: string | undefined, totalRaw: string | undefined): number | null {
   try {
@@ -710,8 +704,6 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
           </div>
         </div>
 
-        <VaultSectionNav sections={OVERVIEW_SECTIONS} />
-
         <VaultSection id="vault-performance" title="Performance">
         {/* Chart Type Selector */}
         <div className="flex gap-2 border-b border-[var(--border-subtle)] overflow-x-auto overscroll-x-contain flex-nowrap scrollbar-hide [-webkit-overflow-scrolling:touch]">
@@ -1076,10 +1068,10 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
           title="Risk"
         >
           <VaultRiskFacts vaultData={vaultData} />
-          <div className="space-y-2 pt-2">
-            <h3 className="text-sm font-semibold text-[var(--foreground)]">Vault details</h3>
-            <VaultDetails vaultData={vaultData} />
-          </div>
+        </VaultSection>
+
+        <VaultSection id="vault-details" title="Vault details">
+          <VaultDetails vaultData={vaultData} />
         </VaultSection>
       </div>
     </div>
