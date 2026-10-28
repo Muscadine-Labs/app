@@ -161,7 +161,7 @@ export function VaultStatPopover({
         ref={buttonRef}
         type="button"
         onClick={toggle}
-        className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-[var(--border-subtle)] bg-[var(--surface)] text-[var(--foreground-secondary)] shadow-sm hover:border-[var(--primary)] hover:text-[var(--primary)] transition-colors cursor-pointer touch-manipulation"
+        className="relative inline-flex h-4 w-4 shrink-0 after:absolute after:-inset-1 after:rounded-full pointer-coarse:after:-inset-2.5 items-center justify-center rounded-full border border-[var(--border-subtle)] bg-[var(--surface)] text-[var(--foreground-secondary)] shadow-sm hover:border-[var(--primary)] hover:text-[var(--primary)] transition-colors cursor-pointer touch-manipulation"
         aria-label={ariaLabel}
         aria-expanded={open}
         aria-haspopup="dialog"

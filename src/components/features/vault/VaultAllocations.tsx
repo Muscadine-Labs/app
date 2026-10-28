@@ -395,7 +395,9 @@ export function VaultAllocations({
           ) : otherRows.length > 0 ? (
             <details className="group border-t border-[var(--border-subtle)] pt-2">
               <summary className="flex cursor-pointer list-none items-center justify-between gap-3 py-1.5 [&::-webkit-details-marker]:hidden">
-                <span className="text-sm font-medium text-[var(--foreground)]">All markets</span>
+                <span className="text-sm font-medium text-[var(--foreground)]">
+                  {showsOwnMarkets ? 'Other markets' : 'All markets'}
+                </span>
                 <span className="flex items-center gap-2">
                   <span className="text-xs text-[var(--foreground-muted)]">
                     {otherMarketsMeta(otherRows)}

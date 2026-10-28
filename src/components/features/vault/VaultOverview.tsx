@@ -1044,6 +1044,11 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                 )}
               </ResponsiveContainer>
             </div>
+            {chartType === 'apy' && (
+              <p className="mt-2 px-1 text-xs text-[var(--foreground-muted)]">
+                Average net APY over time. Net APY above is the current rate, so it can differ from the latest point.
+              </p>
+            )}
           </div>
         ) : (
           <div className={`bg-[var(--surface-elevated)] rounded-lg border border-[var(--border-subtle)] ${VAULT_DETAIL_CHART_HEIGHT_CLASS} flex items-center justify-center text-sm text-[var(--foreground-muted)]`}>
