@@ -14,7 +14,7 @@ import {
   formatVaultDetailTokenAmount,
 } from '@/lib/formatter';
 import { calculateYAxisDomain, findVaultByAddress } from '@/lib/vault-utils';
-import { CHART_MARGIN, getChartYAxisWidth, withLeadingChartTick, VAULT_DETAIL_CHART_HEIGHT_CLASS, VAULT_DETAIL_CHART_MIN_HEIGHT } from '@/lib/chart-utils';
+import { CHART_MARGIN, axisWidthForLabels, withLeadingChartTick, VAULT_DETAIL_CHART_HEIGHT_CLASS, VAULT_DETAIL_CHART_MIN_HEIGHT } from '@/lib/chart-utils';
 import { logger } from '@/lib/logger';
 import { MorphoVaultData } from '@/types/vault';
 import { VaultLiquidityInfo } from './VaultLiquidityInfo';
@@ -81,10 +81,6 @@ function formatTvlYAxisTick(
   );
 }
 
-function getTvlYAxisWidth(valueType: 'usd' | 'token'): number {
-  return getChartYAxisWidth(valueType === 'usd' ? 'usd' : 'tokenWide');
-}
-
 function formatSharePriceYAxisTick(
   value: number,
   valueType: 'usd' | 'token',
@@ -100,8 +96,14 @@ function formatSharePriceYAxisTick(
   );
 }
 
-function getSharePriceYAxisWidth(valueType: 'usd' | 'token'): number {
-  return getChartYAxisWidth(valueType === 'usd' ? 'usd' : 'tokenWide');
+/** Gutter wide enough for the longest tick on this axis, including the dollar sign. */
+function axisWidthForDomain(
+  domain: readonly number[] | undefined,
+  format: (value: number) => string
+): number {
+  const min = domain?.[0] ?? 0;
+  const max = domain?.[1] ?? min;
+  return axisWidthForLabels([format(min), format(max), format((min + max) / 2)]);
 }
 
 const PERIOD_SECONDS: Record<Period, number> = {
@@ -884,9 +886,9 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                       padding={{ left: 0, right: 0 }}
                     />
                     <YAxis 
-                      width={getChartYAxisWidth('apy')}
+                      width={axisWidthForDomain(apyYAxisDomain, (value) => formatPercentage(value / 100))}
                       orientation="left"
-                      tickMargin={8}
+                      tickMargin={4}
                       domain={apyYAxisDomain}
                       tickFormatter={(value) => {
                         if (value === undefined || typeof value !== 'number') return '';
@@ -931,9 +933,11 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                       padding={{ left: 0, right: 0 }}
                     />
                     <YAxis
-                      width={getSharePriceYAxisWidth(valueType)}
+                      width={axisWidthForDomain(sharePriceYAxisDomain, (value) =>
+                        formatSharePriceYAxisTick(value, valueType, vaultData)
+                      )}
                       orientation="left"
-                      tickMargin={8}
+                      tickMargin={4}
                       domain={sharePriceYAxisDomain}
                       tickFormatter={(value) => {
                         if (value === undefined || typeof value !== 'number') return '';
@@ -988,9 +992,11 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                           padding={{ left: 0, right: 0 }}
                         />
                         <YAxis
-                          width={getTvlYAxisWidth(valueType)}
+                          width={axisWidthForDomain(tvlYAxisDomain, (value) =>
+                            formatTvlYAxisTick(value, valueType, vaultData)
+                          )}
                           orientation="left"
-                          tickMargin={8}
+                          tickMargin={4}
                           domain={tvlYAxisDomain}
                           tickFormatter={(value) => {
                             if (value === undefined || typeof value !== 'number') return '';
@@ -1073,8 +1079,6 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
         <VaultSection id="vault-details" title="Vault details">
           <VaultDetails vaultData={vaultData} />
         </VaultSection>
-        {/* Lets the last section scroll up under the sticky tabs. */}
-        <div aria-hidden className="h-[70vh]" />
       </div>
     </div>
   );

@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAccount } from 'wagmi';
 import { BASE_CHAIN_ID } from '@/lib/constants';
 import { calculateYAxisDomain } from '@/lib/vault-utils';
-import { CHART_MARGIN, getChartYAxisWidth, withLeadingChartTick } from '@/lib/chart-utils';
+import { withLeadingChartTick } from '@/lib/chart-utils';
 import {
   aggregatePortfolioHistory,
   mapPortfolioHistoryToChartData,
@@ -319,6 +319,16 @@ export default function PortfolioPositionChart() {
     );
   }, [filteredChartData]);
 
+  // Room for the full "$131.6K" label. A fixed 48px gutter clips the dollar sign.
+  const yAxisWidth = useMemo(() => {
+    const [min, max] = yAxisDomain;
+    const longest = [min, max, (min + max) / 2].reduce(
+      (width, value) => Math.max(width, formatChartUsdAxisValue(value).length),
+      0
+    );
+    return Math.min(84, Math.max(60, longest * 8 + 8));
+  }, [yAxisDomain]);
+
   const getChartTicks = useMemo(() => {
     if (filteredChartData.length === 0) return undefined;
 
@@ -389,7 +399,7 @@ export default function PortfolioPositionChart() {
             </div>
           </div>
         ) : fullChartHistory.length > 0 ? (
-          <div className="bg-[var(--surface-elevated)] rounded-lg p-2 sm:p-3 flex flex-col h-full min-h-0">
+          <div className="bg-[var(--surface-elevated)] rounded-lg px-1.5 pt-2 pb-1 sm:px-2 sm:pt-3 flex flex-col h-full min-h-0">
             <div className="flex items-center justify-between mb-2 shrink-0">
               <div className="relative">
                 {/* Button row when the chart container itself is wide enough (not viewport). */}
@@ -457,9 +467,10 @@ export default function PortfolioPositionChart() {
               </div>
             </div>
 
-            <div className="w-full min-w-0 flex-1 min-h-[160px]">
-              <ResponsiveContainer width="100%" height="100%" minHeight={160} debounce={50}>
-                <AreaChart data={filteredChartData} margin={CHART_MARGIN}>
+            <div className="relative w-full flex-1 min-h-0">
+              <div className="absolute inset-0">
+              <ResponsiveContainer width="100%" height="100%" debounce={50}>
+                <AreaChart data={filteredChartData} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" />
                   <XAxis
                     dataKey="timestamp"
@@ -471,9 +482,9 @@ export default function PortfolioPositionChart() {
                     padding={{ left: 0, right: 0 }}
                   />
                   <YAxis
-                    width={getChartYAxisWidth('usd')}
+                    width={yAxisWidth}
                     orientation="left"
-                    tickMargin={8}
+                    tickMargin={4}
                     domain={yAxisDomain}
                     tickFormatter={(value) => {
                       if (value === undefined || typeof value !== 'number') return '';
@@ -508,6 +519,7 @@ export default function PortfolioPositionChart() {
                   />
                 </AreaChart>
               </ResponsiveContainer>
+              </div>
             </div>
           </div>
         ) : (

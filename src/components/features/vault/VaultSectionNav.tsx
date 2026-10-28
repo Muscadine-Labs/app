@@ -14,14 +14,6 @@ export const VAULT_OVERVIEW_SECTIONS: readonly VaultSectionLink[] = [
   { id: 'vault-details', label: 'Details' },
 ];
 
-/** Active tab color for each Overview section. Inactive tabs stay gray. */
-const SECTION_TAB_COLOR: Record<string, string> = {
-  'vault-performance': 'text-[var(--primary)] bg-[var(--primary-subtle)]',
-  'vault-allocation': 'text-[var(--success)] bg-[var(--success-subtle)]',
-  'vault-risk': 'text-[var(--warning-text)] bg-[var(--warning-subtle)]',
-  'vault-details': 'text-[var(--accent)] bg-[var(--accent-subtle)]',
-};
-
 /** Space left between the bottom of the sticky header and a section it jumps to. */
 const SECTION_GAP_PX = 12;
 
@@ -115,7 +107,7 @@ export function VaultSectionNav({ sections }: { sections: readonly VaultSectionL
               aria-current={active ? 'location' : undefined}
               className={`shrink-0 px-3 py-1 sm:py-1.5 text-xs sm:text-sm font-medium rounded-lg transition-colors cursor-pointer touch-manipulation ${
                 active
-                  ? SECTION_TAB_COLOR[section.id] ?? SECTION_TAB_COLOR['vault-performance']
+                  ? 'text-[var(--primary)] bg-[var(--primary-subtle)]'
                   : 'text-[var(--foreground-secondary)] hover:text-[var(--foreground)] hover:bg-[var(--surface-hover)]'
               }`}
             >
