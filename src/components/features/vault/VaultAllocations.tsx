@@ -320,8 +320,10 @@ function pickShownRows(sorted: readonly VaultMarketAllocation[]): VaultMarketAll
   return sorted.filter(isDefaultAllocation).slice(0, MAX_SHOWN_MARKETS);
 }
 
+/** Counts markets only: the idle row is listed too but is not a market. */
 function otherMarketsMeta(rows: readonly VaultMarketAllocation[]): string {
-  return rows.length === 1 ? '1 market' : `${rows.length} markets`;
+  const markets = rows.filter((row) => row.kind !== 'idle').length;
+  return markets === 1 ? '1 market' : `${markets} markets`;
 }
 
 export function VaultAllocations({

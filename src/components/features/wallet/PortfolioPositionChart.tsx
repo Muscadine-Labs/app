@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAccount } from 'wagmi';
 import { BASE_CHAIN_ID } from '@/lib/constants';
 import { calculateYAxisDomain } from '@/lib/vault-utils';
-import { withLeadingChartTick } from '@/lib/chart-utils';
+import { axisWidthForLabels, withLeadingChartTick } from '@/lib/chart-utils';
 import {
   aggregatePortfolioHistory,
   mapPortfolioHistoryToChartData,
@@ -322,11 +322,10 @@ export default function PortfolioPositionChart() {
   // Room for the full "$131.6K" label. A fixed 48px gutter clips the dollar sign.
   const yAxisWidth = useMemo(() => {
     const [min, max] = yAxisDomain;
-    const longest = [min, max, (min + max) / 2].reduce(
-      (width, value) => Math.max(width, formatChartUsdAxisValue(value).length),
-      0
+    return axisWidthForLabels(
+      [min, max, (min + max) / 2].map((value) => formatChartUsdAxisValue(value)),
+      { min: 60, max: 84 }
     );
-    return Math.min(84, Math.max(60, longest * 8 + 8));
   }, [yAxisDomain]);
 
   const getChartTicks = useMemo(() => {

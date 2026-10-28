@@ -107,7 +107,7 @@ describe('mapVaultV2Caps', () => {
 
     expect(data.caps[0].rateType).toBe('fixed');
     expect(data.caps[0].href).toBe(
-      'https://app.morpho.org/base/fixed/0xfixed/cbbtc-usdc#market'
+      'https://markets.morpho.org/fixed/base/0xfixed'
     );
   });
 

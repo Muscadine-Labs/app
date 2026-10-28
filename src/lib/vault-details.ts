@@ -20,7 +20,10 @@ export interface TimelockGroup {
   functions: string[];
 }
 
-/** Abdicated on these vaults, so it can never be called. */
+/**
+ * Morpho reports `decreaseTimelock` with no delay, but cutting a timelock waits out the
+ * timelock of the function being changed, so "No delay" would mislead.
+ */
 const HIDDEN_TIMELOCKS = new Set(['decreaseTimelock']);
 
 /** Longest delay first, then functions with no delay, then abdicated functions. */
