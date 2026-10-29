@@ -112,7 +112,7 @@ export function AdvisoryAgreementModal() {
           </p>
 
           <p className="text-xs sm:text-sm text-[var(--foreground)] leading-relaxed">
-            Returns are not guaranteed; losses, liquidations, and smart-contract risks are possible, including total loss of principal.
+            Nothing here is an offer to sell or a solicitation to buy any product, service, or investment. Yields are variable and not guaranteed, and past APY and rewards are not a reliable indicator of future results. Losses, liquidations, and smart-contract risks are possible, including total loss of principal. Seek your own professional advice before making any decision.
           </p>
 
           {/* Links */}
