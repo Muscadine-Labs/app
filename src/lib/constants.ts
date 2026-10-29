@@ -4,15 +4,39 @@
 
 // Chain configuration
 export const BASE_CHAIN_ID = 8453 as const;
+export const ETHEREUM_CHAIN_ID = 1 as const;
+export const ROBINHOOD_CHAIN_ID = 4663 as const;
 export const BASE_CHAIN_NAME = 'Base';
+
+/** Networks the vault explorer can list. Muscadine vaults are Base only. */
+export const EXPLORER_NETWORKS = [
+  { id: BASE_CHAIN_ID, value: 'base', label: 'Base' },
+  { id: ETHEREUM_CHAIN_ID, value: 'ethereum', label: 'Ethereum' },
+  { id: ROBINHOOD_CHAIN_ID, value: 'robinhood', label: 'Robinhood' },
+] as const;
+
+export type ExplorerNetwork = (typeof EXPLORER_NETWORKS)[number]['value'];
+
+export const EXPLORER_CHAIN_IDS: readonly number[] = EXPLORER_NETWORKS.map((network) => network.id);
+
+export function isExplorerChainId(chainId: number | null | undefined): chainId is number {
+  return typeof chainId === 'number' && EXPLORER_CHAIN_IDS.includes(chainId);
+}
+
+export function explorerChainId(network: ExplorerNetwork): number {
+  const match = EXPLORER_NETWORKS.find((entry) => entry.value === network);
+  return match?.id ?? BASE_CHAIN_ID;
+}
+
 export function getChainDisplayName(chainId: number): string {
-  if (chainId === BASE_CHAIN_ID) return BASE_CHAIN_NAME;
-  return `Chain ${chainId}`;
+  const network = EXPLORER_NETWORKS.find((entry) => entry.id === chainId);
+  return network?.label ?? `Chain ${chainId}`;
 }
 /** Chain slug used in app.morpho.org URLs. */
 export const MORPHO_CHAIN_SLUG: Record<number, string> = {
   [BASE_CHAIN_ID]: 'base',
-  1: 'ethereum',
+  [ETHEREUM_CHAIN_ID]: 'ethereum',
+  [ROBINHOOD_CHAIN_ID]: 'robinhood-chain',
 };
 export function getMorphoChainSlug(chainId: number): string {
   return MORPHO_CHAIN_SLUG[chainId] ?? MORPHO_CHAIN_SLUG[BASE_CHAIN_ID];

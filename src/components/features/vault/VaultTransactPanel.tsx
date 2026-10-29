@@ -108,6 +108,8 @@ export function VaultTransactPanel({
     vaultAddress: vaultData.address,
     vaultName: vaultData.name,
     vaultSymbol: vaultData.symbol,
+    chainId: vaultData.chainId,
+    assetAddress: vaultData.assetAddress,
     isOpen: true,
     initialTab,
   });

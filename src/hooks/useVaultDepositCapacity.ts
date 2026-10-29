@@ -4,7 +4,6 @@ import { useCallback, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { getAddress } from 'viem';
 import { usePublicClient } from 'wagmi';
-import { BASE_CHAIN_ID } from '@/lib/constants';
 import {
   applyDepositCapBuffer,
   DEPOSIT_CAPACITY_QUERY_KEY,
@@ -22,11 +21,11 @@ function toCapRaw(headroom: bigint | null | undefined): bigint | null {
  * Buffered deposit capacity for one vault. `capRaw` is null when no cap applies or the read has
  * not succeeded yet, so callers never block a deposit on a missing read.
  */
-export function useVaultDepositCapacity(vaultAddress: string, enabled: boolean) {
-  const publicClient = usePublicClient({ chainId: BASE_CHAIN_ID });
+export function useVaultDepositCapacity(vaultAddress: string, chainId: number, enabled: boolean) {
+  const publicClient = usePublicClient({ chainId });
 
   const { data: headroom, dataUpdatedAt, refetch } = useQuery({
-    queryKey: [...DEPOSIT_CAPACITY_QUERY_KEY, vaultAddress.toLowerCase()],
+    queryKey: [...DEPOSIT_CAPACITY_QUERY_KEY, chainId, vaultAddress.toLowerCase()],
     enabled: enabled && Boolean(publicClient),
     staleTime: CAPACITY_STALE_MS,
     refetchInterval: enabled ? CAPACITY_REFETCH_MS : false,

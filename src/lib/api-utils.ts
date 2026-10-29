@@ -1,6 +1,7 @@
 import { logger } from '@/lib/logger';
 import {
   BASE_CHAIN_ID,
+  isExplorerChainId,
   MORPHO_FETCH_TIMEOUT_MS,
   MORPHO_GRAPHQL_REVALIDATE_SECONDS,
   MORPHO_GRAPHQL_URL,
@@ -33,6 +34,12 @@ export type ValidPeriod = typeof VALID_PERIODS[number];
 export function isValidChainId(chainId: string): boolean {
   const id = parseInt(chainId, 10);
   return Number.isInteger(id) && id === BASE_CHAIN_ID;
+}
+
+/** Explorer chains: Base, Ethereum, and Robinhood. */
+export function isExplorerChainParam(chainId: string): boolean {
+  const id = Number(chainId);
+  return Number.isInteger(id) && isExplorerChainId(id);
 }
 
 export function isValidPeriod(period: string): period is ValidPeriod {

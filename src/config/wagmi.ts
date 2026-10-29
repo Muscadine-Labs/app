@@ -1,6 +1,6 @@
 import { cookieStorage, createStorage, http, fallback } from 'wagmi'
 import { WagmiAdapter } from '@reown/appkit-adapter-wagmi'
-import { base } from '@reown/appkit/networks'
+import { base, mainnet, robinhood } from '@reown/appkit/networks'
 import type { AppKitNetwork } from '@reown/appkit/networks'
 import { getAppUrl } from '@/lib/app-url'
 import { APP_NAME } from '@/lib/base-app'
@@ -24,10 +24,11 @@ if (!walletConnectProjectId) {
 
 const appUrl = getAppUrl()
 const alchemyUrl = `https://base-mainnet.g.alchemy.com/v2/${alchemyApiKey}`
+const alchemyEthereumUrl = `https://eth-mainnet.g.alchemy.com/v2/${alchemyApiKey}`
 
 export const projectId = walletConnectProjectId
 
-export const networks: [AppKitNetwork, ...AppKitNetwork[]] = [base]
+export const networks: [AppKitNetwork, ...AppKitNetwork[]] = [base, mainnet, robinhood]
 
 export const metadata = {
   name: APP_NAME,
@@ -47,6 +48,8 @@ export const wagmiAdapter = new WagmiAdapter({
     // JSON-RPC batching: parallel reads made in the same tick (force-withdraw planner, deposit
     // caps, position reads) go out as one HTTP request to Alchemy instead of one each.
     [base.id]: fallback([http(alchemyUrl, { batch: true }), http()]),
+    [mainnet.id]: fallback([http(alchemyEthereumUrl, { batch: true }), http()]),
+    [robinhood.id]: http(),
   },
 })
 

@@ -6,7 +6,7 @@ import { formatUnits } from 'viem';
 import { useTransactionState } from '@/contexts/TransactionContext';
 import { useWallet } from '@/contexts/WalletContext';
 import { useVaultData } from '@/contexts/VaultDataContext';
-import { BASE_CHAIN_ID, TOKEN_ADDRESSES } from '@/lib/constants';
+import { TOKEN_ADDRESSES } from '@/lib/constants';
 import { formatBigIntForInput } from '@/lib/formatter';
 import { ERC20_BALANCE_ABI, ERC4626_ABI } from '@/lib/abis';
 import { getAssetDecimalsForSymbol } from '@/lib/asset-decimals';
@@ -25,6 +25,8 @@ interface UseScopedVaultTransactionOptions {
   vaultAddress: string;
   vaultName: string;
   vaultSymbol: string;
+  chainId: number;
+  assetAddress?: string;
   isOpen: boolean;
   initialTab: VaultTransactionTab;
 }
@@ -42,7 +44,8 @@ function buildVaultAccount(
   vaultAddress: string,
   vaultName: string,
   vaultSymbol: string,
-  shares: string | undefined
+  shares: string | undefined,
+  assetAddress: string
 ): VaultAccount {
   let balance = BigInt(0);
   if (shares) {
@@ -60,7 +63,7 @@ function buildVaultAccount(
     name: vaultName,
     symbol: vaultSymbol,
     balance,
-    assetAddress: '',
+    assetAddress,
     assetDecimals: getAssetDecimalsForSymbol(vaultSymbol),
   };
 }
@@ -69,6 +72,8 @@ export function useScopedVaultTransaction({
   vaultAddress,
   vaultName,
   vaultSymbol,
+  chainId,
+  assetAddress,
   isOpen,
   initialTab,
 }: UseScopedVaultTransactionOptions) {
@@ -107,7 +112,7 @@ export function useScopedVaultTransaction({
   // fails or has not indexed this vault yet. Falls back to the API value while it loads.
   const { data: onChainShares, refetch: refetchOnChainShares } = useReadContract({
     address: walletAddress ? (vaultAddress as `0x${string}`) : undefined,
-    chainId: BASE_CHAIN_ID,
+    chainId,
     abi: ERC20_BALANCE_ABI,
     functionName: 'balanceOf',
     args: walletAddress ? [walletAddress] : undefined,
@@ -115,14 +120,15 @@ export function useScopedVaultTransaction({
   });
   // The wallet's balance of the vault asset, read on chain: deposits never size off an API.
   const assetTokenAddress = useMemo(() => {
+    if (assetAddress) return assetAddress;
     const key = Object.keys(TOKEN_ADDRESSES).find(
       (symbol) => symbol.toLowerCase() === vaultSymbol.toLowerCase()
     ) as keyof typeof TOKEN_ADDRESSES | undefined;
     return key ? TOKEN_ADDRESSES[key] : undefined;
-  }, [vaultSymbol]);
+  }, [assetAddress, vaultSymbol]);
   const { data: onChainAssetBalance, refetch: refetchOnChainAssetBalance } = useReadContract({
     address: walletAddress && assetTokenAddress ? (assetTokenAddress as `0x${string}`) : undefined,
-    chainId: BASE_CHAIN_ID,
+    chainId,
     abi: ERC20_BALANCE_ABI,
     functionName: 'balanceOf',
     args: walletAddress ? [walletAddress] : undefined,
@@ -149,8 +155,15 @@ export function useScopedVaultTransaction({
   }, [vaultShareBalance]);
 
   const vaultAccount = useMemo(
-    () => buildVaultAccount(vaultAddress, vaultName, vaultSymbol, vaultShareBalance ?? undefined),
-    [vaultAddress, vaultName, vaultSymbol, vaultShareBalance]
+    () =>
+      buildVaultAccount(
+        vaultAddress,
+        vaultName,
+        vaultSymbol,
+        vaultShareBalance ?? undefined,
+        assetTokenAddress ?? ''
+      ),
+    [vaultAddress, vaultName, vaultSymbol, vaultShareBalance, assetTokenAddress]
   );
 
   const walletAccount = useMemo(
@@ -168,6 +181,7 @@ export function useScopedVaultTransaction({
 
   const { capRaw: depositCapRaw, readCapForSubmit } = useVaultDepositCapacity(
     vaultAddress,
+    chainId,
     isOpen && effectiveActiveTab === 'deposit'
   );
 
@@ -226,7 +240,7 @@ export function useScopedVaultTransaction({
 
     if (isConnected) {
       refreshBalances();
-      fetchVaultData(vaultAddress, BASE_CHAIN_ID, true);
+      fetchVaultData(vaultAddress, chainId, true);
     }
   }, [
     isOpen,
@@ -241,6 +255,7 @@ export function useScopedVaultTransaction({
     applyTabAccounts,
     refreshBalances,
     fetchVaultData,
+    chainId,
   ]);
 
   const handleTabChange = useCallback(
@@ -272,7 +287,7 @@ export function useScopedVaultTransaction({
       effectiveActiveTab === 'withdraw' && vaultShareBalanceBn !== null
         ? (vaultAddress as `0x${string}`)
         : undefined,
-    chainId: BASE_CHAIN_ID,
+    chainId,
     abi: ERC4626_ABI,
     functionName: 'convertToAssets',
     args: vaultShareBalanceBn !== null ? [vaultShareBalanceBn] : undefined,

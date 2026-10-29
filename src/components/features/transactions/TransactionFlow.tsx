@@ -23,7 +23,8 @@ import {
   type ForceWithdrawPlan,
 } from '@/lib/force-withdraw-v2';
 import { formatAssetAmount, formatBigIntForInput } from '@/lib/formatter';
-import { BASE_CHAIN_ID, POST_TX_BALANCE_REFRESH_DELAY_MS } from '@/lib/constants';
+import { BASE_CHAIN_ID, getChainDisplayName, POST_TX_BALANCE_REFRESH_DELAY_MS } from '@/lib/constants';
+import { chainIdForKnownVault } from '@/lib/vault-utils';
 import {
   depositToVaultV2,
   withdrawFromVaultV2,
@@ -86,24 +87,35 @@ export function TransactionFlow({
   const { chainId: walletChainId } = useAccount();
   const { switchChainAsync } = useSwitchChain();
 
+  const transactionVaultAddress = useMemo(() => {
+    if (toAccount?.type === 'vault') return (toAccount as VaultAccount).address;
+    if (fromAccount?.type === 'vault') return (fromAccount as VaultAccount).address;
+    return null;
+  }, [fromAccount, toAccount]);
+  const transactionChainId = transactionVaultAddress
+    ? chainIdForKnownVault(transactionVaultAddress)
+    : BASE_CHAIN_ID;
+
   /**
-   * Wallet client on Base for sending. If the wallet is on another network, ask it to switch
+   * Wallet client on the vault's chain. If the wallet is on another network, ask it to switch
    * first (viem would otherwise refuse with an unclear error), then take a fresh client: the
    * one from the hook still points at the old chain until the next render.
    */
   const resolveBaseWalletClient = useCallback(async (): Promise<WalletClient> => {
-    if (walletChainId === BASE_CHAIN_ID && walletClient?.chain?.id === BASE_CHAIN_ID) {
+    if (walletChainId === transactionChainId && walletClient?.chain?.id === transactionChainId) {
       return walletClient as WalletClient;
     }
     try {
-      await switchChainAsync({ chainId: BASE_CHAIN_ID });
+      await switchChainAsync({ chainId: transactionChainId });
     } catch (err) {
       if (isCancellationError(err)) throw err;
-      throw new Error('Switch your wallet to the Base network to continue.');
+      throw new Error(
+        `Switch your wallet to ${getChainDisplayName(transactionChainId)} to continue.`
+      );
     }
-    return (await getWalletClient(wagmiConfig, { chainId: BASE_CHAIN_ID })) as WalletClient;
-  }, [walletChainId, walletClient, switchChainAsync, wagmiConfig]);
-  const publicClient = usePublicClient();
+    return (await getWalletClient(wagmiConfig, { chainId: transactionChainId })) as WalletClient;
+  }, [walletChainId, walletClient, switchChainAsync, wagmiConfig, transactionChainId]);
+  const publicClient = usePublicClient({ chainId: transactionChainId });
   const queryClient = useQueryClient();
 
   const [currentTxHash, setCurrentTxHash] = useState<string | null>(null);
@@ -152,7 +164,7 @@ export function TransactionFlow({
       : undefined;
   const { data: onChainShares } = useReadContract({
     address: withdrawVaultAddress && connectedAddress ? withdrawVaultAddress : undefined,
-    chainId: BASE_CHAIN_ID,
+    chainId: transactionChainId,
     abi: ERC20_BALANCE_ABI,
     functionName: 'balanceOf',
     args: connectedAddress ? [connectedAddress] : undefined,
@@ -174,6 +186,7 @@ export function TransactionFlow({
     address: (transactionType === 'withdraw' && vaultShareBalanceBn !== null && fromAccount?.type === 'vault' 
       ? (fromAccount as VaultAccount).address 
       : undefined) as `0x${string}`,
+    chainId: transactionChainId,
     abi: ERC4626_ABI,
     functionName: 'convertToAssets',
     args: vaultShareBalanceBn !== null && fromAccount?.type === 'vault'
@@ -247,7 +260,7 @@ export function TransactionFlow({
 
           await Promise.allSettled(
             Array.from(vaultsInTransaction).map((vaultAddress) =>
-              fetchVaultData(vaultAddress, BASE_CHAIN_ID, true).catch((err) => {
+              fetchVaultData(vaultAddress, transactionChainId, true).catch((err) => {
                 logger.error('Failed to refresh vault data', err, { vaultAddress, txHash: hashToUse });
               })
             )
@@ -287,6 +300,7 @@ export function TransactionFlow({
       fetchVaultData,
       router,
       refreshBalancesWithPolling,
+      transactionChainId,
     ]
   );
 
@@ -607,7 +621,7 @@ export function TransactionFlow({
         setIsCheckingLiquidity(true);
         try {
           const requested = parseTransactionAmount(amount, assetToUse.decimals);
-          fetchVaultData(vaultAccount.address, BASE_CHAIN_ID, true).catch((err) => {
+          fetchVaultData(vaultAccount.address, transactionChainId, true).catch((err) => {
             logger.warn('Vault data refresh failed before withdraw', {
               vaultAddress: vaultAccount.address,
               error: err instanceof Error ? err.message : String(err),
@@ -697,7 +711,7 @@ export function TransactionFlow({
               }
 
               setLiquidityWarningContext({
-                morphoVaultUrl: getMorphoVaultUrl(BASE_CHAIN_ID, vaultAccount.address),
+                morphoVaultUrl: getMorphoVaultUrl(transactionChainId, vaultAccount.address),
                 requestedAmountLabel: formatAssetAmount(
                   requested,
                   assetToUse.decimals,

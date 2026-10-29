@@ -33,8 +33,10 @@ export interface Vault {
     chainId: number;
     version?: 'v1' | 'v2';
     strategy?: VaultStrategy;
-    /** True when vault is in the Muscadine registry (has a detail page). */
+    /** True when vault is in the Muscadine registry. */
     isCurated?: boolean;
+    /** Underlying token contract. Pinned for Gauntlet and Steakhouse vaults. */
+    assetAddress?: string;
     
     // Financial Metrics
     totalValueLocked?: number; // TVL in USD
@@ -123,12 +125,15 @@ export interface MorphoVaultData extends Vault {
 export const VAULT_LOGO_MAP: Record<string, string> = {
     'USDC': '/usdc-logo.svg',
     'USD': '/usdc-logo.svg',
-    'WETH': '/eth-logo.svg',
+    'EURC': '/eurc-logo.svg',
+    'USDT': '/usdt-logo.svg',
+    'WETH': '/weth-logo.svg',
     'ETH': '/eth-logo.svg',
-    'CBTC': '/btc-logo.svg',
-    'cbbtc': '/btc-logo.svg', // Handle uppercase conversion
-    'CBBTC': '/btc-logo.svg',
-    'cbBTC': '/btc-logo.svg',
+    'USDG': '/usdg-logo.svg',
+    'CBTC': '/cbbtc-logo.svg',
+    'cbbtc': '/cbbtc-logo.svg',
+    'CBBTC': '/cbbtc-logo.svg',
+    'cbBTC': '/cbbtc-logo.svg',
     'BTC': '/btc-logo.svg',
 } as const;
 

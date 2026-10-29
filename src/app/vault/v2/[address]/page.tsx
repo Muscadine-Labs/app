@@ -6,10 +6,12 @@ import { useRouter, useParams } from 'next/navigation';
 import { useAccount, useReadContract } from 'wagmi';
 import {
   getDepositedVaultAddressSet,
-  isCuratedVaultAddress,
+  isOpenableVaultAddress,
   isValidEthereumAddress,
   resolveVaultForPage,
 } from '@/lib/vault-utils';
+import { isPartnerVaultAddress } from '@/lib/partner-vaults';
+import { loadExplorerFilters, serializeExplorerFilters } from '@/lib/explorer-filters';
 import { resolveVaultPageAccess, type OnChainShareState } from '@/lib/vault-access';
 import { useExplorerVaults } from '@/contexts/ExplorerVaultsContext';
 import { ERC20_BALANCE_ABI } from '@/lib/abis';
@@ -130,7 +132,7 @@ export default function VaultV2Page() {
 
   const shareRead = useReadContract({
     address: vault ? (vault.address as `0x${string}`) : undefined,
-    chainId: BASE_CHAIN_ID,
+    chainId: vault?.chainId ?? BASE_CHAIN_ID,
     abi: ERC20_BALANCE_ABI,
     functionName: 'balanceOf',
     args: walletAddress ? [walletAddress] : undefined,
@@ -183,17 +185,22 @@ export default function VaultV2Page() {
     pageAccess !== 'denied' ? vault : null
   );
 
-  const canDeposit = !!vault && eligibleVaultAddresses.has(vault.address.toLowerCase());
+  const canDeposit =
+    !!vault &&
+    (eligibleVaultAddresses.has(vault.address.toLowerCase()) ||
+      isPartnerVaultAddress(vault.address));
 
   useEffect(() => {
     if (!address) return;
-    if (!isValidEthereumAddress(address) || !isCuratedVaultAddress(address)) {
+    if (!isValidEthereumAddress(address) || !isOpenableVaultAddress(address)) {
       router.replace('/');
     }
   }, [address, router]);
 
   useEffect(() => {
-    if (vault && pageAccess === 'denied') router.replace('/vaults');
+    if (vault && pageAccess === 'denied') {
+      router.replace(`/vaults?${serializeExplorerFilters(loadExplorerFilters())}`);
+    }
   }, [vault, pageAccess, router]);
 
   const pageShellClassName = 'w-full bg-[var(--background)] flex flex-col p-4 sm:p-6 md:p-8 pb-8 min-h-full';

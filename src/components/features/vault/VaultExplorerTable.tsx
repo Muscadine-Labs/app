@@ -4,6 +4,7 @@ import { useMemo, type KeyboardEvent, type ReactNode } from 'react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useAccount } from 'wagmi';
+import { getChainDisplayName } from '@/lib/constants';
 import { Vault, getVaultLogo } from '@/types/vault';
 import type { MorphoVaultData } from '@/types/vault';
 import { useVaultData } from '@/contexts/VaultDataContext';
@@ -14,6 +15,7 @@ import {
   retiredWrapperEarnedPnl,
   hasOnChainVaultShares,
   isCuratedVaultAddress,
+  isOpenableVaultAddress,
   resolvePositionAssetsUsd,
 } from '@/lib/vault-utils';
 import {
@@ -166,7 +168,7 @@ function VaultLogo({ vault, size = 32 }: { vault: Vault; size?: number }) {
         alt={`${vault.symbol} logo`}
         width={size}
         height={size}
-        className={`object-contain ${vault.symbol === 'WETH' ? 'scale-75' : ''}`}
+        className="object-contain"
         style={{ width: '100%', height: '100%' }}
       />
     </div>
@@ -309,18 +311,19 @@ function VaultExplorerMobileCard({
   vault,
   showYourPosition,
   restricted,
+  showCuratorName,
 }: VaultExplorerRowProps) {
   const router = useRouter();
   const { getVaultData, isLoading } = useVaultData();
   const vaultData = getVaultData(vault.address);
   const loading = isLoading(vault.address);
   const decimals = resolveAssetDecimals(vault.symbol, vaultData?.assetDecimals);
-  const isCurated = isCuratedVaultAddress(vault.address);
+  const isOpenable = isOpenableVaultAddress(vault.address);
   const openVault = () => {
-    if (!isCurated) return;
+    if (!isOpenable) return;
     router.push(getVaultRoute(vault.address));
   };
-  const rowProps = isCurated
+  const rowProps = isOpenable
     ? {
         role: 'button' as const,
         tabIndex: 0,
@@ -341,13 +344,13 @@ function VaultExplorerMobileCard({
             <VaultName name={vault.name} />
             {restricted ? <RestrictedMark /> : null}
             <span className="inline-flex rounded-md bg-[var(--surface-elevated)] px-2 py-0.5 text-[10px] font-medium text-[var(--foreground-secondary)]">
-              Base
+              {getChainDisplayName(vault.chainId)}
             </span>
-            {!isCurated ? (
-              <span className="inline-flex rounded-md bg-[var(--surface-elevated)] px-2 py-0.5 text-[10px] font-medium text-[var(--foreground-muted)]">
-                External
-              </span>
-            ) : null}
+            <CuratorBadge
+              vault={vault}
+              isOpenable={isOpenable}
+              showCuratorName={showCuratorName}
+            />
           </div>
           <VaultShareLabel vault={vault} />
         </div>
@@ -420,11 +423,12 @@ function DashboardVaultMobileCard({
   const { morphoHoldings } = useWallet();
   const decimals = resolveAssetDecimals(vault.symbol, vaultData?.assetDecimals);
   const isCurated = isCuratedVaultAddress(vault.address);
+  const isOpenable = isOpenableVaultAddress(vault.address);
   const openVault = () => {
-    if (!isCurated) return;
+    if (!isOpenable) return;
     router.push(getVaultRoute(vault.address));
   };
-  const rowProps = isCurated
+  const rowProps = isOpenable
     ? {
         role: 'button' as const,
         tabIndex: 0,
@@ -443,7 +447,7 @@ function DashboardVaultMobileCard({
         <div className="min-w-0 flex-1">
           <VaultName name={vault.name} lines={2} />
           <VaultShareLabel vault={vault} />
-          {!isCurated || showCuratedLabel ? (
+          {!isOpenable || (showCuratedLabel && isCurated) ? (
             <span className="text-[10px] text-[var(--foreground-muted)] block">
               {isCurated ? 'Whitelisted' : 'External'}
             </span>
@@ -595,6 +599,26 @@ interface VaultExplorerRowProps {
   showYourPosition: boolean;
   /** Listed, but this wallet cannot deposit (send-assets gate says no). */
   restricted?: boolean;
+  /** When the curator filter is All, name the curator instead of marking a row External. */
+  showCuratorName?: boolean;
+}
+
+function CuratorBadge({
+  vault,
+  isOpenable,
+  showCuratorName,
+}: {
+  vault: Vault;
+  isOpenable: boolean;
+  showCuratorName?: boolean;
+}) {
+  const label = showCuratorName ? vault.curator || 'Muscadine' : !isOpenable ? 'External' : null;
+  if (!label) return null;
+  return (
+    <span className="inline-flex shrink-0 rounded-md bg-[var(--surface-elevated)] px-2 py-0.5 text-[10px] font-medium text-[var(--foreground-muted)]">
+      {label}
+    </span>
+  );
 }
 
 function RestrictedMark() {
@@ -612,37 +636,38 @@ function VaultExplorerRow({
   vault,
   showYourPosition,
   restricted,
+  showCuratorName,
 }: VaultExplorerRowProps) {
   const router = useRouter();
   const { getVaultData, isLoading } = useVaultData();
   const vaultData = getVaultData(vault.address);
   const loading = isLoading(vault.address);
   const decimals = resolveAssetDecimals(vault.symbol, vaultData?.assetDecimals);
-  const isCurated = isCuratedVaultAddress(vault.address);
+  const isOpenable = isOpenableVaultAddress(vault.address);
 
   const openVault = () => {
-    if (!isCurated) return;
+    if (!isOpenable) return;
     router.push(getVaultRoute(vault.address));
   };
 
   return (
     <tr
-      role={isCurated ? 'button' : undefined}
-      tabIndex={isCurated ? 0 : undefined}
-      aria-label={isCurated ? `Open ${vault.name}` : undefined}
-      onClick={isCurated ? openVault : undefined}
+      role={isOpenable ? 'button' : undefined}
+      tabIndex={isOpenable ? 0 : undefined}
+      aria-label={isOpenable ? `Open ${vault.name}` : undefined}
+      onClick={isOpenable ? openVault : undefined}
       onKeyDown={
-        isCurated ? (event) => handleRowKeyDown(event, openVault) : undefined
+        isOpenable ? (event) => handleRowKeyDown(event, openVault) : undefined
       }
       className={`border-b border-[var(--border)] transition-colors ${
-        isCurated
+        isOpenable
           ? 'hover:bg-[var(--surface-hover)] cursor-pointer'
           : 'cursor-default'
       }`}
     >
       <td className="px-4 sm:px-6 py-4 align-middle">
         <span className="inline-flex rounded-md bg-[var(--surface-elevated)] px-2.5 py-1 text-xs font-medium text-[var(--foreground-secondary)]">
-          Base
+          {getChainDisplayName(vault.chainId)}
         </span>
       </td>
 
@@ -655,11 +680,11 @@ function VaultExplorerRow({
             <div className="flex items-center gap-2 min-w-0">
               <VaultName name={vault.name} />
               {restricted ? <RestrictedMark /> : null}
-              {!isCurated ? (
-                <span className="shrink-0 text-[10px] text-[var(--foreground-muted)]">
-                  External
-                </span>
-              ) : null}
+              <CuratorBadge
+                vault={vault}
+                isOpenable={isOpenable}
+                showCuratorName={showCuratorName}
+              />
             </div>
             <VaultShareLabel vault={vault} />
           </div>
@@ -714,11 +739,13 @@ function VaultExplorerRow({
 interface VaultExplorerTableProps {
   vaults: Vault[];
   emptyMessage?: string;
+  showCuratorName?: boolean;
 }
 
 export default function VaultExplorerTable({
   vaults,
   emptyMessage = 'No vaults match the selected filters.',
+  showCuratorName = false,
 }: VaultExplorerTableProps) {
   const isMounted = useIsClient();
   const { isConnected } = useAccount();
@@ -751,6 +778,7 @@ export default function VaultExplorerTable({
             vault={vault}
             showYourPosition={showYourPosition}
             restricted={isRestricted(vault)}
+            showCuratorName={showCuratorName}
           />
         ))}
       </div>
@@ -777,6 +805,7 @@ export default function VaultExplorerTable({
               key={vault.address}
               vault={vault}
               showYourPosition={showYourPosition}
+              showCuratorName={showCuratorName}
               restricted={isRestricted(vault)}
             />
           ))}
@@ -885,21 +914,21 @@ function DashboardVaultRow({ vault }: { vault: Vault }) {
   const positionUsd = position
     ? resolvePositionAssetsUsd(position, { assetDecimals: decimals, symbol: vault.symbol })
     : 0;
-  const isCurated = isCuratedVaultAddress(vault.address);
+  const isOpenable = isOpenableVaultAddress(vault.address);
   const openVault = () => {
-    if (!isCurated) return;
+    if (!isOpenable) return;
     router.push(getVaultRoute(vault.address));
   };
 
   return (
     <tr
-      role={isCurated ? 'button' : undefined}
-      tabIndex={isCurated ? 0 : undefined}
-      aria-label={isCurated ? `Open ${vault.name}` : undefined}
-      onClick={isCurated ? openVault : undefined}
-      onKeyDown={isCurated ? (event) => handleRowKeyDown(event, openVault) : undefined}
+      role={isOpenable ? 'button' : undefined}
+      tabIndex={isOpenable ? 0 : undefined}
+      aria-label={isOpenable ? `Open ${vault.name}` : undefined}
+      onClick={isOpenable ? openVault : undefined}
+      onKeyDown={isOpenable ? (event) => handleRowKeyDown(event, openVault) : undefined}
       className={`border-b border-[var(--border)] transition-colors ${
-        isCurated ? 'hover:bg-[var(--surface-hover)] cursor-pointer' : 'cursor-default'
+        isOpenable ? 'hover:bg-[var(--surface-hover)] cursor-pointer' : 'cursor-default'
       }`}
     >
       <td className="px-2 py-2.5 align-middle">
@@ -961,7 +990,7 @@ export function DashboardVaultTable({
       .sort((a, b) => b.usd - a.usd || a.index - b.index)
       .map(({ vault }) => vault);
   }, [vaults, morphoHoldings.positions]);
-  const hasExternal = vaults.some((vault) => !isCuratedVaultAddress(vault.address));
+  const hasExternal = vaults.some((vault) => !isOpenableVaultAddress(vault.address));
 
   if (!isMounted) {
     return (
