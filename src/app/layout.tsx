@@ -10,7 +10,6 @@ import { config } from '@/config/wagmi'
 import { PriceProvider } from '@/contexts/PriceContext'
 import { getAppUrl } from '@/lib/app-url'
 import { APP_NAME, BASE_APP_ID } from '@/lib/base-app'
-import DeferredAnalytics from '@/components/DeferredAnalytics'
 
 const appUrl = getAppUrl()
 
@@ -82,7 +81,6 @@ export default async function RootLayout({
                 <AppLayout>{children}</AppLayout>
               </PriceProvider>
           </Providers>
-          <DeferredAnalytics />
       </body>
     </html>
   )

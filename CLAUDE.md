@@ -85,7 +85,6 @@ Never commit real keys. `.env.example` documents placeholders.
 | Client GraphQL | None — Morpho GraphQL is server-only via `fetchMorphoGraphQL()` |
 | V2 txs | Direct ERC-4626 via viem (`transactionUtilsV2.ts`); force exits via vault `multicall` (`force-withdraw-v2.ts`) |
 | Charts | Recharts |
-| Analytics | `@vercel/analytics` |
 | Base Account SDK | `@base-org/account` |
 
 ---
