@@ -35,15 +35,20 @@ describe('explorer filters', () => {
   });
 
   it('drops a network or asset Muscadine does not have', () => {
-    const next = reconcileExplorerFilters({
-      network: 'ethereum',
+    const parsed = parseExplorerFilters(
+      new URLSearchParams('network=ethereum&strategy=prime&asset=USDC&wallet=inWalletAndWhitelisted')
+    );
+    expect(parsed).toEqual({
+      network: 'base',
       strategy: 'prime',
       asset: 'USDC',
       walletFilter: 'inWalletAndWhitelisted',
     });
-    expect(next.network).toBe('base');
-    expect(next.strategy).toBe('prime');
-    expect(next.asset).toBe('USDC');
+    expect(reconcileExplorerFilters({
+      ...getDefaultExplorerFilters(),
+      asset: 'USDC',
+      strategy: 'prime',
+    })).toMatchObject({ network: 'base', asset: 'USDC', strategy: 'prime' });
   });
 
   it('keeps a strategy and asset stored in the vaults URL and ignores a curator param', () => {

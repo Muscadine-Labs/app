@@ -142,7 +142,6 @@ export function registryDefinitionToVault(vault: VaultDefinition): Vault {
     chainId: vault.chainId,
     version: vault.version,
     strategy: vault.strategy,
-    curator: 'Muscadine',
     isCurated: true,
   };
 }

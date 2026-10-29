@@ -35,7 +35,7 @@ export interface Vault {
     strategy?: VaultStrategy;
     /** True when vault is in the Muscadine registry. */
     isCurated?: boolean;
-    /** Underlying token contract. Pinned for Gauntlet and Steakhouse vaults. */
+    /** Underlying token contract, when the vault data includes it. */
     assetAddress?: string;
     
     // Financial Metrics
@@ -125,11 +125,8 @@ export interface MorphoVaultData extends Vault {
 export const VAULT_LOGO_MAP: Record<string, string> = {
     'USDC': '/usdc-logo.svg',
     'USD': '/usdc-logo.svg',
-    'EURC': '/eurc-logo.svg',
-    'USDT': '/usdt-logo.svg',
     'WETH': '/weth-logo.svg',
     'ETH': '/eth-logo.svg',
-    'USDG': '/usdg-logo.svg',
     'CBTC': '/cbbtc-logo.svg',
     'cbbtc': '/cbbtc-logo.svg',
     'CBBTC': '/cbbtc-logo.svg',

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { logger } from '@/lib/logger';
 import { isValidEthereumAddress } from '@/lib/vault-utils';
-import { isExplorerChainParam, fetchMorphoGraphQL, readMorphoGraphQLResponse, MORPHO_RATE_LIMIT_BODY } from '@/lib/api-utils';
+import { isValidChainId, fetchMorphoGraphQL, readMorphoGraphQLResponse, MORPHO_RATE_LIMIT_BODY } from '@/lib/api-utils';
 import { BASE_CHAIN_ID, MORPHO_GRAPHQL_REVALIDATE_SECONDS } from '@/lib/constants';
 
 export async function GET(
@@ -24,7 +24,7 @@ export async function GET(
       );
     }
 
-    if (!isExplorerChainParam(chainIdParam)) {
+    if (!isValidChainId(chainIdParam)) {
       return NextResponse.json(
         { error: 'Invalid chain ID' },
         { status: 400 }
