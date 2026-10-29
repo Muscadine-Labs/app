@@ -2,7 +2,6 @@
 
 import { useContext, useMemo, type ReactNode, createContext } from 'react';
 import { useVaultDepositGates } from '@/hooks/useVaultDepositGates';
-import { getPartnerVaultAddresses } from '@/lib/partner-vaults';
 import { getAllRegistryVaults } from '@/lib/vault-utils';
 import type { Vault } from '@/types/vault';
 
@@ -18,10 +17,9 @@ interface ExplorerVaultsContextType {
 const ExplorerVaultsContext = createContext<ExplorerVaultsContextType | undefined>(undefined);
 
 const REGISTRY_VAULTS = getAllRegistryVaults();
-const REGISTRY_VAULT_ADDRESSES: ReadonlySet<string> = new Set([
-  ...REGISTRY_VAULTS.map((vault) => vault.address.toLowerCase()),
-  ...getPartnerVaultAddresses().map((address) => address.toLowerCase()),
-]);
+const REGISTRY_VAULT_ADDRESSES: ReadonlySet<string> = new Set(
+  REGISTRY_VAULTS.map((vault) => vault.address.toLowerCase())
+);
 
 export function ExplorerVaultsProvider({ children }: { children: ReactNode }) {
   const { isResolving } = useVaultDepositGates();

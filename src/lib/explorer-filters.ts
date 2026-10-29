@@ -1,14 +1,25 @@
 import { EXPLORER_NETWORKS, explorerChainId, type ExplorerNetwork } from '@/lib/constants';
-import {
-  EXPLORER_CURATOR_OPTIONS,
-  strategyFromVaultName,
-  type NamedVaultCurator,
-  type VaultCuratorFilter,
-} from '@/lib/curator-vaults';
-import { getAllPartnerVaults, isListedAssetSymbol, LISTED_ASSETS, type ListedAsset } from '@/lib/partner-vaults';
 import { getAllRegistryVaults } from '@/lib/vault-utils';
 import type { VaultStrategy } from '@/lib/vaults';
 import type { Vault } from '@/types/vault';
+
+/** Assets a Muscadine vault can list. cbBTC is also accepted as CBBTC or CBTC. */
+export const LISTED_ASSETS = ['USDC', 'cbBTC', 'WETH'] as const;
+export type ListedAsset = (typeof LISTED_ASSETS)[number];
+
+export function isListedAssetSymbol(symbol: string): boolean {
+  const upper = symbol.trim().toUpperCase();
+  if (upper === 'CBBTC' || upper === 'CBTC') return true;
+  return LISTED_ASSETS.some((asset) => asset.toUpperCase() === upper);
+}
+
+/** Prime or Frontier when the vault name says so. Anything else has no strategy. */
+export function strategyFromVaultName(name: string): VaultStrategy | undefined {
+  const frontier = /\bfrontier\b/i.test(name);
+  const prime = /\bprime\b/i.test(name);
+  if (frontier === prime) return undefined;
+  return frontier ? 'frontier' : 'prime';
+}
 
 export type VaultAssetFilter = 'all' | ListedAsset;
 export type VaultNetworkFilter = 'all' | ExplorerNetwork;
@@ -17,7 +28,6 @@ export type VaultWalletFilter = 'all' | 'inWallet' | 'inWalletAndWhitelisted';
 
 export interface VaultExplorerFilterState {
   network: VaultNetworkFilter;
-  curator: VaultCuratorFilter;
   strategy: VaultStrategyFilter;
   asset: VaultAssetFilter;
   walletFilter: VaultWalletFilter;
@@ -29,63 +39,29 @@ export interface ExplorerFilterOption<T extends string> {
 }
 
 const ASSET_ORDER: readonly ListedAsset[] = LISTED_ASSETS;
-
 const STRATEGY_ORDER: readonly VaultStrategy[] = ['prime', 'frontier'];
 
 const FILTER_STORAGE_KEY = 'muscadine.vault-explorer-filters';
 const FILTER_VERSION_KEY = 'muscadine.vault-explorer-filters.version';
-const FILTER_VERSION = '2';
+const FILTER_VERSION = '3';
 
 export function getDefaultExplorerFilters(): VaultExplorerFilterState {
   return {
     network: 'base',
-    curator: 'muscadine',
     strategy: 'all',
     asset: 'all',
     walletFilter: 'inWalletAndWhitelisted',
   };
 }
 
-/**
- * Filters written when the default network was All. A visit that never changed
- * a filter should open on Base instead.
- */
-function isLegacyDefaultFilters(filters: VaultExplorerFilterState): boolean {
-  return (
-    filters.network === 'all' &&
-    filters.curator === 'muscadine' &&
-    filters.strategy === 'all' &&
-    filters.asset === 'all' &&
-    filters.walletFilter === 'inWalletAndWhitelisted'
-  );
-}
-
-export function resolveStoredExplorerFilters(
-  candidate: VaultExplorerFilterState | null,
-  migrated: boolean
-): VaultExplorerFilterState {
-  if (!candidate) return getDefaultExplorerFilters();
-  if (!migrated && isLegacyDefaultFilters(candidate)) return getDefaultExplorerFilters();
-  return candidate;
-}
-
 function catalogVaults(): Vault[] {
-  return [...getAllRegistryVaults(), ...getAllPartnerVaults()].filter((vault) =>
-    isListedAssetSymbol(vault.symbol)
-  );
+  return getAllRegistryVaults().filter((vault) => isListedAssetSymbol(vault.symbol));
 }
 
 function onNetwork(vaults: Vault[], network: VaultNetworkFilter): Vault[] {
   if (network === 'all') return vaults;
   const chainId = explorerChainId(network);
   return vaults.filter((vault) => vault.chainId === chainId);
-}
-
-function curatorId(vault: Vault): NamedVaultCurator {
-  if (vault.isCurated || vault.curator === 'Muscadine') return 'muscadine';
-  if (vault.curator === 'Gauntlet') return 'gauntlet';
-  if (vault.curator === 'Bitwise') return 'bitwise';
-  return 'steakhouse-financial';
 }
 
 function assetId(symbol: string): ListedAsset | null {
@@ -99,15 +75,16 @@ function vaultStrategy(vault: Vault): VaultStrategy | undefined {
   return vault.strategy ?? strategyFromVaultName(vault.name);
 }
 
-export function curatorOptionsForNetwork(
-  network: VaultNetworkFilter
-): ExplorerFilterOption<VaultCuratorFilter>[] {
-  const present = new Set(onNetwork(catalogVaults(), network).map(curatorId));
-  const named = EXPLORER_CURATOR_OPTIONS.filter((option) => present.has(option.value));
-  if (network === 'all' || named.length > 1) {
+export function networkOptions(): ExplorerFilterOption<VaultNetworkFilter>[] {
+  const present = new Set(catalogVaults().map((vault) => vault.chainId));
+  const named = EXPLORER_NETWORKS.filter((network) => present.has(network.id)).map((network) => ({
+    label: network.label,
+    value: network.value,
+  }));
+  if (named.length > 1) {
     return [{ label: 'All', value: 'all' }, ...named];
   }
-  return named;
+  return named.length > 0 ? named : [{ label: 'Base', value: 'base' }];
 }
 
 export function assetOptionsForNetwork(
@@ -127,15 +104,13 @@ export function assetOptionsForNetwork(
   ];
 }
 
-export function strategyOptionsForSelection(
-  network: VaultNetworkFilter,
-  curator: VaultCuratorFilter
+export function strategyOptionsForNetwork(
+  network: VaultNetworkFilter
 ): ExplorerFilterOption<VaultStrategyFilter>[] {
-  const vaults = onNetwork(catalogVaults(), network).filter(
-    (vault) => curator === 'all' || curatorId(vault) === curator
-  );
   const present = new Set(
-    vaults.map(vaultStrategy).filter((strategy): strategy is VaultStrategy => strategy !== undefined)
+    onNetwork(catalogVaults(), network)
+      .map(vaultStrategy)
+      .filter((strategy): strategy is VaultStrategy => strategy !== undefined)
   );
   return [
     { label: 'All', value: 'all' },
@@ -146,29 +121,25 @@ export function strategyOptionsForSelection(
   ];
 }
 
-/** Drop a curator, asset, or strategy the selected network does not have. */
+/** Drop a network, asset, or strategy the Muscadine list does not have. */
 export function reconcileExplorerFilters(
   filters: VaultExplorerFilterState
 ): VaultExplorerFilterState {
-  const curators = curatorOptionsForNetwork(filters.network);
-  const curator = curators.some((option) => option.value === filters.curator)
-    ? filters.curator
-    : (curators.find((option) => option.value === 'all')?.value ?? curators[0]?.value ?? 'muscadine');
-  const assets = assetOptionsForNetwork(filters.network);
+  const networks = networkOptions();
+  const network = networks.some((option) => option.value === filters.network)
+    ? filters.network
+    : (networks.find((option) => option.value === 'base')?.value ?? networks[0]?.value ?? 'base');
+  const assets = assetOptionsForNetwork(network);
   const asset = assets.some((option) => option.value === filters.asset) ? filters.asset : 'all';
-  const strategies = strategyOptionsForSelection(filters.network, curator);
+  const strategies = strategyOptionsForNetwork(network);
   const strategy = strategies.some((option) => option.value === filters.strategy)
     ? filters.strategy
     : 'all';
-  return { ...filters, curator, asset, strategy };
+  return { network, asset, strategy, walletFilter: filters.walletFilter };
 }
 
 function isNetwork(value: string | null): value is VaultNetworkFilter {
   return value === 'all' || EXPLORER_NETWORKS.some((network) => network.value === value);
-}
-
-function isCurator(value: string | null): value is VaultCuratorFilter {
-  return value === 'all' || EXPLORER_CURATOR_OPTIONS.some((option) => option.value === value);
 }
 
 function isStrategy(value: string | null): value is VaultStrategyFilter {
@@ -184,17 +155,15 @@ function isWallet(value: string | null): value is VaultWalletFilter {
 }
 
 export function parseExplorerFilters(params: URLSearchParams): VaultExplorerFilterState | null {
-  const keys = ['network', 'curator', 'strategy', 'asset', 'wallet'];
+  const keys = ['network', 'strategy', 'asset', 'wallet'];
   if (!keys.some((key) => params.has(key))) return null;
   const defaults = getDefaultExplorerFilters();
   const network = params.get('network');
-  const curator = params.get('curator');
   const strategy = params.get('strategy');
   const asset = params.get('asset');
   const wallet = params.get('wallet');
   return reconcileExplorerFilters({
     network: isNetwork(network) ? network : defaults.network,
-    curator: isCurator(curator) ? curator : defaults.curator,
     strategy: isStrategy(strategy) ? strategy : defaults.strategy,
     asset: isAsset(asset) ? asset : defaults.asset,
     walletFilter: isWallet(wallet) ? wallet : defaults.walletFilter,
@@ -204,7 +173,6 @@ export function parseExplorerFilters(params: URLSearchParams): VaultExplorerFilt
 export function serializeExplorerFilters(filters: VaultExplorerFilterState): string {
   const params = new URLSearchParams();
   params.set('network', filters.network);
-  params.set('curator', filters.curator);
   params.set('strategy', filters.strategy);
   params.set('asset', filters.asset);
   params.set('wallet', filters.walletFilter);
@@ -223,8 +191,9 @@ export function loadExplorerFilters(): VaultExplorerFilterState {
   const migrated = window.sessionStorage.getItem(FILTER_VERSION_KEY) === FILTER_VERSION;
   try {
     const fromUrl = parseExplorerFilters(new URLSearchParams(window.location.search));
+    if (!migrated) return fromUrl ?? getDefaultExplorerFilters();
     const stored = fromUrl ? null : readStoredExplorerFilters();
-    return resolveStoredExplorerFilters(fromUrl ?? stored, migrated);
+    return fromUrl ?? stored ?? getDefaultExplorerFilters();
   } catch {
     return getDefaultExplorerFilters();
   }

@@ -3,18 +3,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAccount } from 'wagmi';
 import { explorerChainId } from '@/lib/constants';
-import { curatorVaultCandidates, isRemoteCurator, strategyFromVaultName } from '@/lib/curator-vaults';
 import {
   assetOptionsForNetwork,
-  curatorOptionsForNetwork,
   getDefaultExplorerFilters,
+  isListedAssetSymbol,
   loadExplorerFilters,
   persistExplorerFilters,
   reconcileExplorerFilters,
-  strategyOptionsForSelection,
+  strategyFromVaultName,
+  strategyOptionsForNetwork,
   type VaultExplorerFilterState,
 } from '@/lib/explorer-filters';
-import { getAllPartnerVaults, getPartnerVaults, isListedAssetSymbol } from '@/lib/partner-vaults';
 import { buildExplorerVaultCandidates, sortVaultsForDisplay } from '@/lib/vault-utils';
 import { useExplorerVaults } from '@/contexts/ExplorerVaultsContext';
 import { useWallet } from '@/contexts/WalletContext';
@@ -57,31 +56,16 @@ function VaultExplorerContent({
     setFiltersReady(true);
   }, []);
 
-  const remoteCurator = isRemoteCurator(filters.curator) ? filters.curator : null;
-  const partnerVaults = useMemo(() => {
-    if (filters.curator === 'all') return getAllPartnerVaults();
-    return remoteCurator ? getPartnerVaults(remoteCurator) : [];
-  }, [filters.curator, remoteCurator]);
-
   const filteredVaults = useMemo(() => {
     if (filters.walletFilter === 'inWallet' && !isConnected) {
       return [];
     }
 
-    const candidates =
-      filters.curator === 'muscadine'
-        ? buildExplorerVaultCandidates(
-            explorerRegistryVaults,
-            morphoHoldings.positions,
-            filters.walletFilter
-          )
-        : curatorVaultCandidates(
-            filters.curator === 'all'
-              ? [...explorerRegistryVaults, ...partnerVaults]
-              : partnerVaults,
-            morphoHoldings.positions,
-            filters.walletFilter
-          );
+    const candidates = buildExplorerVaultCandidates(
+      explorerRegistryVaults,
+      morphoHoldings.positions,
+      filters.walletFilter
+    );
 
     const filtered = candidates.filter((vault) => {
       if (vault.version !== 'v2') return false;
@@ -113,7 +97,6 @@ function VaultExplorerContent({
     );
   }, [
     filters,
-    partnerVaults,
     explorerRegistryVaults,
     isConnected,
     isMounted,
@@ -157,8 +140,7 @@ function VaultExplorerContent({
       {showFilters && (
         <VaultExplorerFilters
           filters={filters}
-          curatorOptions={curatorOptionsForNetwork(filters.network)}
-          strategyOptions={strategyOptionsForSelection(filters.network, filters.curator)}
+          strategyOptions={strategyOptionsForNetwork(filters.network)}
           assetOptions={assetOptionsForNetwork(filters.network)}
           onFiltersChange={applyFilters}
         />
@@ -172,7 +154,6 @@ function VaultExplorerContent({
           <VaultExplorerTable
             vaults={filteredVaults}
             emptyMessage={emptyMessage}
-            showCuratorName={filters.curator === 'all'}
           />
         )}
       </div>

@@ -12,8 +12,6 @@ import {
   resolveMorphoAssetSymbol,
 } from '@/lib/asset-decimals';
 import { BASE_CHAIN_ID } from '@/lib/constants';
-import { findPartnerVault, isPartnerVaultAddress } from '@/lib/partner-vaults';
-
 /** Morpho holding row from WalletContext (minimal shape for display helpers). */
 export interface WalletMorphoPosition {
   shares: string;
@@ -173,9 +171,9 @@ export function isCuratedVaultAddress(address: string): boolean {
   return findVaultByAddress(address) !== null;
 }
 
-/** Muscadine registry or a pinned Gauntlet / Steakhouse vault. These open a vault page. */
+/** A Muscadine registry vault. These open a vault page. */
 export function isOpenableVaultAddress(address: string): boolean {
-  return isCuratedVaultAddress(address) || isPartnerVaultAddress(address);
+  return isCuratedVaultAddress(address);
 }
 
 /** Minimal vault stub for external Morpho vaults not in the Muscadine registry. */
@@ -287,25 +285,18 @@ export function buildExplorerVaultCandidates(
   return dedupeVaultsByAddress([...registryVaults, ...externalVaults]);
 }
 
-/** Registry vault or a pinned partner vault. Other Morpho positions have no detail page. */
+/** Registry vault. Other Morpho positions have no detail page. */
 export function resolveVaultForPage(address: string): Vault | null {
   if (!address || !isValidEthereumAddress(address)) return null;
 
   const registryVault = findVaultByAddress(address);
   if (registryVault?.version === 'v2') return registryVault;
 
-  const partnerVault = findPartnerVault(address);
-  if (partnerVault?.version === 'v2') return partnerVault;
-
   return null;
 }
 
 export function chainIdForKnownVault(address: string): number {
-  return (
-    findVaultByAddress(address)?.chainId ??
-    findPartnerVault(address)?.chainId ??
-    BASE_CHAIN_ID
-  );
+  return findVaultByAddress(address)?.chainId ?? BASE_CHAIN_ID;
 }
 
 export function getVaultRoute(address: string): string {

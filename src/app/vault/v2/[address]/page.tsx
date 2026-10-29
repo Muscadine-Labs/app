@@ -10,7 +10,6 @@ import {
   isValidEthereumAddress,
   resolveVaultForPage,
 } from '@/lib/vault-utils';
-import { isPartnerVaultAddress } from '@/lib/partner-vaults';
 import { loadExplorerFilters, serializeExplorerFilters } from '@/lib/explorer-filters';
 import { resolveVaultPageAccess, type OnChainShareState } from '@/lib/vault-access';
 import { useExplorerVaults } from '@/contexts/ExplorerVaultsContext';
@@ -185,10 +184,7 @@ export default function VaultV2Page() {
     pageAccess !== 'denied' ? vault : null
   );
 
-  const canDeposit =
-    !!vault &&
-    (eligibleVaultAddresses.has(vault.address.toLowerCase()) ||
-      isPartnerVaultAddress(vault.address));
+  const canDeposit = !!vault && eligibleVaultAddresses.has(vault.address.toLowerCase());
 
   useEffect(() => {
     if (!address) return;

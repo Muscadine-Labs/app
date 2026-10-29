@@ -311,7 +311,6 @@ function VaultExplorerMobileCard({
   vault,
   showYourPosition,
   restricted,
-  showCuratorName,
 }: VaultExplorerRowProps) {
   const router = useRouter();
   const { getVaultData, isLoading } = useVaultData();
@@ -346,11 +345,7 @@ function VaultExplorerMobileCard({
             <span className="inline-flex rounded-md bg-[var(--surface-elevated)] px-2 py-0.5 text-[10px] font-medium text-[var(--foreground-secondary)]">
               {getChainDisplayName(vault.chainId)}
             </span>
-            <CuratorBadge
-              vault={vault}
-              isOpenable={isOpenable}
-              showCuratorName={showCuratorName}
-            />
+            <CuratorBadge isOpenable={isOpenable} />
           </div>
           <VaultShareLabel vault={vault} />
         </div>
@@ -599,24 +594,13 @@ interface VaultExplorerRowProps {
   showYourPosition: boolean;
   /** Listed, but this wallet cannot deposit (send-assets gate says no). */
   restricted?: boolean;
-  /** When the curator filter is All, name the curator instead of marking a row External. */
-  showCuratorName?: boolean;
 }
 
-function CuratorBadge({
-  vault,
-  isOpenable,
-  showCuratorName,
-}: {
-  vault: Vault;
-  isOpenable: boolean;
-  showCuratorName?: boolean;
-}) {
-  const label = showCuratorName ? vault.curator || 'Muscadine' : !isOpenable ? 'External' : null;
-  if (!label) return null;
+function CuratorBadge({ isOpenable }: { isOpenable: boolean }) {
+  if (isOpenable) return null;
   return (
     <span className="inline-flex shrink-0 rounded-md bg-[var(--surface-elevated)] px-2 py-0.5 text-[10px] font-medium text-[var(--foreground-muted)]">
-      {label}
+      External
     </span>
   );
 }
@@ -636,7 +620,6 @@ function VaultExplorerRow({
   vault,
   showYourPosition,
   restricted,
-  showCuratorName,
 }: VaultExplorerRowProps) {
   const router = useRouter();
   const { getVaultData, isLoading } = useVaultData();
@@ -680,11 +663,7 @@ function VaultExplorerRow({
             <div className="flex items-center gap-2 min-w-0">
               <VaultName name={vault.name} />
               {restricted ? <RestrictedMark /> : null}
-              <CuratorBadge
-                vault={vault}
-                isOpenable={isOpenable}
-                showCuratorName={showCuratorName}
-              />
+              <CuratorBadge isOpenable={isOpenable} />
             </div>
             <VaultShareLabel vault={vault} />
           </div>
@@ -739,13 +718,11 @@ function VaultExplorerRow({
 interface VaultExplorerTableProps {
   vaults: Vault[];
   emptyMessage?: string;
-  showCuratorName?: boolean;
 }
 
 export default function VaultExplorerTable({
   vaults,
   emptyMessage = 'No vaults match the selected filters.',
-  showCuratorName = false,
 }: VaultExplorerTableProps) {
   const isMounted = useIsClient();
   const { isConnected } = useAccount();
@@ -778,7 +755,6 @@ export default function VaultExplorerTable({
             vault={vault}
             showYourPosition={showYourPosition}
             restricted={isRestricted(vault)}
-            showCuratorName={showCuratorName}
           />
         ))}
       </div>
@@ -805,7 +781,6 @@ export default function VaultExplorerTable({
               key={vault.address}
               vault={vault}
               showYourPosition={showYourPosition}
-              showCuratorName={showCuratorName}
               restricted={isRestricted(vault)}
             />
           ))}

@@ -3,7 +3,6 @@
 import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
 import { formatUnits } from 'viem';
 import { Vault, MorphoVaultData, VaultLiquidityBreakdown } from '@/types/vault';
-import { findPartnerVault } from '@/lib/partner-vaults';
 import { findVaultByAddress, isCuratedVaultAddress } from '@/lib/vault-utils';
 import { BASE_CHAIN_ID, MORPHO_PRELOAD_BATCH_SIZE, MORPHO_FETCH_ERROR_COOLDOWN_MS, CLIENT_VAULT_DATA_CACHE_MS } from '../lib/constants';
 
@@ -181,8 +180,7 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
         
         const sharePriceUsd = vaultInfo.state?.sharePriceUsd || 0;
         const registryVault = findVaultByAddress(address);
-        const partnerVault = findPartnerVault(address);
-        const knownVault = registryVault ?? partnerVault;
+        const knownVault = registryVault;
         const apiAssetAddress = (vaultInfo.asset as { address?: string } | undefined)?.address;
 
         // Build the vault object

@@ -13,9 +13,8 @@ import {
   useInteractions,
   useRole,
 } from '@floating-ui/react';
-import { EXPLORER_NETWORKS } from '@/lib/constants';
-import type { VaultCuratorFilter } from '@/lib/curator-vaults';
 import {
+  networkOptions,
   type ExplorerFilterOption,
   type VaultAssetFilter,
   type VaultExplorerFilterState,
@@ -252,7 +251,6 @@ function WalletFilterControl({
 
 interface VaultExplorerFiltersProps {
   filters: VaultExplorerFilterState;
-  curatorOptions: ExplorerFilterOption<VaultCuratorFilter>[];
   strategyOptions: ExplorerFilterOption<VaultStrategyFilter>[];
   assetOptions: ExplorerFilterOption<VaultAssetFilter>[];
   onFiltersChange: (filters: VaultExplorerFilterState) => void;
@@ -260,7 +258,6 @@ interface VaultExplorerFiltersProps {
 
 export default function VaultExplorerFilters({
   filters,
-  curatorOptions,
   strategyOptions,
   assetOptions,
   onFiltersChange,
@@ -276,20 +273,8 @@ export default function VaultExplorerFilters({
           <FilterDropdown
             label="Network"
             value={filters.network}
-            options={[
-              { label: 'All', value: 'all' },
-              ...EXPLORER_NETWORKS.map((network) => ({
-                label: network.label,
-                value: network.value,
-              })),
-            ]}
+            options={networkOptions()}
             onChange={(value) => update({ network: value as VaultNetworkFilter })}
-          />
-          <FilterDropdown
-            label="Curator"
-            value={filters.curator}
-            options={curatorOptions}
-            onChange={(value) => update({ curator: value as VaultCuratorFilter })}
           />
           <FilterDropdown
             label="Strategy"
