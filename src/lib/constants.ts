@@ -5,22 +5,9 @@
 // Chain configuration
 export const BASE_CHAIN_ID = 8453 as const;
 export const BASE_CHAIN_NAME = 'Base';
-
-/** Networks the vault explorer can list. Muscadine vaults are Base only. */
-export const EXPLORER_NETWORKS = [
-  { id: BASE_CHAIN_ID, value: 'base', label: 'Base' },
-] as const;
-
-export type ExplorerNetwork = (typeof EXPLORER_NETWORKS)[number]['value'];
-
-export function explorerChainId(network: ExplorerNetwork): number {
-  const match = EXPLORER_NETWORKS.find((entry) => entry.value === network);
-  return match?.id ?? BASE_CHAIN_ID;
-}
-
 export function getChainDisplayName(chainId: number): string {
-  const network = EXPLORER_NETWORKS.find((entry) => entry.id === chainId);
-  return network?.label ?? `Chain ${chainId}`;
+  if (chainId === BASE_CHAIN_ID) return BASE_CHAIN_NAME;
+  return `Chain ${chainId}`;
 }
 /** Chain slug used in app.morpho.org URLs. */
 export const MORPHO_CHAIN_SLUG: Record<number, string> = {

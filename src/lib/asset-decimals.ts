@@ -65,7 +65,7 @@ export function resolveMorphoAssetSymbol(options: {
 export function getAssetDecimalsForSymbol(symbol: string): number {
   if (isUnknownAssetSymbol(symbol)) return DEFAULT_MORPHO_ASSET_DECIMALS;
   const upper = symbol.toUpperCase();
-  if (upper === 'USDC' || upper === 'USDT' || upper === 'EURC' || upper === 'USDG') return 6;
+  if (upper === 'USDC') return 6;
   if (upper === 'CBBTC' || upper === 'CBTC' || upper === 'BTC') return 8;
   return 18;
 }

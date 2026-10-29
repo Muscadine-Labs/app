@@ -366,12 +366,10 @@ Adaptive layout (content-sized panels; empty sections omitted):
 
 | Filter | Options | Notes |
 |--------|---------|-------|
-| Network | Base | Default **Base**. Only a network that has a vault is offered. |
-| Strategy | All, Prime, Frontier | Default **All** |
-| Asset | All, USDC, cbBTC, WETH | Default **All** |
-| Wallet | Deposits + whitelisted, In wallet, Whitelisted | Default **Deposits + whitelisted**. Wallet modes can list external deposits as **External** (not clickable). |
-
-Choices stay in the URL and `sessionStorage` (`muscadine.vault-explorer-filters`).
+| Network | All, Base | Default **All**; `base` filters `chainId === 8453` |
+| Strategy | All, Prime, Frontier | Default **All** (shows Prime + Frontier) |
+| Asset | All, USDC, cbBTC, WETH | Local filter state. |
+| Scope | Deposits + whitelisted, In wallet, **Whitelisted** | Default **Deposits + whitelisted**. Wallet modes can list external deposits as **External** (not clickable). |
 
 **Table columns** (`VaultExplorerTable.tsx`): Network, Vault, **Your Position** (when connected), **Deposits**, **Liquidity**, **APY**. **Whitelisted** rows navigate to `/vault/v2/{address}`; external rows are display-only.
 

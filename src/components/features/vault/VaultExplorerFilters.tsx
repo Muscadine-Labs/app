@@ -13,24 +13,7 @@ import {
   useInteractions,
   useRole,
 } from '@floating-ui/react';
-import {
-  networkOptions,
-  type ExplorerFilterOption,
-  type VaultAssetFilter,
-  type VaultExplorerFilterState,
-  type VaultNetworkFilter,
-  type VaultStrategyFilter,
-  type VaultWalletFilter,
-} from '@/lib/explorer-filters';
-
-export type {
-  VaultAssetFilter,
-  VaultExplorerFilterState,
-  VaultNetworkFilter,
-  VaultStrategyFilter,
-  VaultWalletFilter,
-} from '@/lib/explorer-filters';
-export { getDefaultExplorerFilters } from '@/lib/explorer-filters';
+import type { VaultStrategy } from '@/lib/vaults';
 
 interface FilterDropdownProps {
   label: string;
@@ -121,6 +104,11 @@ function FilterDropdown({ label, value, options, onChange }: FilterDropdownProps
     </>
   );
 }
+
+export type VaultAssetFilter = 'all' | 'USDC' | 'cbBTC' | 'WETH';
+export type VaultNetworkFilter = 'all' | 'base';
+export type VaultStrategyFilter = 'all' | VaultStrategy;
+export type VaultWalletFilter = 'all' | 'inWallet' | 'inWalletAndWhitelisted';
 
 const WALLET_FILTER_OPTIONS: Array<{
   value: VaultWalletFilter;
@@ -249,22 +237,41 @@ function WalletFilterControl({
   );
 }
 
+export interface VaultExplorerFilterState {
+  network: VaultNetworkFilter;
+  asset: VaultAssetFilter;
+  strategy: VaultStrategyFilter;
+  walletFilter: VaultWalletFilter;
+}
+
 interface VaultExplorerFiltersProps {
   filters: VaultExplorerFilterState;
-  strategyOptions: ExplorerFilterOption<VaultStrategyFilter>[];
-  assetOptions: ExplorerFilterOption<VaultAssetFilter>[];
   onFiltersChange: (filters: VaultExplorerFilterState) => void;
+}
+
+export function getDefaultExplorerFilters(): VaultExplorerFilterState {
+  return {
+    network: 'all',
+    asset: 'all',
+    strategy: 'all',
+    walletFilter: 'inWalletAndWhitelisted',
+  };
 }
 
 export default function VaultExplorerFilters({
   filters,
-  strategyOptions,
-  assetOptions,
   onFiltersChange,
 }: VaultExplorerFiltersProps) {
   const update = (partial: Partial<VaultExplorerFilterState>) => {
     onFiltersChange({ ...filters, ...partial });
   };
+
+  const assetOptions = [
+    { label: 'All', value: 'all' },
+    { label: 'USDC', value: 'USDC' },
+    { label: 'cbBTC', value: 'cbBTC' },
+    { label: 'WETH', value: 'WETH' },
+  ];
 
   return (
     <div className="relative z-20 shrink-0 border-b border-[var(--border)] bg-[var(--surface)]">
@@ -273,13 +280,20 @@ export default function VaultExplorerFilters({
           <FilterDropdown
             label="Network"
             value={filters.network}
-            options={networkOptions()}
+            options={[
+              { label: 'All', value: 'all' },
+              { label: 'Base', value: 'base' },
+            ]}
             onChange={(value) => update({ network: value as VaultNetworkFilter })}
           />
           <FilterDropdown
             label="Strategy"
             value={filters.strategy}
-            options={strategyOptions}
+            options={[
+              { label: 'All', value: 'all' },
+              { label: 'Prime', value: 'prime' },
+              { label: 'Frontier', value: 'frontier' },
+            ]}
             onChange={(value) => update({ strategy: value as VaultStrategyFilter })}
           />
           <FilterDropdown

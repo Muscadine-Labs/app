@@ -12,6 +12,7 @@ import {
   resolveMorphoAssetSymbol,
 } from '@/lib/asset-decimals';
 import { BASE_CHAIN_ID } from '@/lib/constants';
+
 /** Morpho holding row from WalletContext (minimal shape for display helpers). */
 export interface WalletMorphoPosition {
   shares: string;
@@ -170,11 +171,6 @@ export function isCuratedVaultAddress(address: string): boolean {
   return findVaultByAddress(address) !== null;
 }
 
-/** A Muscadine registry vault. These open a vault page. */
-export function isOpenableVaultAddress(address: string): boolean {
-  return isCuratedVaultAddress(address);
-}
-
 /** Minimal vault stub for external Morpho vaults not in the Muscadine registry. */
 export function createExternalVaultStub(
   address: string,
@@ -284,7 +280,7 @@ export function buildExplorerVaultCandidates(
   return dedupeVaultsByAddress([...registryVaults, ...externalVaults]);
 }
 
-/** Registry vault. Other Morpho positions have no detail page. */
+/** Whitelisted registry vault only — external Morpho positions have no detail page. */
 export function resolveVaultForPage(address: string): Vault | null {
   if (!address || !isValidEthereumAddress(address)) return null;
 
@@ -292,10 +288,6 @@ export function resolveVaultForPage(address: string): Vault | null {
   if (registryVault?.version === 'v2') return registryVault;
 
   return null;
-}
-
-export function chainIdForKnownVault(address: string): number {
-  return findVaultByAddress(address)?.chainId ?? BASE_CHAIN_ID;
 }
 
 export function getVaultRoute(address: string): string {

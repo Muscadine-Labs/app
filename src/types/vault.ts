@@ -33,10 +33,8 @@ export interface Vault {
     chainId: number;
     version?: 'v1' | 'v2';
     strategy?: VaultStrategy;
-    /** True when vault is in the Muscadine registry. */
+    /** True when vault is in the Muscadine registry (has a detail page). */
     isCurated?: boolean;
-    /** Underlying token contract, when the vault data includes it. */
-    assetAddress?: string;
     
     // Financial Metrics
     totalValueLocked?: number; // TVL in USD

@@ -38,9 +38,7 @@ export default function VaultHero({ vaultData }: VaultHeroProps) {
               alt={`${vaultData.symbol} logo`}
               width={20}
               height={20}
-              className={`w-full h-full object-contain ${
-                vaultData.symbol === 'WETH' ? 'scale-75' : ''
-              }`}
+              className="w-full h-full object-contain"
             />
           </div>
           <span className="text-sm sm:text-base text-[var(--foreground-secondary)]">

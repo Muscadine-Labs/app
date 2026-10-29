@@ -180,7 +180,6 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
         
         const sharePriceUsd = vaultInfo.state?.sharePriceUsd || 0;
         const registryVault = findVaultByAddress(address);
-        const apiAssetAddress = (vaultInfo.asset as { address?: string } | undefined)?.address;
 
         // Build the vault object
         const vault: Vault = {
@@ -188,10 +187,9 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
           name: registryVault?.name || vaultInfo.name || `Vault ${address.slice(0, 6)}...${address.slice(-4)}`,
           symbol: registryVault?.symbol || vaultInfo.asset?.symbol || 'UNKNOWN',
           vaultSymbol: registryVault?.vaultSymbol,
-          chainId: registryVault?.chainId ?? effectiveChainId,
+          chainId: effectiveChainId,
           version: 'v2',
           strategy: registryVault?.strategy,
-          assetAddress: registryVault?.assetAddress || apiAssetAddress,
           totalValueLocked: vaultInfo.state?.totalAssetsUsd || 0,
           totalAssets: vaultInfo.state?.totalAssets || '0',
           assetDecimals: assetDecimals,

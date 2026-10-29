@@ -1,19 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useAccount } from 'wagmi';
-import { explorerChainId } from '@/lib/constants';
-import {
-  assetOptionsForNetwork,
-  getDefaultExplorerFilters,
-  isListedAssetSymbol,
-  loadExplorerFilters,
-  persistExplorerFilters,
-  reconcileExplorerFilters,
-  strategyFromVaultName,
-  strategyOptionsForNetwork,
-  type VaultExplorerFilterState,
-} from '@/lib/explorer-filters';
+import { BASE_CHAIN_ID } from '@/lib/constants';
 import { buildExplorerVaultCandidates, sortVaultsForDisplay } from '@/lib/vault-utils';
 import { useExplorerVaults } from '@/contexts/ExplorerVaultsContext';
 import { useWallet } from '@/contexts/WalletContext';
@@ -21,7 +10,10 @@ import { useVaultData } from '@/contexts/VaultDataContext';
 import { useIsClient } from '@/hooks/useClientOnly';
 import { useVaultListPreloader } from '@/hooks/useVaultDataFetch';
 import { Skeleton } from '@/components/ui/Skeleton';
-import VaultExplorerFilters from '@/components/features/vault/VaultExplorerFilters';
+import VaultExplorerFilters, {
+  VaultExplorerFilterState,
+  getDefaultExplorerFilters,
+} from '@/components/features/vault/VaultExplorerFilters';
 import VaultExplorerTable from '@/components/features/vault/VaultExplorerTable';
 
 interface VaultExplorerProps {
@@ -33,28 +25,15 @@ function VaultExplorerContent({
   initialFilters,
   showFilters = true,
 }: VaultExplorerProps) {
-  const [filters, setFilters] = useState<VaultExplorerFilterState>(() =>
-    reconcileExplorerFilters({
-      ...getDefaultExplorerFilters(),
-      ...initialFilters,
-    })
-  );
-  const [filtersReady, setFiltersReady] = useState(false);
-  const initialFiltersRef = useRef(initialFilters);
+  const [filters, setFilters] = useState<VaultExplorerFilterState>(() => ({
+    ...getDefaultExplorerFilters(),
+    ...initialFilters,
+  }));
   const { isConnected } = useAccount();
   const { explorerRegistryVaults, isResolving } = useExplorerVaults();
   const { morphoHoldings } = useWallet();
   const { getVaultData } = useVaultData();
   const isMounted = useIsClient();
-  useEffect(() => {
-    const stored = reconcileExplorerFilters({
-      ...loadExplorerFilters(),
-      ...initialFiltersRef.current,
-    });
-    setFilters(stored);
-    persistExplorerFilters(stored);
-    setFiltersReady(true);
-  }, []);
 
   const filteredVaults = useMemo(() => {
     if (filters.walletFilter === 'inWallet' && !isConnected) {
@@ -68,20 +47,14 @@ function VaultExplorerContent({
     );
 
     const filtered = candidates.filter((vault) => {
-      if (vault.version !== 'v2') return false;
-      if (!isListedAssetSymbol(vault.symbol)) return false;
-      if (filters.network !== 'all' && vault.chainId !== explorerChainId(filters.network)) {
-        return false;
-      }
+      if (filters.network === 'base' && vault.chainId !== BASE_CHAIN_ID) return false;
+      if (filters.asset !== 'all' && vault.symbol !== filters.asset) return false;
       if (
-        filters.asset !== 'all' &&
-        vault.symbol.toUpperCase() !== filters.asset.toUpperCase()
+        filters.strategy !== 'all' &&
+        vault.isCurated !== false &&
+        vault.strategy !== filters.strategy
       ) {
         return false;
-      }
-      if (filters.strategy !== 'all') {
-        const strategy = vault.strategy ?? strategyFromVaultName(vault.name);
-        if (strategy !== filters.strategy) return false;
       }
       return true;
     });
@@ -104,7 +77,7 @@ function VaultExplorerContent({
     morphoHoldings.positions,
   ]);
 
-  useVaultListPreloader(filtersReady ? filteredVaults : []);
+  useVaultListPreloader(filteredVaults);
 
   const emptyMessage = useMemo(() => {
     if (filters.walletFilter === 'inWallet' && !isConnected) {
@@ -117,32 +90,15 @@ function VaultExplorerContent({
   }, [filters.walletFilter, isConnected]);
 
   const listLoading =
-    !filtersReady ||
     isResolving ||
     (filters.walletFilter === 'inWallet' && isConnected && morphoHoldings.isLoading);
-
-  const applyFilters = (next: VaultExplorerFilterState) => {
-    const reconciled = reconcileExplorerFilters(next);
-    setFilters(reconciled);
-    persistExplorerFilters(reconciled);
-  };
-
-  if (!filtersReady) {
-    return (
-      <div className="px-4 sm:px-6 py-8">
-        <Skeleton width="100%" height="12rem" />
-      </div>
-    );
-  }
 
   return (
     <div className="flex flex-col h-full w-full min-h-0">
       {showFilters && (
         <VaultExplorerFilters
           filters={filters}
-          strategyOptions={strategyOptionsForNetwork(filters.network)}
-          assetOptions={assetOptionsForNetwork(filters.network)}
-          onFiltersChange={applyFilters}
+          onFiltersChange={setFilters}
         />
       )}
       <div className="flex-1 min-h-0 overflow-y-auto">
