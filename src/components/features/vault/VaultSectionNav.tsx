@@ -34,15 +34,18 @@ function contentTop(nav: HTMLElement | null): number {
   return pinnedTop + navBottomInHeader + SECTION_GAP_PX;
 }
 
-/** Last section whose top has reached the header; the last one when the page is at its bottom. */
+/** Last section whose top has reached the header; the last one after the user has scrolled to the bottom. */
 function findActiveSection(
   sections: readonly VaultSectionLink[],
   scroller: HTMLElement | null,
   nav: HTMLElement | null
 ): string {
-  const atBottom = scroller
-    ? scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 2
-    : window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2;
+  const scrollTop = scroller ? scroller.scrollTop : window.scrollY;
+  const viewEnd = scroller ? scrollTop + scroller.clientHeight : window.innerHeight + window.scrollY;
+  const scrollHeight = scroller ? scroller.scrollHeight : document.documentElement.scrollHeight;
+  // A short tab (My Position) fits the screen, so it is "at the bottom" at scroll 0.
+  // That must not highlight Details when Overview opens at the top.
+  const atBottom = scrollTop > 0 && viewEnd >= scrollHeight - 2;
   if (atBottom) return sections[sections.length - 1]?.id ?? '';
   const threshold = contentTop(nav) + 1;
   let active = sections[0]?.id ?? '';
@@ -73,10 +76,14 @@ export function VaultSectionNav({ sections }: { sections: readonly VaultSectionL
     update();
     target.addEventListener('scroll', update, { passive: true });
     window.addEventListener('resize', update);
+    const content = scroller?.firstElementChild ?? document.body;
+    const resizeObserver = new ResizeObserver(update);
+    resizeObserver.observe(content);
     return () => {
       cancelAnimationFrame(frame);
       target.removeEventListener('scroll', update);
       window.removeEventListener('resize', update);
+      resizeObserver.disconnect();
     };
   }, [sections]);
 

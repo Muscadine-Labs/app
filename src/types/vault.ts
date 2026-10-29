@@ -123,12 +123,12 @@ export interface MorphoVaultData extends Vault {
 export const VAULT_LOGO_MAP: Record<string, string> = {
     'USDC': '/usdc-logo.svg',
     'USD': '/usdc-logo.svg',
-    'WETH': '/eth-logo.svg',
+    'WETH': '/weth-logo.svg',
     'ETH': '/eth-logo.svg',
-    'CBTC': '/btc-logo.svg',
-    'cbbtc': '/btc-logo.svg', // Handle uppercase conversion
-    'CBBTC': '/btc-logo.svg',
-    'cbBTC': '/btc-logo.svg',
+    'CBTC': '/cbbtc-logo.svg',
+    'cbbtc': '/cbbtc-logo.svg',
+    'CBBTC': '/cbbtc-logo.svg',
+    'cbBTC': '/cbbtc-logo.svg',
     'BTC': '/btc-logo.svg',
 } as const;
 

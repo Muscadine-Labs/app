@@ -166,7 +166,7 @@ function VaultLogo({ vault, size = 32 }: { vault: Vault; size?: number }) {
         alt={`${vault.symbol} logo`}
         width={size}
         height={size}
-        className={`object-contain ${vault.symbol === 'WETH' ? 'scale-75' : ''}`}
+        className="object-contain"
         style={{ width: '100%', height: '100%' }}
       />
     </div>
