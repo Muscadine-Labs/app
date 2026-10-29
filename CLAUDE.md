@@ -85,7 +85,6 @@ Never commit real keys. `.env.example` documents placeholders.
 | Client GraphQL | None — Morpho GraphQL is server-only via `fetchMorphoGraphQL()` |
 | V2 txs | Direct ERC-4626 via viem (`transactionUtilsV2.ts`); force exits via vault `multicall` (`force-withdraw-v2.ts`) |
 | Charts | Recharts |
-| Analytics | `@vercel/analytics` |
 | Base Account SDK | `@base-org/account` |
 
 ---
@@ -415,7 +414,7 @@ Provider tree (`src/app/Providers.tsx`):
 
 ### Advisory agreement (`AdvisoryAgreementModal.tsx`)
 
-Shown before wallet connect (`ConnectButton` → `AdvisoryAgreementProvider`). Copy is **non-custodial / risk curation only** — not discretionary management or investment advice.
+Shown before wallet connect (`ConnectButton` → `AdvisoryAgreementProvider`), titled **Terms and Risks** (the code keeps the `AdvisoryAgreement*` names). Copy is **non-custodial / risk curation only** — not discretionary management or investment advice. Do not call it an advisory agreement in UI copy, and do not name the LLC (the sites say "Muscadine"). Muscadine is a **personal, non-commercial project** (the LLC is dissolved): UI copy never mentions services, clients, an advisory relationship or a company.
 
 **Legal links (canonical URLs):**
 
@@ -434,7 +433,7 @@ Same Risk Framework / Morpho’s Disclaimer links appear in **NavBar** Muscadine
 
 **Dead shares:** curated vaults already mint inflation-protection shares to `0x…dEaD`. Confirm that **when adding a vault** to `vaults.ts`. Do not RPC-check dead-share balances at runtime (no Alchemy call on `/complete` or elsewhere).
 
-**Re-acceptance:** `TERMS_VERSION` in `AdvisoryAgreementContext.tsx` (currently **`2.4.0`**) — bump when legal copy changes; stored in localStorage as `advisory-agreement-version` alongside `advisory-agreement-accepted`.
+**Re-acceptance:** `TERMS_VERSION` in `AdvisoryAgreementContext.tsx` (currently **`2.5.0`**) — bump when legal copy changes; stored in localStorage as `advisory-agreement-version` alongside `advisory-agreement-accepted`.
 
 **Advisory:** the first-connect modal covers custody, terms, and the Morpho disclaimer, and points to each vault's page for allocations, risk controls and fees (the analytics site is retired; do not link `analytics.muscadine.xyz`).
 
