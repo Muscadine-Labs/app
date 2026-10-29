@@ -64,7 +64,7 @@ export function AdvisoryAgreementModal() {
     <Modal
       isOpen={shouldShowModal}
       onClose={handleClose}
-      title="Advisory Agreement"
+      title="Terms and Risks"
       showCloseButton={true}
       closeOnOverlayClick={false}
     >
@@ -77,11 +77,11 @@ export function AdvisoryAgreementModal() {
         {/* Main Content */}
         <div className="space-y-1.5 sm:space-y-2">
           <p className="text-xs sm:text-sm text-[var(--foreground)] leading-relaxed">
-            By connecting your wallet, you access Muscadine Labs curated Morpho vault strategies configured under our disclosed strategy and risk parameters. You retain custody at all times—we do not hold your keys or take possession of your assets.
+            This app is an interface to Muscadine’s curated Morpho vaults. Each vault’s markets and risk parameters are shown on its page. You keep custody at all times: we never hold your keys or your assets.
           </p>
 
           <p className="text-xs sm:text-sm text-[var(--foreground)] leading-relaxed">
-            The vaults listed here are Muscadine’s curated Morpho vaults. Some are fee wrappers that deposit into Muscadine’s underlying Morpho vaults; a wrapper charges a performance fee. Deposits open when a vault’s send-assets gate allows your wallet. Withdrawals stay open for shares you already hold. Each vault’s page lists its allocations, risk controls and fees.
+            The vaults listed here are Muscadine’s curated Morpho vaults. Some are fee wrappers that deposit into Muscadine’s underlying Morpho vaults; a wrapper can charge a performance fee. Deposits open when a vault’s send-assets gate allows your wallet. Withdrawals stay open for shares you already hold. Each vault’s page lists its allocations, risk controls and fees.
           </p>
 
           <p className="text-xs sm:text-sm text-[var(--foreground)] leading-relaxed">
