@@ -66,11 +66,49 @@ describe('mapVaultV2Caps', () => {
     expect(data.caps.map((row) => [row.kind, row.label])).toEqual([
       ['market', 'cbXRP / USDC'],
       ['collateral', 'cbXRP'],
-      ['adapter', 'All Morpho markets'],
+      ['adapter', 'Morpho Blue adapter'],
     ]);
+    expect(data.caps[0].href).toBe(
+      'https://app.morpho.org/base/variable/0xd4a9/cbxrp-usdc#market'
+    );
+    expect(data.caps[1].href).toBe(
+      'https://basescan.org/token/0xcb585250f852C6c6bf90434AB21A00f02833a4af'
+    );
+    expect(data.caps[2].href).toBeNull();
     expect(data.caps[0].lltv).toBe(0.625);
+    expect(data.caps[0].rateType).toBe('variable');
     expect(data.caps[0].absoluteCapRaw).toBe('200000000000');
     expect(data.caps[2].absoluteCapRaw).toBe(UINT128_MAX);
+  });
+
+  it('links a fixed-rate market cap to the fixed market page', () => {
+    const data = mapVaultV2Caps({
+      asset: { symbol: 'USDC', decimals: 6 },
+      caps: {
+        items: [
+          {
+            type: 'MarketV1Fixed',
+            absoluteCap: 200000000000,
+            relativeCap: WAD,
+            allocation: 1,
+            data: {
+              __typename: 'MarketV1CapData',
+              market: {
+                marketId: '0xfixed',
+                lltv: '625000000000000000',
+                loanAsset: { symbol: 'USDC' },
+                collateralAsset: { symbol: 'cbBTC' },
+              },
+            },
+          },
+        ],
+      },
+    });
+
+    expect(data.caps[0].rateType).toBe('fixed');
+    expect(data.caps[0].href).toBe(
+      'https://markets.morpho.org/fixed/base/0xfixed'
+    );
   });
 
   it('names a wrapper adapter after its underlying vault', () => {

@@ -1,34 +1,120 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 export interface VaultSectionLink {
   id: string;
   label: string;
 }
 
-/** Sticky jump links between the Overview sections (the app scrolls inside `[data-app-scroll]`). */
+export const VAULT_OVERVIEW_SECTIONS: readonly VaultSectionLink[] = [
+  { id: 'vault-performance', label: 'Performance' },
+  { id: 'vault-allocation', label: 'Allocation' },
+  { id: 'vault-risk', label: 'Risk' },
+  { id: 'vault-details', label: 'Details' },
+];
+
+/** Space left between the bottom of the sticky header and a section it jumps to. */
+const SECTION_GAP_PX = 12;
+
+/** The app scrolls inside `[data-app-scroll]`; fall back to the window elsewhere. */
+function getScroller(nav: HTMLElement | null): HTMLElement | null {
+  return nav?.closest<HTMLElement>('[data-app-scroll]') ?? null;
+}
+
+/**
+ * Where content starts below the sticky header once it is pinned, relative to the viewport.
+ * Measured from the pinned position so jumps from the top of the page land correctly too.
+ */
+function contentTop(nav: HTMLElement | null): number {
+  if (!nav) return SECTION_GAP_PX;
+  const header = nav.closest<HTMLElement>('[data-vault-sticky-header]') ?? nav;
+  const pinnedTop = getScroller(nav)?.getBoundingClientRect().top ?? 0;
+  const navBottomInHeader = nav.getBoundingClientRect().bottom - header.getBoundingClientRect().top;
+  return pinnedTop + navBottomInHeader + SECTION_GAP_PX;
+}
+
+/** Last section whose top has reached the header; the last one when the page is at its bottom. */
+function findActiveSection(
+  sections: readonly VaultSectionLink[],
+  scroller: HTMLElement | null,
+  nav: HTMLElement | null
+): string {
+  const atBottom = scroller
+    ? scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 2
+    : window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2;
+  if (atBottom) return sections[sections.length - 1]?.id ?? '';
+  const threshold = contentTop(nav) + 1;
+  let active = sections[0]?.id ?? '';
+  for (const section of sections) {
+    const element = document.getElementById(section.id);
+    if (element && element.getBoundingClientRect().top <= threshold) active = section.id;
+  }
+  return active;
+}
+
+/**
+ * Jump links between the Overview sections, with the section in view highlighted.
+ * Rendered as the bottom row of the vault page's sticky header.
+ */
 export function VaultSectionNav({ sections }: { sections: readonly VaultSectionLink[] }) {
+  const navRef = useRef<HTMLElement>(null);
+  const [activeId, setActiveId] = useState(sections[0]?.id ?? '');
+
+  useEffect(() => {
+    const nav = navRef.current;
+    const scroller = getScroller(nav);
+    const target: HTMLElement | Window = scroller ?? window;
+    let frame = 0;
+    const update = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => setActiveId(findActiveSection(sections, scroller, nav)));
+    };
+    update();
+    target.addEventListener('scroll', update, { passive: true });
+    window.addEventListener('resize', update);
+    return () => {
+      cancelAnimationFrame(frame);
+      target.removeEventListener('scroll', update);
+      window.removeEventListener('resize', update);
+    };
+  }, [sections]);
+
   const jumpTo = (id: string) => {
-    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const element = document.getElementById(id);
+    if (!element) return;
+    setActiveId(id);
+    const nav = navRef.current;
+    const scroller = getScroller(nav);
+    const top =
+      (scroller ? scroller.scrollTop : window.scrollY) +
+      element.getBoundingClientRect().top -
+      contentTop(nav);
+    if (scroller) scroller.scrollTo({ top, behavior: 'auto' });
+    else window.scrollTo({ top, behavior: 'auto' });
   };
 
   return (
-    <nav
-      aria-label="Overview sections"
-      className="sticky top-0 z-20 -mx-1 px-1 py-2 bg-[var(--background)]/95 backdrop-blur-sm"
-    >
+    <nav ref={navRef} aria-label="Overview sections" className="py-2">
       <div className="flex gap-1 overflow-x-auto overscroll-x-contain flex-nowrap scrollbar-hide [-webkit-overflow-scrolling:touch]">
-        {sections.map((section) => (
-          <button
-            key={section.id}
-            type="button"
-            onClick={() => jumpTo(section.id)}
-            className="shrink-0 px-3 py-1.5 text-sm font-medium rounded-lg text-[var(--foreground-secondary)] hover:text-[var(--foreground)] hover:bg-[var(--surface-hover)] transition-colors cursor-pointer touch-manipulation"
-          >
-            {section.label}
-          </button>
-        ))}
+        {sections.map((section) => {
+          const active = section.id === activeId;
+          return (
+            <button
+              key={section.id}
+              type="button"
+              onClick={() => jumpTo(section.id)}
+              aria-current={active ? 'location' : undefined}
+              className={`shrink-0 px-3 py-1 sm:py-1.5 text-xs sm:text-sm font-medium rounded-lg transition-colors cursor-pointer touch-manipulation ${
+                active
+                  ? 'text-[var(--primary)] bg-[var(--primary-subtle)]'
+                  : 'text-[var(--foreground-secondary)] hover:text-[var(--foreground)] hover:bg-[var(--surface-hover)]'
+              }`}
+            >
+              {section.label}
+            </button>
+          );
+        })}
       </div>
     </nav>
   );
@@ -47,7 +133,7 @@ export function VaultSection({
   children: ReactNode;
 }) {
   return (
-    <section id={id} aria-labelledby={`${id}-title`} className="scroll-mt-14 space-y-3 min-w-0">
+    <section id={id} aria-labelledby={`${id}-title`} className="space-y-3 min-w-0">
       <div className="space-y-1">
         <h2 id={`${id}-title`} className="text-base sm:text-lg font-semibold text-[var(--foreground)]">
           {title}

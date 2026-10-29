@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter, useParams } from 'next/navigation';
 import { useAccount, useReadContract } from 'wagmi';
@@ -19,8 +19,8 @@ import { useVaultDepositGates } from '@/hooks/useVaultDepositGates';
 import { useWallet } from '@/contexts/WalletContext';
 import VaultHero from '@/components/features/vault/VaultHero';
 import VaultTabs from '@/components/features/vault/VaultTabs';
+import { VAULT_OVERVIEW_SECTIONS, VaultSectionNav } from '@/components/features/vault/VaultSectionNav';
 import VaultHistory from '@/components/features/vault/VaultHistory';
-import { Button } from '@/components/ui';
 import { Skeleton } from '@/components/ui/Skeleton';
 import type { VaultTransactionTab } from '@/hooks/useScopedVaultTransaction';
 import { useTransactionState } from '@/contexts/TransactionContext';
@@ -94,18 +94,25 @@ export default function VaultV2Page() {
     transactStatus === 'success' ||
     transactStatus === 'error';
 
+  const tabsAnchorRef = useRef<HTMLDivElement>(null);
+
+  /** After scrolling past the sticky tabs, start the new tab at its top, not mid-page. */
+  const scrollToTabsIfPast = () => {
+    const anchor = tabsAnchorRef.current;
+    const scroller = anchor?.closest<HTMLElement>('[data-app-scroll]');
+    if (!anchor || !scroller) return;
+    const offset = anchor.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+    if (offset < 0) scroller.scrollBy({ top: offset });
+  };
+
   const handleTabChange = (tab: string) => {
     if (transactBusy && tab !== 'position') return;
+    scrollToTabsIfPast();
     if (tab === 'safety') {
       setActiveTab('position');
     } else {
       setActiveTab(tab);
     }
-  };
-
-  const openTransact = (tab: VaultTransactionTab) => {
-    setTransactTab(tab);
-    setActiveTab('position');
   };
 
   const vault = useMemo(() => resolveVaultForPage(address), [address]);
@@ -189,10 +196,7 @@ export default function VaultV2Page() {
     if (vault && pageAccess === 'denied') router.replace('/vaults');
   }, [vault, pageAccess, router]);
 
-  const showMobileSticky = activeTab === 'overview';
-  const pageShellClassName = `w-full bg-[var(--background)] flex flex-col p-4 sm:p-6 md:p-8 ${
-    showMobileSticky ? 'pb-24 min-[1000px]:pb-8' : 'pb-8'
-  } min-h-full`;
+  const pageShellClassName = 'w-full bg-[var(--background)] flex flex-col p-4 sm:p-6 md:p-8 pb-8 min-h-full';
 
   if (!vault) {
     return <VaultPageSkeleton className={pageShellClassName} />;
@@ -246,11 +250,17 @@ export default function VaultV2Page() {
       </div>
 
       <div className="flex flex-col w-full mx-auto">
-        <div className="flex-shrink-0 -mx-4 sm:-mx-6 md:mx-0">
+        <div ref={tabsAnchorRef} aria-hidden />
+        <div data-vault-sticky-header className="sticky top-0 z-30 flex-shrink-0 mb-5 -mx-4 sm:-mx-6 md:mx-0 bg-[var(--background)]">
           <VaultTabs
             activeTab={activeTab}
             onTabChange={handleTabChange}
           />
+          {activeTab === 'overview' && (
+            <div className="border-b border-[var(--border-subtle)] px-4 sm:px-6 md:px-0">
+              <VaultSectionNav sections={VAULT_OVERVIEW_SECTIONS} />
+            </div>
+          )}
         </div>
 
         <div className="px-0 sm:px-2 md:px-6">
@@ -269,24 +279,6 @@ export default function VaultV2Page() {
         </div>
       </div>
 
-      {showMobileSticky ? (
-        <div className="min-[1000px]:hidden fixed inset-x-0 bottom-0 z-40 border-t border-[var(--border)] bg-[var(--background)]/95 backdrop-blur-sm">
-          <div className="flex gap-2 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-            <Button
-              onClick={() => openTransact('deposit')}
-              variant="primary"
-              size="md"
-              fullWidth
-              disabled={!canDeposit}
-            >
-              Deposit
-            </Button>
-            <Button onClick={() => openTransact('withdraw')} variant="secondary" size="md" fullWidth>
-              Withdraw
-            </Button>
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }

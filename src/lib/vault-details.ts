@@ -4,15 +4,6 @@ import type { VaultMarketAllocation } from '@/lib/vault-v2-allocations';
 const SECONDS_PER_YEAR = BigInt(31_536_000);
 const WAD = BigInt(10) ** BigInt(18);
 
-/** Vault V2 functions that let the curator add risk (new markets, bigger caps). */
-export const RISK_INCREASING_FUNCTIONS = [
-  'addAdapter',
-  'increaseAbsoluteCap',
-  'increaseRelativeCap',
-] as const;
-
-export const FEE_INCREASING_FUNCTIONS = ['setPerformanceFee', 'setManagementFee'] as const;
-
 /** `604800` → `7 days`, `259200` → `3 days`, `0` → `No delay`. */
 export function formatTimelockDuration(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds <= 0) return 'No delay';
@@ -29,11 +20,18 @@ export interface TimelockGroup {
   functions: string[];
 }
 
+/**
+ * Morpho reports `decreaseTimelock` with no delay, but cutting a timelock waits out the
+ * timelock of the function being changed, so "No delay" would mislead.
+ */
+const HIDDEN_TIMELOCKS = new Set(['decreaseTimelock']);
+
 /** Longest delay first, then functions with no delay, then abdicated functions. */
 export function groupTimelocks(timelocks: readonly VaultTimelock[]): TimelockGroup[] {
   const byDuration = new Map<number, string[]>();
   const abdicated: string[] = [];
   for (const timelock of timelocks) {
+    if (HIDDEN_TIMELOCKS.has(timelock.functionName)) continue;
     if (timelock.abdicated) {
       abdicated.push(timelock.functionName);
       continue;
@@ -51,28 +49,6 @@ export function groupTimelocks(timelocks: readonly VaultTimelock[]): TimelockGro
   return groups;
 }
 
-export type GuardedChange =
-  | { kind: 'delay'; seconds: number }
-  /** Every listed function is abdicated: the change can never be made. */
-  | { kind: 'abdicated' }
-  | { kind: 'unknown' };
-
-/**
- * The shortest wait before any of `functionNames` can take effect. Abdicated
- * functions can never run, so they do not count. The shortest wait is the one
- * that matters to a depositor.
- */
-export function shortestGuard(
-  timelocks: readonly VaultTimelock[],
-  functionNames: readonly string[]
-): GuardedChange {
-  const matching = timelocks.filter((timelock) => functionNames.includes(timelock.functionName));
-  if (matching.length === 0) return { kind: 'unknown' };
-  const callable = matching.filter((timelock) => !timelock.abdicated);
-  if (callable.length === 0) return { kind: 'abdicated' };
-  return { kind: 'delay', seconds: Math.min(...callable.map((timelock) => timelock.duration)) };
-}
-
 /**
  * Vault V2 `maxRate` (per second, WAD) as a yearly percentage, e.g. 200 for 200%.
  * Null when the value is missing or unreadable.
@@ -86,6 +62,14 @@ export function maxRateToAnnualPercent(maxRate: string | null | undefined): numb
   } catch {
     return null;
   }
+}
+
+/** One cent. Smaller positions stay out of the default allocation view. */
+export const ALLOCATION_DUST_USD = 0.01;
+
+/** True when a position is missing, zero, or at most {@link ALLOCATION_DUST_USD}. */
+export function isAllocationDust(usd: number): boolean {
+  return !Number.isFinite(usd) || usd <= ALLOCATION_DUST_USD;
 }
 
 export interface ExposureItem {

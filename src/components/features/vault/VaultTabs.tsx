@@ -13,7 +13,7 @@ const TABS = [
 
 export default function VaultTabs({ activeTab, onTabChange }: VaultTabsProps) {
   return (
-    <div className="mb-5 border-b border-[var(--border-subtle)] px-4 sm:px-6 md:px-0">
+    <div className="border-b border-[var(--border-subtle)] px-4 sm:px-6 md:px-0">
       <div className="flex items-center gap-3 min-w-0">
         <div className="flex flex-1 min-w-0 gap-1 sm:gap-2 overflow-x-auto overscroll-x-contain flex-nowrap scrollbar-hide [-webkit-overflow-scrolling:touch]">
           {TABS.map((tab) => (

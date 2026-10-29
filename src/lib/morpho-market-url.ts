@@ -48,9 +48,12 @@ export function getMorphoMarketUrl(
   chainId: number,
   marketId: string,
   collateralSymbol: string,
-  loanSymbol: string
+  loanSymbol: string,
+  rateType: MorphoMarketRateType = 'variable'
 ): string {
   const network = getMorphoChainSlug(chainId);
+  // Fixed-rate markets live on Morpho Markets; app.morpho.org has no /fixed route (404).
+  if (rateType === 'fixed') return `https://markets.morpho.org/fixed/${network}/${marketId}`;
   const slug = morphoMarketUrlSlug(collateralSymbol, loanSymbol);
   return `https://app.morpho.org/${network}/variable/${marketId}/${slug}#market`;
 }

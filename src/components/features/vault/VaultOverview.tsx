@@ -14,18 +14,17 @@ import {
   formatVaultDetailTokenAmount,
 } from '@/lib/formatter';
 import { calculateYAxisDomain, findVaultByAddress } from '@/lib/vault-utils';
-import { CHART_MARGIN, getChartYAxisWidth, withLeadingChartTick, VAULT_DETAIL_CHART_HEIGHT_CLASS, VAULT_DETAIL_CHART_MIN_HEIGHT } from '@/lib/chart-utils';
+import { CHART_MARGIN, axisWidthForLabels, withLeadingChartTick, VAULT_DETAIL_CHART_HEIGHT_CLASS, VAULT_DETAIL_CHART_MIN_HEIGHT } from '@/lib/chart-utils';
 import { logger } from '@/lib/logger';
 import { MorphoVaultData } from '@/types/vault';
 import { VaultLiquidityInfo } from './VaultLiquidityInfo';
 import { VaultApyInfo } from './VaultApyInfo';
 import { VaultAllocations } from './VaultAllocations';
-import { ExposureBar, ExposureChips } from './VaultExposure';
-import { VaultSection, VaultSectionNav } from './VaultSectionNav';
+import { VaultSection } from './VaultSectionNav';
 import VaultRiskFacts from './VaultRiskFacts';
 import VaultDetails from './VaultDetails';
 import { useVaultAllocations } from '@/hooks/useVaultAllocations';
-import { formatSharePercent, summarizeExposure, type ExposureSummary } from '@/lib/vault-details';
+import { formatSharePercent } from '@/lib/vault-details';
 import { useToast } from '@/contexts/ToastContext';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -52,13 +51,6 @@ interface HistoryDataPoint {
 
 type ChartType = 'apy' | 'tvl' | 'sharePrice';
 
-const OVERVIEW_SECTIONS = [
-  { id: 'vault-performance', label: 'Performance' },
-  { id: 'vault-allocation', label: 'Allocation' },
-  { id: 'vault-risk', label: 'Risk' },
-  { id: 'vault-details', label: 'Vault details' },
-] as const;
-
 function rawShareOf(partRaw: string | undefined, totalRaw: string | undefined): number | null {
   try {
     const total = BigInt(totalRaw || '0');
@@ -68,34 +60,6 @@ function rawShareOf(partRaw: string | undefined, totalRaw: string | undefined): 
   } catch {
     return null;
   }
-}
-
-/** One-line answer at the top of the Allocation section. */
-function allocationSummary(
-  exposure: ExposureSummary,
-  assetSymbol: string,
-  underlyingName: string | null
-): string | null {
-  if (exposure.totalUsd <= 0) return null;
-  const marketText =
-    exposure.marketCount === 1 ? '1 Morpho market' : `${exposure.marketCount} Morpho markets`;
-  const collateral = exposure.items.map((item) => item.symbol);
-  const collateralText =
-    collateral.length <= 3
-      ? collateral.join(', ')
-      : `${collateral.slice(0, 3).join(', ')} and ${collateral.length - 3} more`;
-  const lends =
-    exposure.marketCount > 0
-      ? `lends ${assetSymbol} in ${marketText} against ${collateralText}`
-      : `holds ${assetSymbol} without lending it`;
-  const idleShare = exposure.idleUsd / exposure.totalUsd;
-  const idleText =
-    exposure.idleUsd <= 0
-      ? ' None is sitting idle.'
-      : ` ${formatSharePercent(idleShare)} is idle in the vault, ready for withdrawals.`;
-  return underlyingName
-    ? `Deposits go into ${underlyingName}, which ${lends}.${idleText}`
-    : `${lends.charAt(0).toUpperCase()}${lends.slice(1)}.${idleText}`;
 }
 
 type Period = 'all' | '7d' | '30d' | '90d' | '1y';
@@ -117,10 +81,6 @@ function formatTvlYAxisTick(
   );
 }
 
-function getTvlYAxisWidth(valueType: 'usd' | 'token'): number {
-  return getChartYAxisWidth(valueType === 'usd' ? 'usd' : 'tokenWide');
-}
-
 function formatSharePriceYAxisTick(
   value: number,
   valueType: 'usd' | 'token',
@@ -136,8 +96,14 @@ function formatSharePriceYAxisTick(
   );
 }
 
-function getSharePriceYAxisWidth(valueType: 'usd' | 'token'): number {
-  return getChartYAxisWidth(valueType === 'usd' ? 'usd' : 'tokenWide');
+/** Gutter wide enough for the longest tick on this axis, including the dollar sign. */
+function axisWidthForDomain(
+  domain: readonly number[] | undefined,
+  format: (value: number) => string
+): number {
+  const min = domain?.[0] ?? 0;
+  const max = domain?.[1] ?? min;
+  return axisWidthForLabels([format(min), format(max), format((min + max) / 2)]);
 }
 
 const PERIOD_SECONDS: Record<Period, number> = {
@@ -193,11 +159,6 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
     underlyingVault?.address ?? vaultData.address,
     vaultData.chainId
   );
-  const exposure = useMemo(
-    () => summarizeExposure(exposureAllocations.allocations),
-    [exposureAllocations.allocations]
-  );
-  const exposureSummary = allocationSummary(exposure, vaultData.symbol, underlyingVault?.name ?? null);
 
   const chartEndTimestamp = useMemo(() => {
     let maxTs = 0;
@@ -691,7 +652,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
       {/* Performance Section */}
       <div className="space-y-5">
         {/* Current Performance */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-5 overflow-visible">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-5 overflow-visible">
           <div className="overflow-visible">
             <div className="flex items-center gap-1.5 mb-1">
               <p className="text-xs text-[var(--foreground-secondary)]">Net APY</p>
@@ -704,9 +665,6 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
             </div>
             <p className="text-2xl font-bold text-[var(--foreground)]">
               {apyPercent}
-            </p>
-            <p className="text-xs text-[var(--foreground-secondary)] mt-1">
-              After fees, changes with market rates
             </p>
             {vaultData.apyChange !== undefined && vaultData.apyChange !== 0 && (
               <p className={`text-xs mt-2 ${vaultData.apyChange > 0 ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`}>
@@ -746,20 +704,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
               {liquidityShare !== null ? ` · ${formatSharePercent(liquidityShare)} of deposits` : ''}
             </p>
           </div>
-          <div className="min-w-0">
-            <p className="text-xs text-[var(--foreground-secondary)] mb-1.5">Exposure</p>
-            {exposureAllocations.loading ? (
-              <Skeleton width="8rem" height="1.5rem" />
-            ) : (
-              <ExposureChips exposure={exposure} />
-            )}
-            <p className="text-xs text-[var(--foreground-secondary)] mt-1.5">
-              {underlyingVault ? `Through ${underlyingVault.name}` : 'Collateral behind the loans'}
-            </p>
-          </div>
         </div>
-
-        <VaultSectionNav sections={OVERVIEW_SECTIONS} />
 
         <VaultSection id="vault-performance" title="Performance">
         {/* Chart Type Selector */}
@@ -941,9 +886,9 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                       padding={{ left: 0, right: 0 }}
                     />
                     <YAxis 
-                      width={getChartYAxisWidth('apy')}
+                      width={axisWidthForDomain(apyYAxisDomain, (value) => formatPercentage(value / 100))}
                       orientation="left"
-                      tickMargin={8}
+                      tickMargin={4}
                       domain={apyYAxisDomain}
                       tickFormatter={(value) => {
                         if (value === undefined || typeof value !== 'number') return '';
@@ -988,9 +933,11 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                       padding={{ left: 0, right: 0 }}
                     />
                     <YAxis
-                      width={getSharePriceYAxisWidth(valueType)}
+                      width={axisWidthForDomain(sharePriceYAxisDomain, (value) =>
+                        formatSharePriceYAxisTick(value, valueType, vaultData)
+                      )}
                       orientation="left"
-                      tickMargin={8}
+                      tickMargin={4}
                       domain={sharePriceYAxisDomain}
                       tickFormatter={(value) => {
                         if (value === undefined || typeof value !== 'number') return '';
@@ -1045,9 +992,11 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                           padding={{ left: 0, right: 0 }}
                         />
                         <YAxis
-                          width={getTvlYAxisWidth(valueType)}
+                          width={axisWidthForDomain(tvlYAxisDomain, (value) =>
+                            formatTvlYAxisTick(value, valueType, vaultData)
+                          )}
                           orientation="left"
-                          tickMargin={8}
+                          tickMargin={4}
                           domain={tvlYAxisDomain}
                           tickFormatter={(value) => {
                             if (value === undefined || typeof value !== 'number') return '';
@@ -1093,6 +1042,11 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                 )}
               </ResponsiveContainer>
             </div>
+            {chartType === 'apy' && (
+              <p className="mt-2 px-1 text-xs text-[var(--foreground-muted)]">
+                Average net APY over time. Net APY above is the current rate, so it can differ from the latest point.
+              </p>
+            )}
           </div>
         ) : (
           <div className={`bg-[var(--surface-elevated)] rounded-lg border border-[var(--border-subtle)] ${VAULT_DETAIL_CHART_HEIGHT_CLASS} flex items-center justify-center text-sm text-[var(--foreground-muted)]`}>
@@ -1102,14 +1056,15 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
         </div>
         </VaultSection>
 
-        <VaultSection id="vault-allocation" title="Allocation" summary={exposureSummary}>
-          <ExposureBar exposure={exposure} />
+        <VaultSection id="vault-allocation" title="Allocation">
           <div className="bg-[var(--surface-elevated)] rounded-lg border border-[var(--border-subtle)] p-2 sm:p-3">
             <VaultAllocations
               vaultData={vaultData}
               allocations={ownAllocations.allocations}
               loading={ownAllocations.loading}
               error={ownAllocations.error}
+              marketBook={exposureAllocations.allocations}
+              marketBookLoading={exposureAllocations.loading}
             />
           </div>
         </VaultSection>
@@ -1117,16 +1072,11 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
         <VaultSection
           id="vault-risk"
           title="Risk"
-          summary="What protects your deposit, read from the vault contract and Morpho."
         >
           <VaultRiskFacts vaultData={vaultData} />
         </VaultSection>
 
-        <VaultSection
-          id="vault-details"
-          title="Vault details"
-          summary="Addresses, timelocks and caps, for anyone who wants to check."
-        >
+        <VaultSection id="vault-details" title="Vault details">
           <VaultDetails vaultData={vaultData} />
         </VaultSection>
       </div>

@@ -2,6 +2,7 @@
 
 import { ReactNode, useState, useEffect } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { hydrate } from '@wagmi/core'
 import { WagmiProvider } from 'wagmi'
 import { config } from '@/config/wagmi'
 import { useAppKitTheme } from '@reown/appkit/react'
@@ -47,6 +48,28 @@ function AppKitThemeSync() {
   return <AppKitThemeSyncInner />
 }
 
+function WagmiBoundary({
+  children,
+  initialState,
+}: {
+  children: ReactNode
+  initialState: Props['initialState']
+}) {
+  // Apply the cookie snapshot once, before any subscriber mounts. Passing it to
+  // WagmiProvider instead repeats config.setState on every render until persist
+  // finishes, which updates useAccount subscribers (VaultV2Page) during Hydrate's render.
+  useState(() => {
+    if (initialState) hydrate(config, { initialState, reconnectOnMount: true })
+    return null
+  })
+
+  return (
+    <WagmiProvider config={config} reconnectOnMount>
+      {children}
+    </WagmiProvider>
+  )
+}
+
 export function Providers({ children, initialState, initialVaultPrefs }: Props) {
   const [queryClient] = useState(
     () =>
@@ -69,11 +92,7 @@ export function Providers({ children, initialState, initialVaultPrefs }: Props) 
         });
       }}
     >
-      <WagmiProvider
-        config={config}
-        initialState={initialState} // undefined in dev is fine
-        reconnectOnMount={true} // Automatically reconnect on mount (page reload) - defaults to true but explicit for clarity
-      >
+      <WagmiBoundary initialState={initialState}>
         <QueryClientProvider client={queryClient}>
           <ThemeProvider>
             <AppKitThemeSync />
@@ -95,7 +114,7 @@ export function Providers({ children, initialState, initialVaultPrefs }: Props) 
               </AdvisoryAgreementProvider>
           </ThemeProvider>
         </QueryClientProvider>
-      </WagmiProvider>
+      </WagmiBoundary>
     </ErrorBoundary>
   )
 }

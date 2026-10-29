@@ -17,7 +17,7 @@ import {
 } from '@/lib/formatter';
 import { calculateYAxisDomain, findVaultByAddress, getVaultRoute } from '@/lib/vault-utils';
 import { rawAmountToDecimal } from '@/lib/asset-decimals';
-import { CHART_MARGIN, getChartYAxisWidth, withLeadingChartTick, VAULT_DETAIL_CHART_HEIGHT_CLASS, VAULT_DETAIL_CHART_MIN_HEIGHT } from '@/lib/chart-utils';
+import { CHART_MARGIN, axisWidthForLabels, withLeadingChartTick } from '@/lib/chart-utils';
 import {
   buildActivityFlowEvents,
   netDepositRawAtTime,
@@ -128,6 +128,16 @@ const formatDate = (timestamp: number) => {
   const date = new Date(timestamp * 1000);
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 };
+
+/** Keep the first and last tick, and at most `max` labels, so the axis stays readable on a phone. */
+function capChartTicks(ticks: number[] | undefined, max: number): number[] | undefined {
+  if (!ticks || ticks.length <= max) return ticks;
+  const last = ticks.length - 1;
+  const indexes = new Set<number>([0, last]);
+  const step = last / (max - 1);
+  for (let i = 1; i < max - 1; i++) indexes.add(Math.round(i * step));
+  return [...indexes].sort((a, b) => a - b).map((index) => ticks[index]);
+}
 
 export default function VaultPosition({
   vaultData,
@@ -692,6 +702,15 @@ export default function VaultPosition({
     return domain || [0, 100];
   }, [chartData]);
 
+  const yAxisWidth = useMemo(() => {
+    const [min, max] = yAxisDomain;
+    const format = (value: number) =>
+      valueType === 'usd'
+        ? formatChartUsdAxisValue(value)
+        : formatChartTokenAxisValue(value, depositAssetDecimals, vaultData.symbol);
+    return axisWidthForLabels([format(min), format(max), format((min + max) / 2)]);
+  }, [yAxisDomain, valueType, depositAssetDecimals, vaultData.symbol]);
+
   // Stretches of the chart where funds sat in the pair contract, shaded so a move to the
   // wrapper (or underlying) and back reads as part of one position. Combined view only.
   const pairHeldBands = useMemo(() => {
@@ -723,7 +742,8 @@ export default function VaultPosition({
     return bands;
   }, [showCombined, chartData, pairPositionHistory, pairHourly30dHistory]);
 
-  // Helper function to calculate chart ticks based on time frame
+  // Helper function to calculate chart ticks based on time frame.
+  // Five labels fit a phone; more than that overlap.
   const getChartTicks = useMemo(() => {
     if (chartData.length === 0) return undefined;
     
@@ -781,9 +801,9 @@ export default function VaultPosition({
       }
     });
     
-    return withLeadingChartTick(
-      ticks.length > 0 ? ticks : undefined,
-      sortedData[0]?.timestamp
+    return capChartTicks(
+      withLeadingChartTick(ticks.length > 0 ? ticks : undefined, sortedData[0]?.timestamp),
+      5
     );
   }, [selectedTimeFrame, chartData]);
   
@@ -915,11 +935,11 @@ export default function VaultPosition({
       }
     >
       {isConnected && address ? (
-        <div className="h-full min-h-0 flex flex-col">
+        <div className="flex flex-col">
           {loading ? (
-            <div className={`bg-[var(--surface-elevated)] rounded-lg p-2 sm:p-3 ${VAULT_DETAIL_CHART_HEIGHT_CLASS} flex flex-col`}>
+            <div className="bg-[var(--surface-elevated)] rounded-lg p-2 sm:p-3 flex flex-col">
               {/* Controls Row Skeleton */}
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-3 shrink-0">
                 <div className="flex items-center gap-2">
                   <Skeleton width="3rem" height="2rem" />
                   <Skeleton width="3rem" height="2rem" />
@@ -931,7 +951,7 @@ export default function VaultPosition({
                 </div>
               </div>
               {/* Chart Skeleton */}
-              <div className="flex-1 min-h-0 p-3">
+              <div className="h-52 sm:h-56">
                 <div className="h-full flex flex-col justify-between">
                   {/* Y-axis labels area */}
                   <div className="flex justify-between mb-2">
@@ -958,9 +978,9 @@ export default function VaultPosition({
               </div>
             </div>
           ) : (fullUserDepositHistory.length > 0 || hourly30dPositionHistory.length > 0) ? (
-            <div className={`bg-[var(--surface-elevated)] rounded-lg p-2 sm:p-4 ${VAULT_DETAIL_CHART_HEIGHT_CLASS} flex flex-col`}>
+            <div className="bg-[var(--surface-elevated)] rounded-lg p-2 sm:p-4 flex flex-col">
               {/* Controls Row */}
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4 shrink-0">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-3 shrink-0">
                 {/* Time Frame Selector - Desktop: Buttons, Mobile: Hamburger Menu */}
                 <div className="relative">
                   {/* Desktop: Show buttons */}
@@ -1053,23 +1073,24 @@ export default function VaultPosition({
                   </button>
                 </div>
               </div>
-              <div className="w-full min-w-0 flex-1 min-h-0">
-                <ResponsiveContainer width="100%" height="100%" minHeight={VAULT_DETAIL_CHART_MIN_HEIGHT} debounce={50}>
+              <div className="w-full min-w-0 h-52 sm:h-56">
+                <ResponsiveContainer width="100%" height="100%" debounce={50}>
                   <AreaChart data={chartData} margin={CHART_MARGIN}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" />
                     <XAxis 
                       dataKey="timestamp" 
                       tickFormatter={formatDate}
                       stroke="var(--foreground-secondary)"
-                      style={{ fontSize: '12px' }}
+                      style={{ fontSize: '11px' }}
                       interval="preserveStartEnd"
+                      minTickGap={28}
                       ticks={getChartTicks}
                       padding={{ left: 0, right: 0 }}
                     />
                     <YAxis
-                      width={getChartYAxisWidth(valueType === 'usd' ? 'usd' : 'tokenWide')}
+                      width={yAxisWidth}
                       orientation="left"
-                      tickMargin={8}
+                      tickMargin={4}
                       domain={yAxisDomain}
                       tickFormatter={(value) => {
                         if (value === undefined || typeof value !== 'number') return '';

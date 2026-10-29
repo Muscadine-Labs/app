@@ -222,6 +222,7 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
           timelocks: vaultInfo.timelocks ?? [],
           maxRate: vaultInfo.maxRate ?? null,
           liquidityAdapterAddress: vaultInfo.liquidityAdapterAddress ?? null,
+          liquidityAdapterType: vaultInfo.liquidityAdapterType ?? null,
           performanceFee:
             ((vaultInfo as { performanceFee?: number }).performanceFee ??
               vaultInfo.state?.fee ??

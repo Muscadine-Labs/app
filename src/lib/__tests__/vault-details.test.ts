@@ -2,10 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   formatSharePercent,
   formatTimelockDuration,
+  isAllocationDust,
   groupTimelocks,
   maxRateToAnnualPercent,
-  RISK_INCREASING_FUNCTIONS,
-  shortestGuard,
   summarizeExposure,
 } from '@/lib/vault-details';
 import type { VaultMarketAllocation } from '@/lib/vault-v2-allocations';
@@ -49,39 +48,16 @@ describe('groupTimelocks', () => {
       timelock('addAdapter', 7 * DAY),
       timelock('setAdapterRegistry', 0, true),
       timelock('increaseAbsoluteCap', 7 * DAY),
+      timelock('setReceiveAssetsGate', 0),
       timelock('decreaseTimelock', 0),
+      timelock('decreaseTimelock', 0, true),
     ]);
     expect(groups).toEqual([
       { label: '7 days', functions: ['addAdapter', 'increaseAbsoluteCap'] },
       { label: '3 days', functions: ['setPerformanceFee'] },
-      { label: 'No delay', functions: ['decreaseTimelock'] },
+      { label: 'No delay', functions: ['setReceiveAssetsGate'] },
       { label: 'Abdicated', functions: ['setAdapterRegistry'] },
     ]);
-  });
-});
-
-describe('shortestGuard', () => {
-  it('takes the shortest delay among callable functions', () => {
-    const guard = shortestGuard(
-      [timelock('addAdapter', 7 * DAY), timelock('increaseAbsoluteCap', 3 * DAY)],
-      RISK_INCREASING_FUNCTIONS
-    );
-    expect(guard).toEqual({ kind: 'delay', seconds: 3 * DAY });
-  });
-
-  it('ignores abdicated functions', () => {
-    const guard = shortestGuard(
-      [timelock('addAdapter', 0, true), timelock('increaseAbsoluteCap', 7 * DAY)],
-      RISK_INCREASING_FUNCTIONS
-    );
-    expect(guard).toEqual({ kind: 'delay', seconds: 7 * DAY });
-  });
-
-  it('reports abdicated when nothing is callable, unknown when nothing matches', () => {
-    expect(shortestGuard([timelock('addAdapter', 0, true)], ['addAdapter'])).toEqual({
-      kind: 'abdicated',
-    });
-    expect(shortestGuard([], RISK_INCREASING_FUNCTIONS)).toEqual({ kind: 'unknown' });
   });
 });
 
@@ -115,6 +91,15 @@ describe('summarizeExposure', () => {
     const summary = summarizeExposure([marketRow('cbBTC', 100), marketRow('cbBTC', 50)]);
     expect(summary.items).toEqual([{ symbol: 'cbBTC', usd: 150, share: 1 }]);
     expect(summary.marketCount).toBe(2);
+  });
+});
+
+describe('isAllocationDust', () => {
+  it('hides a cent or less and keeps anything above it', () => {
+    expect(isAllocationDust(0)).toBe(true);
+    expect(isAllocationDust(0.01)).toBe(true);
+    expect(isAllocationDust(0.0100001)).toBe(false);
+    expect(isAllocationDust(Number.NaN)).toBe(true);
   });
 });
 
