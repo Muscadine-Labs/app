@@ -8,9 +8,6 @@ import { ConnectButton } from "../features/wallet";
 import { Icon } from "../ui/Icon";
 import { Button } from "../ui/Button";
 import { useTheme } from "@/contexts/ThemeContext";
-import { useVaultPrefs } from "@/contexts/VaultPrefsContext";
-import { useExplorerVaults } from "@/contexts/ExplorerVaultsContext";
-import { SettingSelectRow, SettingToggleRow } from "@/components/ui/SettingToggleRow";
 import { MORPHO_DISCLAIMER_URL } from '@/lib/constants';
 
 interface NavBarProps {
@@ -18,13 +15,6 @@ interface NavBarProps {
     onToggleSidebar?: () => void;
 }
 
-
-/** Settings → Vault View. Labels only; each maps to an existing explorer list mode. */
-const VAULT_VIEW_OPTIONS = [
-    { value: 'recommended', label: 'Underlying' },
-    { value: 'wrappers', label: 'Wrapper' },
-    { value: 'all', label: 'All Vaults' },
-] as const;
 
 export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps) {
     const pathname = usePathname();
@@ -34,17 +24,11 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
     const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
     const settingsRef = useRef<HTMLDivElement>(null);
-    const infoPopoverOpenRef = useRef(false);
     const mobileNavRef = useRef<HTMLDivElement>(null);
     const hamburgerButtonRef = useRef<HTMLButtonElement>(null);
     
     // Settings state with defaults
     const { theme, setTheme } = useTheme();
-    const { sharedData, setSharedData } = useVaultPrefs();
-    const { kindMode, setKindMode, canUseAdvanced } = useExplorerVaults();
-    const handleInfoOpenChange = (open: boolean) => {
-        infoPopoverOpenRef.current = open;
-    };
 
     const isActive = useCallback((item: NavItem): boolean => {
         if (item.id === 'vaults') {
@@ -66,13 +50,7 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
             if (menuRef.current && !menuRef.current.contains(target)) {
                 setIsMenuOpen(false);
             }
-            const infoPopover = target instanceof Element && target.closest('[data-vault-info-popover]');
-            if (
-                settingsRef.current &&
-                !settingsRef.current.contains(target) &&
-                !infoPopoverOpenRef.current &&
-                !infoPopover
-            ) {
+            if (settingsRef.current && !settingsRef.current.contains(target)) {
                 setIsSettingsOpen(false);
             }
             // Only handle mobile nav if it's actually open
@@ -256,10 +234,7 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                             className="relative flex items-center" 
                             ref={settingsRef}
                             onMouseEnter={() => setIsSettingsOpen(true)}
-                            onMouseLeave={() => {
-                                if (infoPopoverOpenRef.current) return;
-                                setIsSettingsOpen(false);
-                            }}
+                            onMouseLeave={() => setIsSettingsOpen(false)}
                         >
                             <button
                                 onClick={() => {
@@ -296,10 +271,7 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                     <div 
                                         className="absolute right-0 top-full mt-2 w-72 max-w-[calc(100vw-2rem)] bg-[var(--surface)] border border-[var(--border)] rounded-2xl shadow-xl py-4 z-[60] animate-[fadeInUp_0.2s_ease-out]"
                                         onMouseEnter={() => setIsSettingsOpen(true)}
-                                        onMouseLeave={() => {
-                                            if (infoPopoverOpenRef.current) return;
-                                            setIsSettingsOpen(false);
-                                        }}
+                                        onMouseLeave={() => setIsSettingsOpen(false)}
                                     >
                                     {/* Theme Section */}
                                     <div className="px-4">
@@ -350,26 +322,6 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                                 Auto
                                             </button>
                                         </div>
-                                    </div>
-                                    {/* Vault display: saved in a cookie (VaultPrefsContext) */}
-                                    <div className="px-4 mt-3 pt-2 border-t border-[var(--border)]">
-                                        <SettingToggleRow
-                                            label="Shared vault data"
-                                            info="Shows a vault and its wrapper version as one history, so your chart and earnings stay together. Turn off to see each one separately."
-                                            checked={sharedData}
-                                            onChange={setSharedData}
-                                            onInfoOpenChange={handleInfoOpenChange}
-                                        />
-                                        {canUseAdvanced ? (
-                                            <SettingSelectRow
-                                                label="Vault View"
-                                                info="Choose which vaults to list. Underlying: the main vaults (default), or the wrapper if that is the only one you can deposit into. Wrapper: a version of each vault that charges a fee on interest. All Vaults: both. Vaults you hold always show."
-                                                value={kindMode}
-                                                options={VAULT_VIEW_OPTIONS}
-                                                onChange={setKindMode}
-                                                onInfoOpenChange={handleInfoOpenChange}
-                                            />
-                                        ) : null}
                                     </div>
                                     </div>
                                 </>

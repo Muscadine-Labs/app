@@ -81,7 +81,7 @@ export function AdvisoryAgreementModal() {
           </p>
 
           <p className="text-xs sm:text-sm text-[var(--foreground)] leading-relaxed">
-            Some vaults are fee wrappers that deposit into an underlying Muscadine vault. Every vault’s fees are set to 0%; check its page for the current values. Deposits open when a vault’s send-assets gate allows your wallet. Withdrawals stay open for shares you already hold. Each vault’s page lists its allocations, risk controls and fees.
+            Every vault’s fees are set to 0%; check its page for the current values. Deposits open when a vault’s send-assets gate allows your wallet. Withdrawals stay open for shares you already hold. Each vault’s page lists its allocations, risk controls and fees.
           </p>
 
           <p className="text-xs sm:text-sm text-[var(--foreground)] leading-relaxed">

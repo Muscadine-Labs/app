@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { MorphoVaultData } from '@/types/vault';
 import { formatVaultDetailTokenAmount, formatDate, formatCurrency } from '@/lib/formatter';
 import { useAccount } from 'wagmi';
@@ -11,16 +11,12 @@ import {
   formatTransactionTypeLabel,
   transactionTypeDotClass,
 } from '@/lib/transaction-labels';
-import { getProductVaultAddresses, type VaultKind } from '@/lib/vaults';
-import { findVaultByAddress, getDepositedVaultAddressSet } from '@/lib/vault-utils';
-import { useVaultPrefs } from '@/contexts/VaultPrefsContext';
-import { useWallet } from '@/contexts/WalletContext';
 
 function transactionKey(tx: Transaction): string {
   return `${tx.id ?? ''}-${tx.transactionHash ?? ''}-${tx.type}-${tx.timestamp}`;
 }
 
-/** Morpho can return the same event from both contracts' feeds (or twice in one); keep one. */
+/** Morpho can return the same event twice in one feed; keep one. */
 function dedupeTransactions<T extends Transaction>(rows: T[]): T[] {
   const seen = new Set<string>();
   return rows.filter((tx) => {
@@ -31,26 +27,14 @@ function dedupeTransactions<T extends Transaction>(rows: T[]): T[] {
   });
 }
 
-/** A user activity row, tagged with the contract it happened on when the pair's activity is merged. */
-type HistoryTransaction = Transaction & { vaultKind?: VaultKind };
-
 interface VaultHistoryProps {
   vaultData: MorphoVaultData;
 }
 
 export default function VaultHistory({ vaultData }: VaultHistoryProps) {
   const { address } = useAccount();
-  const [transactions, setTransactions] = useState<HistoryTransaction[]>([]);
-  const [userTransactions, setUserTransactions] = useState<HistoryTransaction[]>([]);
-  const { sharedData } = useVaultPrefs();
-  const { morphoHoldings } = useWallet();
-  // Tag rows Wrapper / Underlying only for a wallet that holds both contracts now.
-  const holdsBoth = useMemo(() => {
-    const product = getProductVaultAddresses(vaultData.address);
-    if (product.length < 2) return false;
-    const held = getDepositedVaultAddressSet(morphoHoldings.positions);
-    return product.every((vaultAddress) => held.has(vaultAddress.toLowerCase()));
-  }, [vaultData.address, morphoHoldings.positions]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [userTransactions, setUserTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [showUserOnly, setShowUserOnly] = useState(true);
   const [allActivityLoaded, setAllActivityLoaded] = useState(false);
@@ -63,38 +47,20 @@ export default function VaultHistory({ vaultData }: VaultHistoryProps) {
       try {
         if (address && showUserOnly) {
           const version = vaultData.version ?? 'v2';
-          // With shared vault data on, your activity covers both contracts of a wrapper /
-          // underlying pair, so a move out and back shows in one list.
-          const vaultAddresses = sharedData
-            ? getProductVaultAddresses(vaultData.address)
-            : [vaultData.address];
-          const responses = await Promise.all(
-            vaultAddresses.map((vaultAddress) =>
-              fetch(
-                `/api/vault/${version}/${vaultAddress}/activity?chainId=${vaultData.chainId}&userAddress=${address}`,
-                { signal: abortController.signal }
-              )
-            )
+          const response = await fetch(
+            `/api/vault/${version}/${vaultData.address}/activity?chainId=${vaultData.chainId}&userAddress=${address}`,
+            { signal: abortController.signal }
           );
-          if (responses.some((response) => !response.ok)) {
-            throw new Error('Failed to fetch vault activity');
-          }
-          const payloads = await Promise.all(responses.map((response) => response.json()));
-          if (payloads.some((payload) => payload?.error)) {
-            throw new Error('Failed to fetch vault activity');
-          }
+          if (!response.ok) throw new Error('Failed to fetch vault activity');
+          const payload = await response.json();
+          if (payload?.error) throw new Error('Failed to fetch vault activity');
           if (abortController.signal.aborted) return;
-          const perVault = payloads.map((payload, i) => {
-            const kind = findVaultByAddress(vaultAddresses[i])?.kind;
-            const rows = Array.isArray(payload.transactions)
-              ? (payload.transactions as Transaction[])
-              : [];
-            return rows.map((tx): HistoryTransaction => ({ ...tx, vaultKind: kind }));
-          });
-          const merged = dedupeTransactions(
-            perVault.flat().sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0))
+          const rows = Array.isArray(payload.transactions)
+            ? (payload.transactions as Transaction[])
+            : [];
+          setUserTransactions(
+            dedupeTransactions([...rows].sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0)))
           );
-          setUserTransactions(merged);
           return;
         }
 
@@ -141,7 +107,7 @@ export default function VaultHistory({ vaultData }: VaultHistoryProps) {
     void fetchActivity();
 
     return () => abortController.abort();
-  }, [vaultData.address, vaultData.chainId, vaultData.version, address, showUserOnly, sharedData]);
+  }, [vaultData.address, vaultData.chainId, vaultData.version, address, showUserOnly]);
 
   const getExplorerUrl = (txHash: string) => {
     return `https://basescan.org/tx/${txHash}`;
@@ -264,11 +230,6 @@ export default function VaultHistory({ vaultData }: VaultHistoryProps) {
                           ({formatCurrency(tx.assetsUsd)})
                         </span>
                       )}
-                      {holdsBoth && sharedData && showUserOnly && tx.vaultKind ? (
-                        <span className="inline-flex rounded-md bg-[var(--surface)] px-1.5 py-0.5 text-[10px] font-medium leading-none text-[var(--foreground-muted)]">
-                          {tx.vaultKind === 'wrapper' ? 'Wrapper' : 'Underlying'}
-                        </span>
-                      ) : null}
                     </div>
                     <div className="flex items-center gap-2 mt-1">
                       <span className="text-xs text-[var(--foreground-secondary)]">

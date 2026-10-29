@@ -5,25 +5,16 @@ export type VaultVersion = 'v2';
 /** Product strategy — Prime (default) or Frontier. */
 export type VaultStrategy = 'prime' | 'frontier';
 
-/**
- * `underlying` = Morpho Vault V2 that allocates to Blue markets.
- * `wrapper` = fee wrapper: a Vault V2 whose liquidity adapter deposits into one underlying vault.
- */
-export type VaultKind = 'underlying' | 'wrapper';
-
 export interface VaultDefinition {
   address: string;
   name: string;
   /** Underlying asset symbol (USDC, cbBTC, WETH). */
   symbol: string;
-  /** Share token label (e.g. mpUSDC, wmpUSDC). */
+  /** Share token label (e.g. mpUSDC). */
   vaultSymbol: string;
   chainId: number;
   version: VaultVersion;
   strategy: VaultStrategy;
-  kind: VaultKind;
-  /** Wrapper only: the underlying vault it deposits into. */
-  underlyingAddress?: string;
 }
 
 const BASE = BASE_CHAIN_ID;
@@ -47,7 +38,6 @@ export const VAULTS: Record<string, VaultDefinition> = {
     chainId: BASE,
     version: 'v2',
     strategy: 'prime',
-    kind: 'underlying',
   },
   cbBTC_VAULT_V2: {
     address: CBBTC_PRIME,
@@ -57,7 +47,6 @@ export const VAULTS: Record<string, VaultDefinition> = {
     chainId: BASE,
     version: 'v2',
     strategy: 'prime',
-    kind: 'underlying',
   },
   WETH_VAULT_V2: {
     address: WETH_PRIME,
@@ -67,7 +56,6 @@ export const VAULTS: Record<string, VaultDefinition> = {
     chainId: BASE,
     version: 'v2',
     strategy: 'prime',
-    kind: 'underlying',
   },
   USDC_FRONTIER_VAULT_V2: {
     address: USDC_FRONTIER,
@@ -77,51 +65,6 @@ export const VAULTS: Record<string, VaultDefinition> = {
     chainId: BASE,
     version: 'v2',
     strategy: 'frontier',
-    kind: 'underlying',
-  },
-  USDC_VAULT_V2_WRAPPER: {
-    address: USDC_PRIME_WRAPPER,
-    name: 'Muscadine USDC Prime',
-    symbol: 'USDC',
-    vaultSymbol: 'wmpUSDC',
-    chainId: BASE,
-    version: 'v2',
-    strategy: 'prime',
-    kind: 'wrapper',
-    underlyingAddress: USDC_PRIME,
-  },
-  cbBTC_VAULT_V2_WRAPPER: {
-    address: CBBTC_PRIME_WRAPPER,
-    name: 'Muscadine cbBTC Prime',
-    symbol: 'cbBTC',
-    vaultSymbol: 'wmpcbBTC',
-    chainId: BASE,
-    version: 'v2',
-    strategy: 'prime',
-    kind: 'wrapper',
-    underlyingAddress: CBBTC_PRIME,
-  },
-  WETH_VAULT_V2_WRAPPER: {
-    address: WETH_PRIME_WRAPPER,
-    name: 'Muscadine WETH Prime',
-    symbol: 'WETH',
-    vaultSymbol: 'wmpWETH',
-    chainId: BASE,
-    version: 'v2',
-    strategy: 'prime',
-    kind: 'wrapper',
-    underlyingAddress: WETH_PRIME,
-  },
-  USDC_FRONTIER_VAULT_V2_WRAPPER: {
-    address: USDC_FRONTIER_WRAPPER,
-    name: 'Muscadine USDC Frontier',
-    symbol: 'USDC',
-    vaultSymbol: 'wmfUSDC',
-    chainId: BASE,
-    version: 'v2',
-    strategy: 'frontier',
-    kind: 'wrapper',
-    underlyingAddress: USDC_FRONTIER,
   },
 };
 
@@ -129,34 +72,40 @@ export function getRegistryVaultList(): VaultDefinition[] {
   return Object.values(VAULTS);
 }
 
-function findDefinition(address: string): VaultDefinition | undefined {
-  const key = address.toLowerCase();
-  return getRegistryVaultList().find((vault) => vault.address.toLowerCase() === key);
+/**
+ * Retired fee wrappers. Each deposited into one registry vault (`underlyingAddress`).
+ * They are not listed and cannot be used in the app (only dead shares remain). A wallet's
+ * past wrapper history and earned interest count toward the underlying vault.
+ */
+interface RetiredFeeWrapper {
+  address: string;
+  /** Share token label (e.g. wmpUSDC). */
+  vaultSymbol: string;
+  underlyingAddress: string;
 }
 
-/** Registry wrapper at this address, if it is one. */
-export function findWrapperDefinition(address: string): VaultDefinition | undefined {
-  const vault = findDefinition(address);
-  return vault?.kind === 'wrapper' ? vault : undefined;
-}
+const RETIRED_FEE_WRAPPERS: readonly RetiredFeeWrapper[] = [
+  { address: USDC_PRIME_WRAPPER, vaultSymbol: 'wmpUSDC', underlyingAddress: USDC_PRIME },
+  { address: USDC_FRONTIER_WRAPPER, vaultSymbol: 'wmfUSDC', underlyingAddress: USDC_FRONTIER },
+  { address: WETH_PRIME_WRAPPER, vaultSymbol: 'wmpWETH', underlyingAddress: WETH_PRIME },
+  { address: CBBTC_PRIME_WRAPPER, vaultSymbol: 'wmpcbBTC', underlyingAddress: CBBTC_PRIME },
+];
 
-/** Wrapper that deposits into this underlying vault, if any. */
-export function findWrapperForUnderlying(underlyingAddress: string): VaultDefinition | undefined {
+/** The retired fee wrapper that deposited into this registry vault, if any. */
+export function getRetiredWrapper(underlyingAddress: string): RetiredFeeWrapper | undefined {
   const key = underlyingAddress.toLowerCase();
-  return getRegistryVaultList().find(
-    (vault) => vault.kind === 'wrapper' && vault.underlyingAddress?.toLowerCase() === key
-  );
+  return RETIRED_FEE_WRAPPERS.find((wrapper) => wrapper.underlyingAddress.toLowerCase() === key);
 }
 
-/** The other contract of a wrapper / underlying pair, if there is one. */
-export function getPairedVaultAddress(address: string): string | undefined {
-  const wrapper = findWrapperDefinition(address);
-  if (wrapper) return wrapper.underlyingAddress;
-  return findWrapperForUnderlying(address)?.address;
+/** The registry vault a retired fee wrapper deposited into, if this address is one. */
+export function getRetiredWrapperUnderlying(wrapperAddress: string): string | undefined {
+  const key = wrapperAddress.toLowerCase();
+  return RETIRED_FEE_WRAPPERS.find((wrapper) => wrapper.address.toLowerCase() === key)
+    ?.underlyingAddress;
 }
 
-/** This vault plus its pair: the addresses whose history counts as one position. */
+/** This vault plus its retired wrapper: the addresses whose history counts as one position. */
 export function getProductVaultAddresses(address: string): string[] {
-  const pair = getPairedVaultAddress(address);
-  return pair ? [address, pair] : [address];
+  const wrapper = getRetiredWrapper(address);
+  return wrapper ? [address, wrapper.address] : [address];
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
+import { useMemo, type KeyboardEvent, type ReactNode } from 'react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useAccount } from 'wagmi';
@@ -8,15 +8,10 @@ import { Vault, getVaultLogo } from '@/types/vault';
 import type { MorphoVaultData } from '@/types/vault';
 import { useVaultData } from '@/contexts/VaultDataContext';
 import { useWallet } from '@/contexts/WalletContext';
-import { useVaultPrefs } from '@/contexts/VaultPrefsContext';
-import { getPairedVaultAddress } from '@/lib/vaults';
 import { VaultName } from '@/components/features/vault/VaultName';
 import {
   getVaultRoute,
-  closedPairEarnedPnl,
-  groupVaultFamilies,
-  type VaultFamily,
-  selectVaultKindMarkAddresses,
+  retiredWrapperEarnedPnl,
   hasOnChainVaultShares,
   isCuratedVaultAddress,
   resolvePositionAssetsUsd,
@@ -209,26 +204,13 @@ function EarnedInterestCell({
   vault,
   decimals,
   align = 'end',
-  combinePair = false,
 }: {
   vault: Vault;
   decimals: number;
   align?: 'start' | 'end';
-  /** Family row that stands for both contracts of a held pair: add the pair's profit. */
-  combinePair?: boolean;
 }) {
   const { address } = useAccount();
   const { morphoHoldings } = useWallet();
-  const { sharedData } = useVaultPrefs();
-  const pairPosition = useMemo(() => {
-    if (!combinePair) return null;
-    const pairAddress = getPairedVaultAddress(vault.address)?.toLowerCase();
-    if (!pairAddress) return null;
-    const position = morphoHoldings.positions.find(
-      (item) => item.vault.address.toLowerCase() === pairAddress
-    );
-    return position && hasOnChainVaultShares(position) ? position : null;
-  }, [combinePair, morphoHoldings.positions, vault.address]);
 
   const walletPosition = useMemo(
     () =>
@@ -251,13 +233,6 @@ function EarnedInterestCell({
       : undefined,
     vault.symbol,
     walletPosition?.assets
-  );
-  const pairHookData = useVaultEarnedInterest(
-    address && pairPosition && pairPosition.pnlRaw === undefined
-      ? pairPosition.vault.address
-      : undefined,
-    vault.symbol,
-    pairPosition?.assets
   );
 
   if (!address) {
@@ -289,30 +264,13 @@ function EarnedInterestCell({
     (hookData.isLoading ? undefined : hookData.earnedInterestUsd);
   const flooredOwnRaw = flooredPnlRaw(ownRaw);
   const flooredOwnUsd = ownUsd === undefined ? undefined : Math.max(0, ownUsd);
-  // A closed pair's profit rides on this row; a family row also adds its held pair's profit.
-  const heldPair = pairPosition
-    ? {
-        pnlRaw: flooredPnlRaw(
-          pairPosition.pnlRaw ??
-            (pairHookData.isLoading ? undefined : pairHookData.earnedInterestRaw || '0')
-        ),
-        pnlUsd:
-          pairPosition.pnlUsd ??
-          (pairHookData.isLoading ? undefined : pairHookData.earnedInterestUsd),
-      }
-    : null;
-  if (heldPair && (heldPair.pnlRaw === undefined || heldPair.pnlUsd === undefined)) {
-    return <Skeleton width="4rem" height="1rem" className={skeletonClass} />;
-  }
-  // Shared vault data off: a closed pair's profit stays with that contract.
-  const closedPair =
-    (sharedData ? closedPairEarnedPnl(morphoHoldings.positions, vault.address) : null) ??
-    (heldPair ? { pnlRaw: heldPair.pnlRaw!, pnlUsd: Math.max(0, heldPair.pnlUsd!) } : null);
+  // Profit earned in the vault's retired fee wrapper rides on this row.
+  const wrapperPnl = retiredWrapperEarnedPnl(morphoHoldings.positions, vault.address);
   const earnedInterestRaw = (() => {
     if (flooredOwnRaw === undefined) return undefined;
-    if (!closedPair) return flooredOwnRaw;
+    if (!wrapperPnl) return flooredOwnRaw;
     try {
-      return (BigInt(flooredOwnRaw) + BigInt(closedPair.pnlRaw)).toString();
+      return (BigInt(flooredOwnRaw) + BigInt(wrapperPnl.pnlRaw)).toString();
     } catch {
       return flooredOwnRaw;
     }
@@ -320,7 +278,7 @@ function EarnedInterestCell({
   const earnedInterestUsd =
     flooredOwnUsd === undefined
       ? undefined
-      : flooredOwnUsd + (closedPair?.pnlUsd ?? 0);
+      : flooredOwnUsd + (wrapperPnl?.pnlUsd ?? 0);
 
   if (earnedInterestRaw === undefined || earnedInterestUsd === undefined) {
     return <Skeleton width="4rem" height="1rem" className={skeletonClass} />;
@@ -350,9 +308,7 @@ function EarnedInterestCell({
 function VaultExplorerMobileCard({
   vault,
   showYourPosition,
-  showKind,
   restricted,
-  nested = false,
 }: VaultExplorerRowProps) {
   const router = useRouter();
   const { getVaultData, isLoading } = useVaultData();
@@ -370,10 +326,10 @@ function VaultExplorerMobileCard({
         tabIndex: 0,
         onClick: openVault,
         onKeyDown: (event: KeyboardEvent) => handleRowKeyDown(event, openVault),
-        className: `w-full text-left ${nested ? NESTED_CARD_CLASS : 'px-4'} py-4 border-b border-[var(--border)] hover:bg-[var(--surface-hover)] active:bg-[var(--surface-hover)] transition-colors touch-manipulation cursor-pointer`,
+        className: 'w-full text-left px-4 py-4 border-b border-[var(--border)] hover:bg-[var(--surface-hover)] active:bg-[var(--surface-hover)] transition-colors touch-manipulation cursor-pointer',
       }
     : {
-        className: `w-full text-left ${nested ? NESTED_CARD_CLASS : 'px-4'} py-4 border-b border-[var(--border)]`,
+        className: 'w-full text-left px-4 py-4 border-b border-[var(--border)]',
       };
 
   return (
@@ -382,7 +338,7 @@ function VaultExplorerMobileCard({
         <VaultLogo vault={vault} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap min-w-0">
-            <VaultName name={vault.name} kind={vault.kind} showKind={showKind} />
+            <VaultName name={vault.name} />
             {restricted ? <RestrictedMark /> : null}
             <span className="inline-flex rounded-md bg-[var(--surface-elevated)] px-2 py-0.5 text-[10px] font-medium text-[var(--foreground-secondary)]">
               Base
@@ -449,13 +405,9 @@ function DashboardVaultMobileCard({
   positionUsd,
   loading,
   vaultData,
-  showKind,
-  nested = false,
   showCuratedLabel = false,
 }: {
   vault: Vault;
-  showKind?: boolean;
-  nested?: boolean;
   /** Label Muscadine vaults "Whitelisted" only when the list also has an external vault. */
   showCuratedLabel?: boolean;
   positionAssets?: string;
@@ -478,10 +430,10 @@ function DashboardVaultMobileCard({
         tabIndex: 0,
         onClick: openVault,
         onKeyDown: (event: KeyboardEvent) => handleRowKeyDown(event, openVault),
-        className: `w-full text-left ${nested ? 'pl-9 pr-3' : 'px-3'} py-3 border-b border-[var(--border)] hover:bg-[var(--surface-hover)] active:bg-[var(--surface-hover)] transition-colors touch-manipulation cursor-pointer`,
+        className: 'w-full text-left px-3 py-3 border-b border-[var(--border)] hover:bg-[var(--surface-hover)] active:bg-[var(--surface-hover)] transition-colors touch-manipulation cursor-pointer',
       }
     : {
-        className: `w-full text-left ${nested ? 'pl-9 pr-3' : 'px-3'} py-3 border-b border-[var(--border)]`,
+        className: 'w-full text-left px-3 py-3 border-b border-[var(--border)]',
       };
 
   return (
@@ -489,7 +441,7 @@ function DashboardVaultMobileCard({
       <div className="flex items-start gap-2.5 mb-2">
         <VaultLogo vault={vault} />
         <div className="min-w-0 flex-1">
-          <VaultName name={vault.name} lines={2} kind={vault.kind} showKind={showKind} />
+          <VaultName name={vault.name} lines={2} />
           <VaultShareLabel vault={vault} />
           {!isCurated || showCuratedLabel ? (
             <span className="text-[10px] text-[var(--foreground-muted)] block">
@@ -641,12 +593,8 @@ function PositionCell({
 interface VaultExplorerRowProps {
   vault: Vault;
   showYourPosition: boolean;
-  /** Label Wrapper / Underlying (both contracts of the pair are listed). */
-  showKind?: boolean;
   /** Listed, but this wallet cannot deposit (send-assets gate says no). */
   restricted?: boolean;
-  /** Child row under a family row. */
-  nested?: boolean;
 }
 
 function RestrictedMark() {
@@ -663,9 +611,7 @@ function RestrictedMark() {
 function VaultExplorerRow({
   vault,
   showYourPosition,
-  showKind,
   restricted,
-  nested = false,
 }: VaultExplorerRowProps) {
   const router = useRouter();
   const { getVaultData, isLoading } = useVaultData();
@@ -702,12 +648,12 @@ function VaultExplorerRow({
 
       <td className="px-4 sm:px-6 py-4 align-middle">
         <div
-          className={`flex items-center gap-3 min-w-[180px] ${nested ? NESTED_CELL_CLASS : ''}`}
+          className="flex items-center gap-3 min-w-[180px]"
         >
-          <VaultLogo vault={vault} size={nested ? 24 : 32} />
+          <VaultLogo vault={vault} />
           <div className="min-w-0">
             <div className="flex items-center gap-2 min-w-0">
-              <VaultName name={vault.name} kind={vault.kind} showKind={showKind} />
+              <VaultName name={vault.name} />
               {restricted ? <RestrictedMark /> : null}
               {!isCurated ? (
                 <span className="shrink-0 text-[10px] text-[var(--foreground-muted)]">
@@ -765,319 +711,6 @@ function VaultExplorerRow({
   );
 }
 
-/** Child rows sit under their family row, indented with a tree line. */
-const NESTED_CELL_CLASS = 'ml-5 pl-4 border-l border-[var(--border)]';
-const NESTED_CARD_CLASS = 'pl-10 pr-4';
-
-function FamilyChevron({ expanded }: { expanded: boolean }) {
-  return (
-    <svg
-      className={`h-3.5 w-3.5 shrink-0 text-[var(--foreground-secondary)] transition-transform ${
-        expanded ? 'rotate-90' : ''
-      }`}
-      fill="none"
-      stroke="currentColor"
-      viewBox="0 0 24 24"
-      strokeWidth="2"
-      aria-hidden
-    >
-      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-    </svg>
-  );
-}
-
-function formatApyRange(apys: number[]): string {
-  if (apys.length === 0) return '';
-  const labels = [...new Set(apys.map((apy) => formatPercentage(apy)))];
-  if (labels.length === 1) return labels[0];
-  const min = Math.min(...apys);
-  const max = Math.max(...apys);
-  return `${formatPercentage(min)} – ${formatPercentage(max)}`;
-}
-
-/**
- * Totals for a wrapper / underlying family. Deposits, TVL and liquidity come from the
- * underlying, which already holds the wrapper's funds; position and profit add both sides.
- */
-function useFamilySummary(family: VaultFamily) {
-  const { morphoHoldings } = useWallet();
-  const { getVaultData, isLoading } = useVaultData();
-  const lead = family.members.find((member) => member.kind !== 'wrapper') ?? family.members[0];
-  const leadData = getVaultData(lead.address) as MorphoVaultData | null;
-  const memberData = family.members.map((member) => getVaultData(member.address));
-  const loading = family.members.some((member) => isLoading(member.address));
-  const decimals = resolveAssetDecimals(lead.symbol, leadData?.assetDecimals);
-
-  const heldPositions = family.members
-    .map((member) =>
-      morphoHoldings.positions.find(
-        (item) => item.vault.address.toLowerCase() === member.address.toLowerCase()
-      )
-    )
-    .filter((position) => hasOnChainVaultShares(position));
-
-  let positionRaw = BigInt(0);
-  let positionUsd = 0;
-  for (const position of heldPositions) {
-    if (!position) continue;
-    try {
-      positionRaw += BigInt(position.assets ?? '0');
-    } catch {
-      // Skip a malformed amount; the USD sum still counts it.
-    }
-    positionUsd += resolvePositionAssetsUsd(position, {
-      assetDecimals: position.assetDecimals ?? decimals,
-      symbol: lead.symbol,
-    });
-  }
-
-  const apys = memberData
-    .filter((data): data is NonNullable<typeof data> => data !== null)
-    .map((data) => data.apy ?? 0);
-
-  return {
-    lead,
-    leadData,
-    loading,
-    decimals,
-    held: heldPositions.length > 0,
-    positionRaw: positionRaw.toString(),
-    positionUsd,
-    apyLabel: memberData.every((data) => data !== null) ? formatApyRange(apys) : null,
-    holdingsLoading: morphoHoldings.isLoading,
-  };
-}
-
-function FamilyKinds({ family }: { family: VaultFamily }) {
-  return (
-    <span className="block text-[10px] text-[var(--foreground-muted)]">
-      {family.members
-        .map((member) => (member.kind === 'wrapper' ? 'Wrapper' : 'Underlying'))
-        .join(' + ')}
-    </span>
-  );
-}
-
-interface VaultFamilyRowProps {
-  family: VaultFamily;
-  expanded: boolean;
-  onToggle: () => void;
-  showYourPosition: boolean;
-}
-
-function familyToggleProps(name: string, expanded: boolean, onToggle: () => void) {
-  return {
-    role: 'button' as const,
-    tabIndex: 0,
-    'aria-expanded': expanded,
-    'aria-label': `${expanded ? 'Collapse' : 'Expand'} ${name}`,
-    onClick: (event: MouseEvent) => {
-      event.preventDefault();
-      onToggle();
-    },
-    onKeyDown: (event: KeyboardEvent) => handleRowKeyDown(event, onToggle),
-  };
-}
-
-function VaultFamilyRow({ family, expanded, onToggle, showYourPosition }: VaultFamilyRowProps) {
-  const summary = useFamilySummary(family);
-  const { lead, leadData, loading, decimals } = summary;
-
-  return (
-    <tr
-      {...familyToggleProps(lead.name, expanded, onToggle)}
-      className="border-b border-[var(--border)] transition-colors hover:bg-[var(--surface-hover)] cursor-pointer"
-    >
-      <td className="px-4 sm:px-6 py-4 align-middle">
-        <span className="inline-flex rounded-md bg-[var(--surface-elevated)] px-2.5 py-1 text-xs font-medium text-[var(--foreground-secondary)]">
-          Base
-        </span>
-      </td>
-      <td className="px-4 sm:px-6 py-4 align-middle">
-        <div className="flex items-center gap-2 min-w-[180px]">
-          <FamilyChevron expanded={expanded} />
-          <VaultLogo vault={lead} />
-          <div className="min-w-0">
-            <VaultName name={lead.name} />
-            <FamilyKinds family={family} />
-          </div>
-        </div>
-      </td>
-      {showYourPosition && (
-        <td className="px-4 sm:px-6 py-4 align-middle text-right">
-          <FamilyPositionValue summary={summary} />
-        </td>
-      )}
-      <td className="px-4 sm:px-6 py-4 align-middle text-right">
-        <ValueCell
-          rawValue={leadData?.totalAssets}
-          usdValue={leadData?.totalDeposits}
-          decimals={decimals}
-          symbol={lead.symbol}
-          loading={loading}
-        />
-      </td>
-      <td className="px-4 sm:px-6 py-4 align-middle text-right">
-        <ValueCell
-          rawValue={resolveTotalUnderlyingLiquidityAssets(
-            leadData?.liquidityBreakdown,
-            leadData?.liquidityAssets ?? leadData?.totalAssets
-          )}
-          usdValue={resolveTotalUnderlyingLiquidityUsd(
-            leadData?.liquidityBreakdown,
-            leadData?.currentLiquidity
-          )}
-          decimals={decimals}
-          symbol={lead.symbol}
-          loading={loading}
-        />
-      </td>
-      <td className="px-4 sm:px-6 py-4 align-middle text-right">
-        {summary.apyLabel === null ? (
-          <Skeleton width="3.5rem" height="1rem" className="ml-auto" />
-        ) : (
-          <span className="text-sm font-semibold text-[var(--primary)] tabular-nums whitespace-nowrap">
-            {summary.apyLabel}
-          </span>
-        )}
-      </td>
-    </tr>
-  );
-}
-
-function FamilyPositionValue({
-  summary,
-  align = 'end',
-}: {
-  summary: ReturnType<typeof useFamilySummary>;
-  align?: 'start' | 'end';
-}) {
-  const { address } = useAccount();
-  const alignClass = align === 'start' ? 'items-start' : 'items-end';
-  if (!address || summary.holdingsLoading) {
-    return (
-      <div className={`flex flex-col ${alignClass} gap-1.5`}>
-        <Skeleton width="5rem" height="1rem" />
-        <Skeleton width="4rem" height="0.875rem" />
-      </div>
-    );
-  }
-  if (!summary.held) {
-    return <span className="text-sm text-[var(--foreground-muted)]">-</span>;
-  }
-  return (
-    <div className={`flex flex-col ${alignClass} gap-1`}>
-      <span className="text-sm font-medium text-[var(--foreground)]">
-        {formatPositionTokenAmount(summary.positionRaw, summary.decimals, summary.lead.symbol)}
-      </span>
-      <span className="inline-flex rounded-md bg-[var(--surface-elevated)] px-2 py-0.5 text-xs text-[var(--foreground-secondary)]">
-        {formatPositionUsd(summary.positionUsd)}
-      </span>
-    </div>
-  );
-}
-
-function VaultFamilyMobileCard({ family, expanded, onToggle, showYourPosition }: VaultFamilyRowProps) {
-  const summary = useFamilySummary(family);
-  const { lead, leadData, loading, decimals } = summary;
-
-  return (
-    <div
-      {...familyToggleProps(lead.name, expanded, onToggle)}
-      className="w-full text-left px-4 py-4 border-b border-[var(--border)] hover:bg-[var(--surface-hover)] active:bg-[var(--surface-hover)] transition-colors touch-manipulation cursor-pointer"
-    >
-      <div className="flex items-start gap-3 mb-3">
-        <div className="flex items-center gap-1.5 shrink-0">
-          <FamilyChevron expanded={expanded} />
-          <VaultLogo vault={lead} />
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 flex-wrap min-w-0">
-            <VaultName name={lead.name} />
-            <span className="inline-flex rounded-md bg-[var(--surface-elevated)] px-2 py-0.5 text-[10px] font-medium text-[var(--foreground-secondary)]">
-              Base
-            </span>
-          </div>
-          <FamilyKinds family={family} />
-        </div>
-        <div className="shrink-0 text-right">
-          {summary.apyLabel === null ? (
-            <Skeleton width="3rem" height="1rem" />
-          ) : (
-            <span className="text-sm font-semibold text-[var(--primary)] whitespace-nowrap">
-              {summary.apyLabel}
-            </span>
-          )}
-        </div>
-      </div>
-
-      <div className="grid gap-3 grid-cols-2">
-        {showYourPosition && (
-          <MobileStatBlock label="Your Position">
-            <FamilyPositionValue summary={summary} align="start" />
-          </MobileStatBlock>
-        )}
-        <MobileStatBlock label="Deposits">
-          <ValueCell
-            rawValue={leadData?.totalAssets}
-            usdValue={leadData?.totalDeposits}
-            decimals={decimals}
-            symbol={lead.symbol}
-            loading={loading}
-            align="start"
-          />
-        </MobileStatBlock>
-        <MobileStatBlock label="Liquidity">
-          <ValueCell
-            rawValue={resolveTotalUnderlyingLiquidityAssets(
-              leadData?.liquidityBreakdown,
-              leadData?.liquidityAssets ?? leadData?.totalAssets
-            )}
-            usdValue={resolveTotalUnderlyingLiquidityUsd(
-              leadData?.liquidityBreakdown,
-              leadData?.currentLiquidity
-            )}
-            decimals={decimals}
-            symbol={lead.symbol}
-            loading={loading}
-            align="start"
-          />
-        </MobileStatBlock>
-      </div>
-    </div>
-  );
-}
-
-/**
- * Family expand state. A family starts open when the wallet holds every vault in it, so each
- * vault's own numbers show under the combined row; a tap toggles it.
- */
-function useFamilyExpansion(families: VaultFamily[]) {
-  const { morphoHoldings } = useWallet();
-  const [overrides, setOverrides] = useState<Record<string, boolean>>({});
-  const heldKeys = useMemo(() => {
-    const held = new Set(
-      morphoHoldings.positions
-        .filter((position) => hasOnChainVaultShares(position))
-        .map((position) => position.vault.address.toLowerCase())
-    );
-    return new Set(
-      families
-        .filter(
-          (family) =>
-            family.members.length > 1 &&
-            family.members.every((member) => held.has(member.address.toLowerCase()))
-        )
-        .map((family) => family.key)
-    );
-  }, [families, morphoHoldings.positions]);
-
-  const isExpanded = (family: VaultFamily) => overrides[family.key] ?? heldKeys.has(family.key);
-  const toggle = (family: VaultFamily) =>
-    setOverrides((prev) => ({ ...prev, [family.key]: !isExpanded(family) }));
-  return { isExpanded, toggle };
-}
-
 interface VaultExplorerTableProps {
   vaults: Vault[];
   emptyMessage?: string;
@@ -1090,11 +723,8 @@ export default function VaultExplorerTable({
   const isMounted = useIsClient();
   const { isConnected } = useAccount();
   const showYourPosition = isConnected;
-  const kindMarks = useMemo(() => selectVaultKindMarkAddresses(vaults), [vaults]);
   const { blockedVaultAddresses } = useVaultDepositGates();
   const isRestricted = (vault: Vault) => blockedVaultAddresses.has(vault.address.toLowerCase());
-  const families = useMemo(() => groupVaultFamilies(vaults), [vaults]);
-  const { isExpanded, toggle } = useFamilyExpansion(families);
 
   if (!isMounted) {
     return (
@@ -1115,31 +745,14 @@ export default function VaultExplorerTable({
   return (
     <>
       <div className="lg:hidden">
-        {families.map((family) => {
-          const renderCard = (vault: Vault, nested: boolean) => (
-            <VaultExplorerMobileCard
-              key={vault.address}
-              vault={vault}
-              showYourPosition={showYourPosition}
-              showKind={kindMarks.has(vault.address.toLowerCase())}
-              restricted={isRestricted(vault)}
-              nested={nested}
-            />
-          );
-          if (family.members.length === 1) return renderCard(family.members[0], false);
-          const expanded = isExpanded(family);
-          return (
-            <div key={family.key}>
-              <VaultFamilyMobileCard
-                family={family}
-                expanded={expanded}
-                onToggle={() => toggle(family)}
-                showYourPosition={showYourPosition}
-              />
-              {expanded ? family.members.map((vault) => renderCard(vault, true)) : null}
-            </div>
-          );
-        })}
+        {vaults.map((vault) => (
+          <VaultExplorerMobileCard
+            key={vault.address}
+            vault={vault}
+            showYourPosition={showYourPosition}
+            restricted={isRestricted(vault)}
+          />
+        ))}
       </div>
 
       <div className="hidden lg:block overflow-x-auto">
@@ -1159,30 +772,14 @@ export default function VaultExplorerTable({
           </tr>
         </thead>
         <tbody>
-          {families.flatMap((family) => {
-            const renderRow = (vault: Vault, nested: boolean) => (
-              <VaultExplorerRow
-                key={vault.address}
-                vault={vault}
-                showYourPosition={showYourPosition}
-                showKind={kindMarks.has(vault.address.toLowerCase())}
-                restricted={isRestricted(vault)}
-                nested={nested}
-              />
-            );
-            if (family.members.length === 1) return [renderRow(family.members[0], false)];
-            const expanded = isExpanded(family);
-            return [
-              <VaultFamilyRow
-                key={`family-${family.key}`}
-                family={family}
-                expanded={expanded}
-                onToggle={() => toggle(family)}
-                showYourPosition={showYourPosition}
-              />,
-              ...(expanded ? family.members.map((vault) => renderRow(vault, true)) : []),
-            ];
-          })}
+          {vaults.map((vault) => (
+            <VaultExplorerRow
+              key={vault.address}
+              vault={vault}
+              showYourPosition={showYourPosition}
+              restricted={isRestricted(vault)}
+            />
+          ))}
         </tbody>
       </table>
       </div>
@@ -1274,15 +871,7 @@ function DashboardVaultEmptyState({
 }
 
 /** One dashboard vault row: this contract's own position, profit, APY and TVL. */
-function DashboardVaultRow({
-  vault,
-  showKind,
-  nested = false,
-}: {
-  vault: Vault;
-  showKind: boolean;
-  nested?: boolean;
-}) {
+function DashboardVaultRow({ vault }: { vault: Vault }) {
   const router = useRouter();
   const { address } = useAccount();
   const { morphoHoldings } = useWallet();
@@ -1314,10 +903,10 @@ function DashboardVaultRow({
       }`}
     >
       <td className="px-2 py-2.5 align-middle">
-        <div className={`flex items-start gap-2 min-w-0 ${nested ? 'ml-3 pl-3 border-l border-[var(--border)]' : ''}`}>
-          <VaultLogo vault={vault} size={nested ? 22 : 28} />
+        <div className="flex items-start gap-2 min-w-0">
+          <VaultLogo vault={vault} size={28} />
           <div className="min-w-0 flex-1">
-            <VaultName name={vault.name} lines={2} kind={vault.kind} showKind={showKind} />
+            <VaultName name={vault.name} lines={2} />
             <VaultShareLabel vault={vault} />
           </div>
         </div>
@@ -1350,136 +939,6 @@ function DashboardVaultRow({
   );
 }
 
-/** Dashboard family row: both contracts' position and profit, the underlying's TVL, the APY range. */
-function DashboardFamilyRow({
-  family,
-  expanded,
-  onToggle,
-}: {
-  family: VaultFamily;
-  expanded: boolean;
-  onToggle: () => void;
-}) {
-  const summary = useFamilySummary(family);
-  const { lead, leadData, decimals } = summary;
-
-  return (
-    <tr
-      {...familyToggleProps(lead.name, expanded, onToggle)}
-      className="border-b border-[var(--border)] transition-colors hover:bg-[var(--surface-hover)] cursor-pointer"
-    >
-      <td className="px-2 py-2.5 align-middle">
-        <div className="flex items-start gap-1.5 min-w-0">
-          <span className="mt-2">
-            <FamilyChevron expanded={expanded} />
-          </span>
-          <VaultLogo vault={lead} size={28} />
-          <div className="min-w-0 flex-1">
-            <VaultName name={lead.name} lines={2} />
-            <FamilyKinds family={family} />
-          </div>
-        </div>
-      </td>
-      <td className={DASHBOARD_VALUE_CELL}>
-        <FamilyDashboardPosition summary={summary} />
-      </td>
-      <td className={DASHBOARD_VALUE_CELL}>
-        <EarnedInterestCell vault={lead} decimals={decimals} combinePair />
-      </td>
-      <td className={DASHBOARD_VALUE_CELL}>
-        <FamilyApyTvl summary={summary} leadData={leadData} />
-      </td>
-    </tr>
-  );
-}
-
-function FamilyDashboardPosition({
-  summary,
-  align = 'end',
-}: {
-  summary: ReturnType<typeof useFamilySummary>;
-  align?: 'start' | 'end';
-}) {
-  const { address } = useAccount();
-  if (!address || summary.holdingsLoading) {
-    return <Skeleton width="4.5rem" height="1rem" className={align === 'end' ? 'ml-auto' : ''} />;
-  }
-  if (!summary.held) return <span className="text-sm text-[var(--foreground-muted)]">-</span>;
-  return (
-    <DashboardTokenValue
-      rawValue={summary.positionRaw}
-      decimals={summary.decimals}
-      symbol={summary.lead.symbol}
-      usd={summary.positionUsd}
-      align={align}
-    />
-  );
-}
-
-function FamilyApyTvl({
-  summary,
-  leadData,
-  align = 'end',
-}: {
-  summary: ReturnType<typeof useFamilySummary>;
-  leadData: MorphoVaultData | null;
-  align?: 'start' | 'end';
-}) {
-  if (summary.apyLabel === null || !leadData) {
-    return <Skeleton width="4rem" height="1rem" className={align === 'end' ? 'ml-auto' : ''} />;
-  }
-  return (
-    <DashboardStackedValue
-      align={align}
-      primaryClassName="font-semibold text-[var(--primary)]"
-      primary={`${summary.apyLabel} APY`}
-      secondary={`${formatSmartCurrency(leadData.totalValueLocked || 0, { alwaysTwoDecimals: true })} TVL`}
-    />
-  );
-}
-
-function DashboardFamilyMobileCard({
-  family,
-  expanded,
-  onToggle,
-}: {
-  family: VaultFamily;
-  expanded: boolean;
-  onToggle: () => void;
-}) {
-  const summary = useFamilySummary(family);
-  const { lead, leadData, decimals } = summary;
-
-  return (
-    <div
-      {...familyToggleProps(lead.name, expanded, onToggle)}
-      className="w-full text-left px-3 py-3 border-b border-[var(--border)] hover:bg-[var(--surface-hover)] active:bg-[var(--surface-hover)] transition-colors touch-manipulation cursor-pointer"
-    >
-      <div className="flex items-start gap-2 mb-2">
-        <div className="flex items-center gap-1.5 shrink-0">
-          <FamilyChevron expanded={expanded} />
-          <VaultLogo vault={lead} />
-        </div>
-        <div className="min-w-0 flex-1">
-          <VaultName name={lead.name} lines={2} />
-          <FamilyKinds family={family} />
-        </div>
-      </div>
-      <div className="grid grid-cols-3 gap-2">
-        <MobileStatBlock label="Your Position">
-          <FamilyDashboardPosition summary={summary} align="start" />
-        </MobileStatBlock>
-        <MobileStatBlock label="Earned Interest">
-          <EarnedInterestCell vault={lead} decimals={decimals} align="start" combinePair />
-        </MobileStatBlock>
-        <MobileStatBlock label="APY / TVL">
-          <FamilyApyTvl summary={summary} leadData={leadData} align="start" />
-        </MobileStatBlock>
-      </div>
-    </div>
-  );
-}
-
 export function DashboardVaultTable({
   vaults,
   emptyMessage = 'No vault deposits yet.',
@@ -1488,27 +947,20 @@ export function DashboardVaultTable({
   const isMounted = useIsClient();
   const { morphoHoldings } = useWallet();
   const { getVaultData, isLoading } = useVaultData();
-  const kindMarks = useMemo(() => selectVaultKindMarkAddresses(vaults), [vaults]);
 
-  // A pair held on both sides is one family row (sorted by its combined value) with each
-  // vault under it; everything else is a plain row.
-  const families = useMemo(() => {
+  // Largest position first; ties keep the list's order.
+  const sortedVaults = useMemo(() => {
     const usdOf = (vault: Vault) => {
       const position = morphoHoldings.positions.find(
         (item) => item.vault.address.toLowerCase() === vault.address.toLowerCase()
       );
       return position ? resolvePositionAssetsUsd(position) : 0;
     };
-    return groupVaultFamilies(vaults)
-      .map((family, index) => ({
-        family,
-        index,
-        usd: family.members.reduce((sum, vault) => sum + usdOf(vault), 0),
-      }))
+    return vaults
+      .map((vault, index) => ({ vault, index, usd: usdOf(vault) }))
       .sort((a, b) => b.usd - a.usd || a.index - b.index)
-      .map(({ family }) => family);
+      .map(({ vault }) => vault);
   }, [vaults, morphoHoldings.positions]);
-  const { isExpanded, toggle } = useFamilyExpansion(families);
   const hasExternal = vaults.some((vault) => !isCuratedVaultAddress(vault.address));
 
   if (!isMounted) {
@@ -1553,7 +1005,7 @@ export function DashboardVaultTable({
     );
   }
 
-  const renderMobileCard = (vault: Vault, nested: boolean) => {
+  const renderMobileCard = (vault: Vault) => {
     const vaultData = getVaultData(vault.address) as MorphoVaultData | null;
     const decimals = resolveAssetDecimals(vault.symbol, vaultData?.assetDecimals);
     const position = morphoHoldings.positions.find(
@@ -1571,8 +1023,6 @@ export function DashboardVaultTable({
         }
         loading={isLoading(vault.address)}
         vaultData={vaultData}
-        showKind={kindMarks.has(vault.address.toLowerCase())}
-        nested={nested}
         showCuratedLabel={hasExternal}
       />
     );
@@ -1582,20 +1032,7 @@ export function DashboardVaultTable({
     // Container width (not viewport): half-column dashboards stay on cards until wide enough for the table.
     <div className="@container min-w-0">
       <div className="@min-[640px]:hidden">
-        {families.map((family) => {
-          if (family.members.length === 1) return renderMobileCard(family.members[0], false);
-          const expanded = isExpanded(family);
-          return (
-            <div key={family.key}>
-              <DashboardFamilyMobileCard
-                family={family}
-                expanded={expanded}
-                onToggle={() => toggle(family)}
-              />
-              {expanded ? family.members.map((vault) => renderMobileCard(vault, true)) : null}
-            </div>
-          );
-        })}
+        {sortedVaults.map(renderMobileCard)}
       </div>
 
       <div className="hidden @min-[640px]:block min-w-0">
@@ -1603,27 +1040,9 @@ export function DashboardVaultTable({
         <DashboardVaultColGroup />
         <DashboardVaultTableHead />
         <tbody>
-          {families.flatMap((family) => {
-            const renderRow = (vault: Vault, nested: boolean) => (
-              <DashboardVaultRow
-                key={vault.address}
-                vault={vault}
-                showKind={kindMarks.has(vault.address.toLowerCase())}
-                nested={nested}
-              />
-            );
-            if (family.members.length === 1) return [renderRow(family.members[0], false)];
-            const expanded = isExpanded(family);
-            return [
-              <DashboardFamilyRow
-                key={`family-${family.key}`}
-                family={family}
-                expanded={expanded}
-                onToggle={() => toggle(family)}
-              />,
-              ...(expanded ? family.members.map((vault) => renderRow(vault, true)) : []),
-            ];
-          })}
+          {sortedVaults.map((vault) => (
+            <DashboardVaultRow key={vault.address} vault={vault} />
+          ))}
         </tbody>
       </table>
       </div>

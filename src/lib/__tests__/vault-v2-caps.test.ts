@@ -110,33 +110,4 @@ describe('mapVaultV2Caps', () => {
       'https://markets.morpho.org/fixed/base/0xfixed'
     );
   });
-
-  it('names a wrapper adapter after its underlying vault', () => {
-    const data = mapVaultV2Caps({
-      asset: { symbol: 'USDC', decimals: 6 },
-      adapters: {
-        items: [
-          {
-            __typename: 'MorphoVaultV2Adapter',
-            address: '0x5b211DA4Cd92cfb9CCCFbd1De78289955EB236CD',
-            innerVault: { name: 'Muscadine USDC Frontier' },
-          },
-        ],
-      },
-      caps: {
-        items: [
-          {
-            type: 'Adapter',
-            absoluteCap: UINT128_MAX,
-            relativeCap: WAD,
-            allocation: 1007832,
-            data: { __typename: 'AdapterCapData', adapterAddress: '0x5b211da4cd92cfb9cccfbd1de78289955eb236cd' },
-          },
-        ],
-      },
-    });
-    expect(data.caps).toHaveLength(1);
-    expect(data.caps[0].label).toBe('Muscadine USDC Frontier');
-    expect(data.caps[0].allocationRaw).toBe('1007832');
-  });
 });

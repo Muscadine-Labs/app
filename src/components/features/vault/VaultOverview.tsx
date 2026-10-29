@@ -13,7 +13,7 @@ import {
   formatSharePriceUsd,
   formatVaultDetailTokenAmount,
 } from '@/lib/formatter';
-import { calculateYAxisDomain, findVaultByAddress } from '@/lib/vault-utils';
+import { calculateYAxisDomain } from '@/lib/vault-utils';
 import { CHART_MARGIN, axisWidthForLabels, withLeadingChartTick, VAULT_DETAIL_CHART_HEIGHT_CLASS, VAULT_DETAIL_CHART_MIN_HEIGHT } from '@/lib/chart-utils';
 import { logger } from '@/lib/logger';
 import { MorphoVaultData } from '@/types/vault';
@@ -149,16 +149,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
   // Format APY
   const apyPercent = formatPercentage(vaultData.apy);
 
-  // A wrapper's exposure is its underlying vault's markets.
   const ownAllocations = useVaultAllocations(vaultData.address, vaultData.chainId);
-  const underlyingVault =
-    vaultData.kind === 'wrapper' && vaultData.underlyingAddress
-      ? findVaultByAddress(vaultData.underlyingAddress)
-      : null;
-  const exposureAllocations = useVaultAllocations(
-    underlyingVault?.address ?? vaultData.address,
-    vaultData.chainId
-  );
 
   const chartEndTimestamp = useMemo(() => {
     let maxTs = 0;
@@ -1063,8 +1054,6 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
               allocations={ownAllocations.allocations}
               loading={ownAllocations.loading}
               error={ownAllocations.error}
-              marketBook={exposureAllocations.allocations}
-              marketBookLoading={exposureAllocations.loading}
             />
           </div>
         </VaultSection>

@@ -12,10 +12,6 @@
  * Uses vault.multicall([forceDeallocate × N, withdraw|redeem]) on that vault.
  * The liquidity route market is never force-deallocated: the final withdraw already pulls from it.
  * Do not use Vault V2 maxWithdraw — it always returns 0.
- *
- * Fee wrappers have no Blue markets of their own and no force exit (that needed Bundler3).
- * Their exits are plain withdraws, capped at the wrapper's idle cash plus what its adapter
- * can pull from the underlying vault now (`readWrapperInstantAssets`).
  * Ref: https://docs.morpho.org/developers/sdks/morpho-sdk/vault/#force-withdraw--force-redeem
  */
 
@@ -31,10 +27,8 @@ import {
   formatUnits,
   getAddress,
   parseAbiParameters,
-  zeroAddress,
 } from 'viem';
 import { logger } from '@/lib/logger';
-import { findWrapperDefinition } from '@/lib/vaults';
 
 const FORCE_DEALLOCATE_WAD = BigInt(10) ** BigInt(18);
 
@@ -225,13 +219,6 @@ const ADAPTER_ABI = [
     type: 'function',
     stateMutability: 'view',
     inputs: [{ name: 'marketId', type: 'bytes32' }],
-    outputs: [{ name: '', type: 'uint256' }],
-  },
-  {
-    name: 'realAssets',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [],
     outputs: [{ name: '', type: 'uint256' }],
   },
 ] as const;
@@ -538,42 +525,6 @@ async function readVaultCashLiquidity(
   };
 }
 
-/**
- * What a plain withdraw on a fee wrapper can pay now: its idle cash plus what its liquidity
- * adapter can pull from the underlying vault (capped by the wrapper's position there).
- */
-async function readWrapperInstantAssets(
-  publicClient: PublicClient,
-  wrapper: Address,
-  underlying: Address
-): Promise<bigint> {
-  const [asset, liquidityAdapter, underlyingCash] = await Promise.all([
-    publicClient.readContract({ address: wrapper, abi: VAULT_V2_FORCE_ABI, functionName: 'asset' }),
-    publicClient.readContract({
-      address: wrapper,
-      abi: VAULT_V2_FORCE_ABI,
-      functionName: 'liquidityAdapter',
-    }),
-    readVaultCashLiquidity(publicClient, underlying),
-  ]);
-  const adapter = getAddress(liquidityAdapter);
-  const [idleAssets, positionAssets] = await Promise.all([
-    publicClient.readContract({
-      address: getAddress(asset),
-      abi: ERC20_BALANCE_ABI,
-      functionName: 'balanceOf',
-      args: [wrapper],
-    }),
-    adapter === zeroAddress
-      ? Promise.resolve(BigInt(0))
-      : publicClient.readContract({ address: adapter, abi: ADAPTER_ABI, functionName: 'realAssets' }),
-  ]);
-  return (
-    idleAssets +
-    minBigInt(positionAssets, underlyingCash.idleAssets + underlyingCash.routeAssets)
-  );
-}
-
 function buildMulticallArgs(
   deallocations: ForceDeallocationStep[],
   onBehalf: Address,
@@ -615,7 +566,6 @@ function buildMulticallArgs(
   return calls;
 }
 
-
 /**
  * Plan a force withdraw: deallocate the illiquid shortfall into idle, then withdraw or redeem.
  * Instant liquidity is read on-chain (idle + liquidity route). Penalty burns shares (does not
@@ -638,19 +588,6 @@ export async function planForceWithdrawV2(
   const normalizedVault = getAddress(vaultAddress);
   const user = getAddress(onBehalf);
   const useRedeemExit = options?.useRedeemExit === true;
-
-  // Wrappers have no Blue markets of their own and no force exit without Bundler3.
-  // Exits are plain withdraws, capped at what the wrapper and its underlying can pay now.
-  const wrapper = findWrapperDefinition(normalizedVault);
-  if (wrapper?.underlyingAddress) {
-    const instant = await readWrapperInstantAssets(
-      publicClient,
-      normalizedVault,
-      getAddress(wrapper.underlyingAddress)
-    );
-    if (requestedAssets <= instant) return null;
-    throw new ForceWithdrawShortfallError(instant);
-  }
 
   const cash = await readVaultCashLiquidity(publicClient, normalizedVault);
   const instantLiquidityAssets = cash.idleAssets + cash.routeAssets;
@@ -832,7 +769,7 @@ export { VAULT_V2_FORCE_ABI };
 
 /**
  * What a plain withdraw can pay right now, read on chain: idle cash plus what the liquidity
- * route can pull (for a wrapper, what its adapter can pull from the underlying). Null on failure.
+ * route can pull. Null on failure.
  */
 export async function readInstantLiquidityAssets(
   publicClient: PublicClient,
@@ -840,10 +777,6 @@ export async function readInstantLiquidityAssets(
 ): Promise<bigint | null> {
   try {
     const vault = getAddress(vaultAddress);
-    const wrapper = findWrapperDefinition(vault);
-    if (wrapper?.underlyingAddress) {
-      return await readWrapperInstantAssets(publicClient, vault, getAddress(wrapper.underlyingAddress));
-    }
     const cash = await readVaultCashLiquidity(publicClient, vault);
     return cash.idleAssets + cash.routeAssets;
   } catch {
