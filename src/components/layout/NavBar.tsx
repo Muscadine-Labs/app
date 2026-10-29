@@ -199,20 +199,8 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                                         </a>
                                     </div>
 
-                                    {/* Social Icons */}
+                                    {/* Contact */}
                                     <div className="px-4 pt-4 border-t border-[var(--border-subtle)] flex items-center gap-3">
-                                        <a
-                                            href="https://x.com/muscadinelabs"
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="w-8 h-8 rounded-full bg-[var(--surface)] border border-[var(--border-subtle)] flex items-center justify-center hover:bg-[var(--surface-hover)] transition-colors cursor-pointer"
-                                            onClick={() => setIsMenuOpen(false)}
-                                            aria-label="X"
-                                        >
-                                            <svg className="w-4 h-4 text-[var(--foreground)]" fill="currentColor" viewBox="0 0 24 24">
-                                                <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
-                                            </svg>
-                                        </a>
                                         <a
                                             href="https://muscadine.xyz/contact"
                                             target="_blank"
