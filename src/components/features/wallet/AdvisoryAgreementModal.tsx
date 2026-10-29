@@ -77,7 +77,7 @@ export function AdvisoryAgreementModal() {
         {/* Main Content */}
         <div className="space-y-1.5 sm:space-y-2">
           <p className="text-xs sm:text-sm text-[var(--foreground)] leading-relaxed">
-            Muscadine is a personal, non-commercial project. This open-source app is an interface to Morpho vaults on Base set up for the operator’s own and family’s funds, open to approved wallets only. It is not a business and offers no services or advice. You keep custody at all times: we never hold your keys or your assets.
+            Muscadine is a personal, non-commercial project. This open-source app is an interface to Morpho vaults on Base set up for the operator’s own funds, open to approved wallets only. It is not a business and offers no services or advice. You keep custody at all times: we never hold your keys or your assets.
           </p>
 
           <p className="text-xs sm:text-sm text-[var(--foreground)] leading-relaxed">
