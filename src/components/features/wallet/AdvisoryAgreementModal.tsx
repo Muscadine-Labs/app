@@ -77,11 +77,11 @@ export function AdvisoryAgreementModal() {
         {/* Main Content */}
         <div className="space-y-1.5 sm:space-y-2">
           <p className="text-xs sm:text-sm text-[var(--foreground)] leading-relaxed">
-            This app is an interface to Muscadine’s curated Morpho vaults. Each vault’s markets and risk parameters are shown on its page. You keep custody at all times: we never hold your keys or your assets.
+            Muscadine is a personal, non-commercial project. This open-source app is an interface to Morpho vaults on Base set up for the operator’s own and family’s funds, open to approved wallets only. It is not a business and offers no services or advice. You keep custody at all times: we never hold your keys or your assets.
           </p>
 
           <p className="text-xs sm:text-sm text-[var(--foreground)] leading-relaxed">
-            The vaults listed here are Muscadine’s curated Morpho vaults. Some are fee wrappers that deposit into Muscadine’s underlying Morpho vaults; a wrapper can charge a performance fee. Deposits open when a vault’s send-assets gate allows your wallet. Withdrawals stay open for shares you already hold. Each vault’s page lists its allocations, risk controls and fees.
+            Some vaults are fee wrappers that deposit into an underlying Muscadine vault. Every vault’s fees are set to 0%; check its page for the current values. Deposits open when a vault’s send-assets gate allows your wallet. Withdrawals stay open for shares you already hold. Each vault’s page lists its allocations, risk controls and fees.
           </p>
 
           <p className="text-xs sm:text-sm text-[var(--foreground)] leading-relaxed">
@@ -108,7 +108,7 @@ export function AdvisoryAgreementModal() {
           </p>
 
           <p className="text-xs sm:text-sm text-[var(--foreground)] leading-relaxed">
-            You sign your own deposits and withdrawals into non-custodial smart contracts. Third-party DeFi protocols (including Morpho) provide infrastructure only; they do not custody assets or provide investment advice. Muscadine provides risk curation and this interface—not financial, tax, or legal advice.
+            You sign your own deposits and withdrawals into non-custodial smart contracts. Third-party DeFi protocols (including Morpho) provide infrastructure only; they do not custody assets or provide investment advice. Muscadine chooses each vault’s markets and caps and runs this interface; nothing here is financial, tax, or legal advice.
           </p>
 
           <p className="text-xs sm:text-sm text-[var(--foreground)] leading-relaxed">
