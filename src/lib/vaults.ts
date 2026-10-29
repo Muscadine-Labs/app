@@ -77,7 +77,7 @@ export function getRegistryVaultList(): VaultDefinition[] {
  * They are not listed and cannot be used in the app (only dead shares remain). A wallet's
  * past wrapper history and earned interest count toward the underlying vault.
  */
-export interface RetiredFeeWrapper {
+interface RetiredFeeWrapper {
   address: string;
   /** Share token label (e.g. wmpUSDC). */
   vaultSymbol: string;

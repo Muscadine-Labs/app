@@ -583,7 +583,7 @@ Curator still manages who is whitelisted on `WhitelistSendAssetsGate` (`npm run 
 Vault V2 `maxDeposit` always returns 0, so the app computes capacity itself (`src/lib/deposit-capacity.ts`). A deposit allocates through the vault's `liquidityAdapter`, and every id the adapter returns must stay within its caps: `absoluteCap > 0`, `allocation <= absoluteCap`, and, unless `relativeCap == WAD`, `allocation <= firstTotalAssets * relativeCap / WAD`. `firstTotalAssets` is the accrued total *before* the deposit (`accrueInterestView`), so a deposit does not raise its own relative limit.
 
 - **Market adapter:** ids are adapter, collateral token and market (`ids(marketParams)`). The allocation change is the deposit plus interest not yet booked (`expectedSupplyAssets − allocation(marketParams)`).
-- **Vault adapter (fee wrapper → underlying):** ids are the adapter only, and the allocation change is the deposit plus `realAssets − allocation`. The deposit then enters the underlying, so the underlying's own liquidity-adapter caps also apply; capacity is the lower of the two. If the underlying's send-assets gate is ever set, it must allow the wrapper's adapter or wrapper deposits revert.
+- **Any other liquidity adapter** (empty `liquidityData`, e.g. a vault adapter) is not supported: the read throws, which the UI and send path treat as unknown, not full. Every registry vault uses a market adapter.
 - **No liquidity adapter:** deposits stay idle and no cap applies (`null`).
 
 UI and send path:

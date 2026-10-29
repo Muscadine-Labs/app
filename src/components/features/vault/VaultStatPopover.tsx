@@ -13,22 +13,14 @@ interface VaultStatPopoverProps {
   children: ReactNode;
   /** Prefer end alignment for stats on the right side of the grid. */
   align?: 'start' | 'end';
-  /** Fires when the panel opens or closes. Used so a parent menu can stay open. */
-  onOpenChange?: (open: boolean) => void;
 }
 
 export function VaultStatPopover({
   ariaLabel,
   children,
   align = 'start',
-  onOpenChange,
 }: VaultStatPopoverProps) {
   const [open, setOpen] = useState(false);
-  const onOpenChangeRef = useRef(onOpenChange);
-
-  useEffect(() => {
-    onOpenChangeRef.current = onOpenChange;
-  }, [onOpenChange]);
 
   const close = useCallback(() => {
     setOpen(false);
@@ -44,13 +36,6 @@ export function VaultStatPopover({
   const panelRef = useRef<HTMLDivElement>(null);
 
   useLockPageScroll(open);
-
-  useEffect(() => {
-    onOpenChangeRef.current?.(open);
-    return () => {
-      if (open) onOpenChangeRef.current?.(false);
-    };
-  }, [open]);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT_PX - 1}px)`);
@@ -174,7 +159,6 @@ export function VaultStatPopover({
         createPortal(
           <>
             <div
-              data-vault-info-popover=""
               className="fixed inset-0 z-[100] bg-black/40 touch-none overscroll-none"
               aria-hidden
               onClick={(event) => {
@@ -185,8 +169,7 @@ export function VaultStatPopover({
             {isMobile ? (
               <div
                 ref={panelRef}
-                data-vault-info-popover=""
-                role="dialog"
+                  role="dialog"
                 aria-modal="true"
                 aria-label={ariaLabel}
                 className={`fixed inset-x-0 bottom-0 z-[101] max-h-[min(85dvh,32rem)] ${panelShellClassName} pb-[max(0.75rem,env(safe-area-inset-bottom))] rounded-b-none rounded-t-2xl`}
@@ -197,8 +180,7 @@ export function VaultStatPopover({
             ) : (
               <div
                 ref={panelRef}
-                data-vault-info-popover=""
-                role="dialog"
+                  role="dialog"
                 aria-modal="true"
                 aria-label={ariaLabel}
                 className={`fixed z-[101] w-72 max-h-[min(70vh,24rem)] ${panelShellClassName}`}

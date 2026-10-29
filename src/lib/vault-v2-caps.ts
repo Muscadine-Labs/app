@@ -38,9 +38,6 @@ const VAULT_CAPS_QUERY = `
         items {
           __typename
           address
-          ... on MorphoVaultV2Adapter {
-            innerVault { name }
-          }
         }
       }
       caps(first: 100) {
@@ -76,7 +73,6 @@ export interface VaultCapsGraphQL {
     items?: Array<{
       __typename?: string | null;
       address?: string | null;
-      innerVault?: { name?: string | null } | null;
     } | null> | null;
   } | null;
   caps?: {
@@ -143,12 +139,7 @@ export function mapVaultV2Caps(vault: VaultCapsGraphQL, chainId: number = BASE_C
   const adapterLabels = new Map<string, string>();
   for (const adapter of vault.adapters?.items ?? []) {
     if (!adapter?.address) continue;
-    const label =
-      adapter.__typename === 'MorphoVaultV2Adapter'
-        ? adapter.innerVault?.name || 'Underlying vault'
-        : adapter.__typename === 'MorphoMarketV1Adapter'
-          ? 'Morpho Blue adapter'
-          : 'Adapter';
+    const label = adapter.__typename === 'MorphoMarketV1Adapter' ? 'Morpho Blue adapter' : 'Adapter';
     adapterLabels.set(adapter.address.toLowerCase(), label);
   }
 

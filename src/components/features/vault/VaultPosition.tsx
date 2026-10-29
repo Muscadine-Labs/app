@@ -764,9 +764,7 @@ export default function VaultPosition({
       header={
         <div className="flex items-start justify-between gap-6">
           <div className="min-w-0">
-            <div className="flex items-center gap-2 mb-1">
-              <p className="text-xs text-[var(--foreground-secondary)]">Your Position</p>
-            </div>
+            <p className="text-xs text-[var(--foreground-secondary)] mb-1">Your Position</p>
             {!isConnected ? (
               <p className="text-sm text-[var(--foreground-muted)]">Connect wallet</p>
             ) : positionRawValue === null ? (

@@ -326,7 +326,7 @@ function VaultExplorerMobileCard({
         tabIndex: 0,
         onClick: openVault,
         onKeyDown: (event: KeyboardEvent) => handleRowKeyDown(event, openVault),
-        className: `w-full text-left px-4 py-4 border-b border-[var(--border)] hover:bg-[var(--surface-hover)] active:bg-[var(--surface-hover)] transition-colors touch-manipulation cursor-pointer`,
+        className: 'w-full text-left px-4 py-4 border-b border-[var(--border)] hover:bg-[var(--surface-hover)] active:bg-[var(--surface-hover)] transition-colors touch-manipulation cursor-pointer',
       }
     : {
         className: 'w-full text-left px-4 py-4 border-b border-[var(--border)]',
@@ -430,7 +430,7 @@ function DashboardVaultMobileCard({
         tabIndex: 0,
         onClick: openVault,
         onKeyDown: (event: KeyboardEvent) => handleRowKeyDown(event, openVault),
-        className: `w-full text-left px-3 py-3 border-b border-[var(--border)] hover:bg-[var(--surface-hover)] active:bg-[var(--surface-hover)] transition-colors touch-manipulation cursor-pointer`,
+        className: 'w-full text-left px-3 py-3 border-b border-[var(--border)] hover:bg-[var(--surface-hover)] active:bg-[var(--surface-hover)] transition-colors touch-manipulation cursor-pointer',
       }
     : {
         className: 'w-full text-left px-3 py-3 border-b border-[var(--border)]',

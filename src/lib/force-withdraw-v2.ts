@@ -221,13 +221,6 @@ const ADAPTER_ABI = [
     inputs: [{ name: 'marketId', type: 'bytes32' }],
     outputs: [{ name: '', type: 'uint256' }],
   },
-  {
-    name: 'realAssets',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [],
-    outputs: [{ name: '', type: 'uint256' }],
-  },
 ] as const;
 
 const MORPHO_BLUE_ABI = [
@@ -572,7 +565,6 @@ function buildMulticallArgs(
 
   return calls;
 }
-
 
 /**
  * Plan a force withdraw: deallocate the illiquid shortfall into idle, then withdraw or redeem.

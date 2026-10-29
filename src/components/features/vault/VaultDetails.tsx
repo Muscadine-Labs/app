@@ -354,7 +354,6 @@ function CapsTable({ vaultData, enabled }: { vaultData: MorphoVaultData; enabled
 
 const LIQUIDITY_ADAPTER_LABELS: Record<string, string> = {
   MorphoMarketV1Adapter: 'Morpho Blue adapter',
-  MorphoVaultV2Adapter: 'Morpho Vault adapter',
 };
 
 export default function VaultDetails({ vaultData }: { vaultData: MorphoVaultData }) {
