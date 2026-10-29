@@ -120,7 +120,7 @@ Single source of truth: `src/lib/vaults.ts` → `VAULTS` record.
 
 Always resolve a vault with `findVaultByAddress()` from `src/lib/vault-utils.ts`. Every registry vault is v2. Do not infer v1/v2 from asset symbol alone.
 
-The product surface is eight curated Morpho Vault V2 contracts in `src/lib/vaults.ts`: four **underlying** vaults that allocate to Blue markets, and four **fee wrappers** whose liquidity adapter deposits into one underlying vault. Query them with `vaultV2ByAddress`. Deposits and plain withdraws are ERC-4626. On an underlying vault, a withdraw larger than instant liquidity force-deallocates that vault's markets, then withdraws, in one vault `multicall`. Wrappers have no force exit (see Force withdraw).
+The product surface is four curated Morpho Vault V2 contracts in `src/lib/vaults.ts` that allocate to Blue markets. Query them with `vaultV2ByAddress`. Deposits and plain withdraws are ERC-4626. A withdraw larger than instant liquidity force-deallocates the vault's markets, then withdraws, in one vault `multicall`.
 
 | Asset | Prime | Frontier |
 |-------|-------|----------|
@@ -128,7 +128,12 @@ The product surface is eight curated Morpho Vault V2 contracts in `src/lib/vault
 | WETH | `0xD6DCAd2f7Da91FBb27BdA471540d9770c97a5a43` (mpWETH) | — |
 | cbBTC | `0x99dcd0D75822BA398F13B2A8852B07c7e137EC70` (mpcbBTC) | — |
 
-Fee wrappers (`kind: 'wrapper'`, `underlyingAddress` = the vault above they deposit into):
+**Routes:** `/vault/v2/{address}` only (curated registry addresses).  
+**API:** `/api/vault/v2/{address}/{complete|history|activity|position-history|earned-interest|allocations|caps|pending}`
+
+**Vault registry fields:** `symbol` (underlying asset), `vaultSymbol` (share token label), `strategy` (`prime` | `frontier`).
+
+**Retired fee wrappers.** Four fee wrappers once deposited into the vaults above. They are removed from the app: not in `VAULTS`, not listed, no vault page (`/vault/v2/{wrapper}` redirects home), no deposit or withdraw path. Their whole share supply is dead shares (`0x…dEaD`), so no user holds them. They stay in `vaults.ts` as `RETIRED_FEE_WRAPPERS` (`getRetiredWrapper`, `getRetiredWrapperUnderlying`, `getProductVaultAddresses`) only so a wallet that once held one keeps its chart and total interest together with the underlying vault:
 
 | Asset | Prime | Frontier |
 |-------|-------|----------|
@@ -136,33 +141,15 @@ Fee wrappers (`kind: 'wrapper'`, `underlyingAddress` = the vault above they depo
 | WETH | `0x548653b09b03A69f93B3890c382fE9DcD245cbc4` (wmpWETH) | — |
 | cbBTC | `0x0e0a857d2AF1A2d43c82d1FA54766239CAb70147` (wmpcbBTC) | — |
 
-**Routes:** `/vault/v2/{address}` only (curated registry addresses).  
-**API:** `/api/vault/v2/{address}/{complete|history|activity|position-history|earned-interest|allocations|caps|pending}`
+- **Vault page My Position** (`VaultPosition.tsx`): the chart merges this vault's and its retired wrapper's position history (`mergeVaultPositionSeries` in `portfolio-utils.ts`), with a shaded band and a static note where funds sat in the wrapper. Earned interest is this vault's plus the wrapper's (no per-contract split). The live balance, withdraw max and future rewards are this vault's own on-chain position.
+- **Dashboard chart** (`PortfolioPositionChart`): a wrapper's history merges into its underlying vault before the portfolio sum.
+- **Earned Interest column** (explorer and dashboard): a row adds its retired wrapper's lifetime profit (`retiredWrapperEarnedPnl`, from the positions API with `includeEmpty`).
+- **History tab** shows this vault's own activity only.
+- There is no Settings switch for any of this (the old Vault View / Shared vault data prefs and their cookie are gone).
 
-**Vault registry fields:** `symbol` (underlying asset), `vaultSymbol` (share token label), `strategy` (`prime` | `frontier`), `kind` (`underlying` | `wrapper`), `underlyingAddress` (wrappers only).
+**Vault page access** (`resolveVaultPageAccess` in `vault-access.ts`) allows a vault the wallet can deposit into, holds, or that the explorer lists (`listedVaultAddresses`: every registry vault, so a vault the wallet cannot deposit into opens with deposit disabled). It also reads the wallet's share balance on chain, so a holder reaches the page even when the Morpho positions API fails or lags. Once allowed, the page stays open for that wallet so a full withdraw does not redirect away mid-success.
 
-**Wrapper / underlying pairs (families):** a wrapper and its underlying vault are one family.
-
-**Vault prefs (Settings, cookie `muscadine-vault-prefs`):** `VaultPrefsContext` holds `kindMode` and `sharedData`; `layout.tsx` reads the cookie (`readVaultPrefsFromCookieHeader` in `lib/vault-prefs.ts`) so the server renders the saved values. **Shared vault data** (default on) lets a pair's chart, earned interest, history and closed-pair profit mix; off keeps each contract alone everywhere (vault page, History, dashboard chart, profit carry). **Vault View** (Underlying / Wrapper / All Vaults) lives in Settings too (only when `canUseAdvanced`).
-
-- **Lists** (`/vaults` and dashboard Your Vaults, `VaultExplorerTable`): `groupVaultFamilies` in `vault-utils.ts` groups listed vaults. A family with both contracts listed is a parent row (chevron) with the two vaults as indented child rows, like Morpho's market families. The parent shows the combined position and profit, the underlying's deposits / TVL / liquidity (it already holds the wrapper's funds, so adding the wrapper would double count) and the APY range of both. Children show each contract alone and carry the **Wrapper** / **Underlying** labels (`VaultKindMark`, `selectVaultKindMarkAddresses`). A family starts expanded when the wallet holds both contracts; a tap toggles it. Dashboard families sort by combined USD. A single listed contract is a plain row.
-- **Profit carry:** a row whose pair contract has no shares left adds that contract's lifetime profit (`closedPairEarnedPnl`), so a move to the wrapper and back keeps all interest on the row.
-- **Vault page My Position** (`VaultPosition.tsx`): holding one contract (or none) shows the pair as one position, so a user who went underlying → wrapper → underlying sees no gap. Holding both shows this vault, with a **This vault | Combined** toggle. The chart's shaded band is explained by a static note; hiding the pair is done with Settings → Shared vault data. Combined view: summed on-chain balance, merged chart (`mergeVaultPositionSeries` in `portfolio-utils.ts`), summed earned interest (no per-contract split), a shaded chart band where funds sat in the other contract, and a note linking to it (withdraws act on the page's own contract). Future rewards project each side at its own APY (`pairAssetsRaw` / `pairApy` on `VaultTransactPanel`).
-- **History tab:** with shared data on, your activity merges both contracts (de-duplicated by event); rows get a Wrapper / Underlying tag only when the wallet holds both.
-- **Dashboard chart** always merges each pair.
-- **No header switch** between the pair on vault pages; the other contract is reached from the explorer, the dashboard family rows, or the combined-view note.
-
-**Vault page access** (`resolveVaultPageAccess` in `vault-access.ts`) allows a vault the wallet can deposit into, holds, or that the explorer lists for it (`listedVaultAddresses`, so a view-only pair default opens with deposit disabled). It also reads the wallet's share balance on chain, so a holder reaches the page even when the Morpho positions API fails or lags. Once allowed, the page stays open for that wallet so a full withdraw does not redirect away mid-success.
-
-**Explorer visibility** is gate-driven (`useVaultDepositGates`, read from each vault on chain; `selectRegistryVaultsForExplorer` in `vault-utils.ts`). A held vault is always listed so the wallet can exit; registry balances come from the chain (`WalletContext`), so a holder still sees the vault when the positions API fails. The rest depends on `kindMode` in `ExplorerVaultsContext` (session only, resets when the wallet changes):
-
-| Mode | Each wrapper / underlying pair lists |
-|------|--------------------------------------|
-| `recommended` (default) | `resolvePairDefaultAddress`: the underlying if the wallet can deposit into it, else the wrapper if it can, else the underlying view-only (deposit disabled) |
-| `wrappers` | The wrapper |
-| `all` | Both contracts |
-
-**Settings** has a **Vault View** dropdown (with an info icon, like Morpho's), saved in the prefs cookie: **Underlying** = `recommended` (the default; it can still list a wrapper when only the wrapper is depositable), **Wrapper** = `wrappers`, **All Vaults** = `all`. Labels only (`VAULT_VIEW_OPTIONS` in `NavBar.tsx`, `SettingSelectRow`); the modes behave as in the table above. The info icon shows its explanation on hover (mouse) or tap. The control only appears when `canUseAdvanced`: the wallet can deposit into both the wrapper and the underlying of some vault, or holds at least one wrapper and one underlying; otherwise the list stays on `recommended`. A listed vault the wallet cannot deposit into gets an **Approved wallets only** pill; that needs a successful read saying no (`blockedVaultAddresses` from `useVaultDepositGates`, `resolveDepositBlocked`), so a failed gate read never shows it.
+**Explorer visibility** (`ExplorerVaultsContext`): every registry vault is listed. Registry balances come from the chain (`WalletContext`), so a holder still sees the position when the positions API fails. A listed vault the wallet cannot deposit into gets an **Approved wallets only** pill; that needs a successful read saying no (`blockedVaultAddresses` from `useVaultDepositGates`, `resolveDepositBlocked`), so a failed gate read never shows it.
 
 Explorer filters default to **All** (network, strategy, asset). **No v1/v2 version filter** (v1 removed). There is no developer/over-balance bypass mode.
 
@@ -188,7 +175,7 @@ All vault writes go through **`src/lib/transactionUtilsV2.ts`**. ERC-4626 ops an
 | **Earned interest** | Morpho `pnl` or activity-based fallback via `/api/vault/v2/.../earned-interest` |
 | **Vault TVL / APY** | `vaultV2ByAddress` via `/api/vault/v2/.../complete` and `history` |
 | **Headline APY** | Morpho `netApy` (current allocation-weighted; fallbacks `apy` / `avgNetApy` / `avgNetApyExcludingRewards`) |
-| **Liquidity in UI** | GraphQL `liquidity` / `liquidityUsd`, not `totalAssets` (wrappers too; the withdraw cap is read on chain at send time) |
+| **Liquidity in UI** | GraphQL `liquidity` / `liquidityUsd`, not `totalAssets` (the withdraw cap is read on chain at send time) |
 
 **Rule:** anything about the user's own money (position, deposit / withdraw amounts, share balance) comes from on-chain RPC. Vault-level data (deposits, TVL, APY, liquidity, token prices) and every chart come from APIs. Earned interest is Morpho `pnl`, with an activity-based fallback against the on-chain balance.
 
@@ -227,8 +214,6 @@ Direct ERC-4626 for deposit, plain withdraw, and redeem. Force exits use vault `
 - USDC / cbBTC deposits and plain withdraws stay direct ERC-4626.
 
 **Force withdraw** (`src/lib/force-withdraw-v2.ts`): when requested assets exceed instant liquidity, plan a cash exit. Warning modal shows estimated penalty, risks, and **Force withdraw**, plus **Open vault on Morpho**. If markets cannot cover the shortfall, the input is capped at the reachable amount. The plan is rebuilt from fresh on-chain reads immediately before it is sent. Instant liquidity for planning is always read on-chain (idle + what the liquidity adapter's route market can pay), never taken from the API.
-
-**Wrappers have no force exit** (it needed Bundler3, which the app does not use). `planForceWithdrawV2` returns `null` when a wrapper withdraw fits its instant liquidity (`readWrapperInstantAssets`: wrapper idle + what its adapter can pull from the underlying now, capped by the wrapper's position there), and otherwise throws `ForceWithdrawShortfallError` so the input is capped.
 
 **Force-redeem dust:** the redeem share count is fixed when the tx is built (`balance − estimated penalty shares`), and interest accrued before it is mined makes the penalty burn slightly fewer shares, so a few shares stay behind (~1e-14 WETH). A vault-only `multicall` cannot redeem "whatever is left". `readRegistryVaultBalances` therefore treats a position below `vaultDustThreshold` (1e-9 token for 18 decimals, otherwise under one base unit) as empty, and `VaultPosition` ignores dust for "holds both". A near-max amount whose shares plus penalty shares exceed the balance is planned as a redeem of the rest (`expectedAssetsOut` = its value). The plan keeps the user's MAX intent in `maxExit`, separate from `exitMode`: when the send-time replan finds enough instant liquidity, a near-max plan falls back to `withdraw(requestedAssets)`, and only a MAX plan to `redeem` of every share.
 
@@ -342,7 +327,7 @@ Morpho GraphQL is **server-only** (`fetchMorphoGraphQL()` in route handlers). Th
 | `/api/user/morpho-positions` | User Morpho v2 positions |
 | `/api/vault/v2/...` | V2 Morpho GraphQL proxies |
 
-**NavBar:** Dashboard → `/`, Vaults → `/vaults`. Settings: theme (light/dark/auto), Shared vault data, and (when `canUseAdvanced`) Vault View (Underlying / Wrapper / All Vaults), saved in a cookie. Right sidebar (`LearnContent`) is Q&A links to Morpho docs (protocol, Vault V2, fee wrapper vaults, curator, Blue, Midnight) and [self-custody](https://muscadine.xyz/self-custody).
+**NavBar:** Dashboard → `/`, Vaults → `/vaults`. Settings: theme (light/dark/auto). Right sidebar (`LearnContent`) is Q&A links to Morpho docs (protocol, Vault V2, curator, Blue, Midnight) and [self-custody](https://muscadine.xyz/self-custody).
 
 **App title:** metadata in `layout.tsx` uses **Muscadine Vaults** (`APP_NAME` in `src/lib/base-app.ts`) so Base.dev / Reown AppKit / WalletConnect match.
 
@@ -404,9 +389,9 @@ The analytics site (`analytics.muscadine.xyz`) is retired; its vault information
 1. **Key numbers (always visible):** Net APY (with `VaultApyInfo`, no subtitle), Total deposits, and Liquidity (total underlying, `VaultLiquidityInfo`, plus "% of deposits").
 2. **Jump links** (`VaultSectionNav`, `VAULT_OVERVIEW_SECTIONS`): Performance · Allocation · Risk · Details, on phones too. They are the bottom row of the vault page's sticky header (`data-vault-sticky-header`, under the tabs, Overview only). The app scrolls inside `[data-app-scroll]`; a jump scrolls that container so the section lands just below the header (`contentTop`). The section in view is highlighted (`aria-current`). Switching tabs after scrolling past the header starts the new tab at its top.
 3. **Performance:** chart tabs **APY** → **Total Deposits** → **Share Price** (Allocations is no longer a chart tab). **Total Deposits** and **Share Price** support USD / token toggle. Axis labels and tooltips use full values with 2 decimals (`formatCurrency` / `formatAssetAmount`).
-4. **Allocation:** the market table only (`VaultAllocations`). No summary sentence and no collateral bar. Name, allocated amount, and APY always show. There is no share column. Market size sits under the market name, not in its own column. If the table would overflow, liquidity drops first, then type. Below 30rem the row is a card with the size under the name, plus type, allocated amount, APY and liquidity. The table shows at most the 7 largest positions above $0.01 (`isAllocationDust`). An idle row (**Unallocated Capital**, APY 0) is always in the data and joins them only while it holds funds. The disclosure opens the rest: **Other markets** on an underlying vault (smaller positions, dust and every capped market at zero, idle last); **All markets** on a wrapper (every underlying market plus idle). Its count is markets only. Fixed-rate market links go to markets.morpho.org (app.morpho.org has no /fixed route). A wrapper's own row is its deposit into the underlying vault and links to that vault page when this wallet can open it, otherwise to Morpho. Market names link to Morpho.
-5. **Risk** (`VaultRiskFacts`), kept short on purpose: the strategy in one paragraph (`STRATEGY_TEXT`: **Prime** = blue-chip collateral such as BTC / ETH and their wrapped or staked versions, deep markets, conservative LTV; **Frontier** = higher yield, wider crypto and tokenized stocks, lower LTV); on a wrapper a second line that deposits go into the underlying and there is no force withdraw, so a large exit can wait for liquidity (strategy falls back to the underlying's). Then a three-item **Every market is screened on** box: Collateral (native, wrapped/staked, tokenized stock, redemption), Market liquidity, Oracle and LTV. Then **Pending changes** (below), then links: **View markets on Morpho** (the vault's Morpho page; the underlying's on a wrapper; curator.muscadine.xyz stays private, so it is not linked), **Risk framework** (muscadine.xyz/risk), **Morpho's disclaimer**. No live numbers here: liquidity is in the key numbers, fees / timelocks / roles in Vault details. **Morpho `warnings` are not shown to users** (every vault is unlisted on Morpho, and wrappers' RED `timelock` flag is expected); Curator keeps them for risk management. **Pending changes** (`/api/vault/v2/{address}/pending`, Morpho `pendingConfigs`, `mapVaultV2Pending` in `lib/vault-v2-pending.ts`) lists curator changes still in their timelock with a small **+** (adds: adapter, cap raise, fee increase, allocator), **−** (removes: adapter, allocator, fee cut, abdication) or **•** (other) mark and a countdown. Hidden when nothing is pending or the read fails.
-6. **Vault details** (`VaultDetails`, its own section after Risk, jump link **Details**, each part a collapsed `<details>`): Roles (owner, curator, allocators, sentinels with copy + Basescan), Timelocks grouped by delay with **Abdicated** last (`groupTimelocks`; `decreaseTimelock` is hidden because Morpho reports it as no delay, yet cutting a timelock waits out the timelock being changed), Caps in three sections — Markets, Tokens, Adapters (lazy `/api/vault/v2/{address}/caps` on first open; only caps holding funds by default, "Show all" toggle; market rows say Variable or Fixed with LLTV and link to the Morpho market; token rows link to the token on Basescan; the Morpho Blue adapter is labeled "Morpho Blue adapter"; uint128 max = No limit, relative cap 1e18 = No limit), Contracts and limits (vault, the underlying vault when this page is a fee wrapper (same link rule as the Allocation row, `useVaultPageHref`), liquidity adapter, performance fee and management fee, max rate as %/yr, Morpho + Basescan links).
+4. **Allocation:** the market table only (`VaultAllocations`). No summary sentence and no collateral bar. Name, allocated amount, and APY always show. There is no share column. Market size sits under the market name, not in its own column. If the table would overflow, liquidity drops first, then type. Below 30rem the row is a card with the size under the name, plus type, allocated amount, APY and liquidity. The table shows at most the 7 largest positions above $0.01 (`isAllocationDust`). An idle row (**Unallocated Capital**, APY 0) is always in the data and joins them only while it holds funds. The **Other markets** disclosure opens the rest (smaller positions, dust and every capped market at zero, idle last). Its count is markets only. Fixed-rate market links go to markets.morpho.org (app.morpho.org has no /fixed route). Market names link to Morpho.
+5. **Risk** (`VaultRiskFacts`), kept short on purpose: the strategy in one paragraph (`STRATEGY_TEXT`: **Prime** = blue-chip collateral such as BTC / ETH and their wrapped or staked versions, deep markets, conservative LTV; **Frontier** = higher yield, wider crypto and tokenized stocks, lower LTV). Then a three-item **Every market is screened on** box: Collateral (native, wrapped/staked, tokenized stock, redemption), Market liquidity, Oracle and LTV. Then **Pending changes** (below), then links: **View markets on Morpho** (the vault's Morpho page; curator.muscadine.xyz stays private, so it is not linked), **Risk framework** (muscadine.xyz/risk), **Morpho's disclaimer**. No live numbers here: liquidity is in the key numbers, fees / timelocks / roles in Vault details. **Morpho `warnings` are not shown to users** (every vault is unlisted on Morpho); Curator keeps them for risk management. **Pending changes** (`/api/vault/v2/{address}/pending`, Morpho `pendingConfigs`, `mapVaultV2Pending` in `lib/vault-v2-pending.ts`) lists curator changes still in their timelock with a small **+** (adds: adapter, cap raise, fee increase, allocator), **−** (removes: adapter, allocator, fee cut, abdication) or **•** (other) mark and a countdown. Hidden when nothing is pending or the read fails.
+6. **Vault details** (`VaultDetails`, its own section after Risk, jump link **Details**, each part a collapsed `<details>`): Roles (owner, curator, allocators, sentinels with copy + Basescan), Timelocks grouped by delay with **Abdicated** last (`groupTimelocks`; `decreaseTimelock` is hidden because Morpho reports it as no delay, yet cutting a timelock waits out the timelock being changed), Caps in three sections — Markets, Tokens, Adapters (lazy `/api/vault/v2/{address}/caps` on first open; only caps holding funds by default, "Show all" toggle; market rows say Variable or Fixed with LLTV and link to the Morpho market; token rows link to the token on Basescan; the Morpho Blue adapter is labeled "Morpho Blue adapter"; uint128 max = No limit, relative cap 1e18 = No limit), Contracts and limits (vault, liquidity adapter, performance fee and management fee, max rate as %/yr, Morpho + Basescan links).
 
 Pure helpers and their tests: `src/lib/vault-details.ts` (`__tests__/vault-details.test.ts`), `src/lib/vault-v2-caps.ts` (`__tests__/vault-v2-caps.test.ts`), `src/lib/vault-v2-pending.ts` (`__tests__/vault-v2-pending.test.ts`).
 
@@ -416,7 +401,7 @@ Pure helpers and their tests: `src/lib/vault-details.ts` (`__tests__/vault-detai
 
 Provider tree (`src/app/Providers.tsx`):
 
-`ErrorBoundary` → `WagmiProvider` → `QueryClient` → `ThemeProvider` → `AdvisoryAgreementProvider` → `ToastProvider` → `WalletProvider` → `VaultPrefsProvider` → `ExplorerVaultsProvider` → `VaultDataProvider` → `TransactionProvider` (Reown AppKit initialized via `createAppKit` in `src/config/appkit.ts`; no SIWE/SIWX)
+`ErrorBoundary` → `WagmiProvider` → `QueryClient` → `ThemeProvider` → `AdvisoryAgreementProvider` → `ToastProvider` → `WalletProvider` → `ExplorerVaultsProvider` → `VaultDataProvider` → `TransactionProvider` (Reown AppKit initialized via `createAppKit` in `src/config/appkit.ts`; no SIWE/SIWX)
 
 | Context | File | Role |
 |---------|------|------|
@@ -426,7 +411,6 @@ Provider tree (`src/app/Providers.tsx`):
 | `PriceContext` | `contexts/PriceContext.tsx` | Asset USD prices |
 | `ToastContext` | `contexts/ToastContext.tsx` | Toasts |
 | `ThemeContext` | `contexts/ThemeContext.tsx` | Light/dark |
-| `VaultPrefsContext` | `contexts/VaultPrefsContext.tsx` | Settings → vault list mode and Shared vault data (cookie) |
 | `AdvisoryAgreementContext` | `contexts/AdvisoryAgreementContext.tsx` | Legal modal gating |
 
 ### Advisory agreement (`AdvisoryAgreementModal.tsx`)
@@ -450,7 +434,7 @@ Same Risk Framework / Morpho’s Disclaimer links appear in **NavBar** Muscadine
 
 **Dead shares:** curated vaults already mint inflation-protection shares to `0x…dEaD`. Confirm that **when adding a vault** to `vaults.ts`. Do not RPC-check dead-share balances at runtime (no Alchemy call on `/complete` or elsewhere).
 
-**Re-acceptance:** `TERMS_VERSION` in `AdvisoryAgreementContext.tsx` (currently **`2.3.0`**) — bump when legal copy changes; stored in localStorage as `advisory-agreement-version` alongside `advisory-agreement-accepted`.
+**Re-acceptance:** `TERMS_VERSION` in `AdvisoryAgreementContext.tsx` (currently **`2.4.0`**) — bump when legal copy changes; stored in localStorage as `advisory-agreement-version` alongside `advisory-agreement-accepted`.
 
 **Advisory:** the first-connect modal covers custody, terms, and the Morpho disclaimer, and points to each vault's page for allocations, risk controls and fees (the analytics site is retired; do not link `analytics.muscadine.xyz`).
 
@@ -584,7 +568,7 @@ There is no allowlist in the app. `useVaultDepositGates` reads every registry va
 
 - **Deposit:** opens only after a successful read says yes. A vault with `sendAssetsGate` unset is open to everyone, including disconnected visitors. While the read loads, the vault page waits and deposits stay off. A failed read keeps it closed. A wallet that cannot deposit can still open a vault it holds shares in; deposit is disabled and withdraw stays open.
 - **Send-time check:** `depositToVaultV2` re-reads `canSendAssets` (`isWalletDepositBlocked`) before any approval. A successful no throws `VaultDepositBlockedError`, and `TransactionFlow` refreshes the gate queries so the button disables. A failed read does not block. Gate queries also refetch on window focus.
-- **Explorer list:** held vaults, plus per wrapper / underlying pair what `kindMode` picks (see Vault registry → Explorer visibility). While the gate reads load, the explorer shows a skeleton. Eligibility is `resolveDepositEligibility` in `vault-gates.ts`.
+- **Explorer list:** every registry vault (see Vault registry → Explorer visibility). While the gate reads load, the explorer shows a skeleton. Eligibility is `resolveDepositEligibility` in `vault-gates.ts`.
 
 | Piece | Location |
 |-------|----------|

@@ -36,7 +36,6 @@ import { TransactionStatus as TransactionStatusComponent } from './TransactionSt
 import { useToast } from '@/contexts/ToastContext';
 import { useWallet } from '@/contexts/WalletContext';
 import { useVaultData } from '@/contexts/VaultDataContext';
-import { getPairedVaultAddress } from '@/lib/vaults';
 import { logger } from '@/lib/logger';
 import { VAULT_DEPOSIT_GATES_QUERY_KEY, VaultDepositBlockedError } from '@/lib/vault-gates';
 import { DEPOSIT_CAPACITY_QUERY_KEY, DepositCapExceededError } from '@/lib/deposit-capacity';
@@ -244,12 +243,6 @@ export function TransactionFlow({
           }
           if (toAccount?.type === 'vault') {
             vaultsInTransaction.add((toAccount as VaultAccount).address);
-          }
-          // A wrapper's deposit or withdraw also moves its underlying vault's TVL (and the
-          // reverse), so refresh the pair too. Other vaults are unchanged by this tx.
-          for (const vaultAddress of Array.from(vaultsInTransaction)) {
-            const pair = getPairedVaultAddress(vaultAddress);
-            if (pair) vaultsInTransaction.add(pair);
           }
 
           await Promise.allSettled(

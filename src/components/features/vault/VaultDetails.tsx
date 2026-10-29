@@ -1,15 +1,11 @@
 'use client';
 
 import { useState, type ReactNode } from 'react';
-import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import type { MorphoVaultData } from '@/types/vault';
 import type { VaultCapData, VaultCapRow } from '@/lib/vault-v2-caps';
 import CopiableAddress from '@/components/common/CopiableAddress';
 import { formatDashboardTokenAmount, formatPercentage } from '@/lib/formatter';
-import { findVaultByAddress } from '@/lib/vault-utils';
-import { useVaultPageHref, type VaultPageHref } from '@/hooks/useVaultPageHref';
-import { getPairedVaultAddress } from '@/lib/vaults';
 import { getMorphoVaultUrl } from '@/lib/liquidity-utils';
 import { MORPHO_GRAPHQL_REVALIDATE_SECONDS } from '@/lib/constants';
 import { groupTimelocks, maxRateToAnnualPercent } from '@/lib/vault-details';
@@ -356,25 +352,10 @@ function CapsTable({ vaultData, enabled }: { vaultData: MorphoVaultData; enabled
   );
 }
 
-const LINK_CLASS = 'font-medium text-[var(--primary)] hover:text-[var(--primary-hover)] hover:underline';
-
 const LIQUIDITY_ADAPTER_LABELS: Record<string, string> = {
   MorphoMarketV1Adapter: 'Morpho Blue adapter',
   MorphoVaultV2Adapter: 'Morpho Vault adapter',
 };
-
-/** The vault page when this wallet can open it, else the vault on Morpho. */
-function UnderlyingVaultLink({ name, link }: { name: string; link: VaultPageHref }) {
-  return link.internal ? (
-    <Link href={link.href} className={LINK_CLASS}>
-      {name}
-    </Link>
-  ) : (
-    <a href={link.href} target="_blank" rel="noopener noreferrer" className={LINK_CLASS}>
-      {name}
-    </a>
-  );
-}
 
 export default function VaultDetails({ vaultData }: { vaultData: MorphoVaultData }) {
   const [capsOpened, setCapsOpened] = useState(false);
@@ -386,12 +367,6 @@ export default function VaultDetails({ vaultData }: { vaultData: MorphoVaultData
   const liquidityAdapterLabel = vaultData.liquidityAdapterType
     ? LIQUIDITY_ADAPTER_LABELS[vaultData.liquidityAdapterType]
     : undefined;
-
-  const vaultPageHref = useVaultPageHref();
-  const pairAddress = getPairedVaultAddress(vaultData.address);
-  // The underlying page does not list its fee wrapper. The wrapper page lists the vault it deposits into.
-  const underlyingVault =
-    vaultData.kind === 'wrapper' && pairAddress ? findVaultByAddress(pairAddress) : null;
 
   const roleCount = [
     vaultData.ownerAddress ? 'owner' : null,
@@ -453,17 +428,6 @@ export default function VaultDetails({ vaultData }: { vaultData: MorphoVaultData
           <DetailRow label="Vault">
             <AddressLine address={vaultData.address} />
           </DetailRow>
-          {underlyingVault ? (
-            <DetailRow label="Underlying vault">
-              <UnderlyingVaultLink
-                name={underlyingVault.name}
-                link={vaultPageHref(underlyingVault.address)}
-              />
-              <div>
-                <AddressLine address={underlyingVault.address} />
-              </div>
-            </DetailRow>
-          ) : null}
           {vaultData.liquidityAdapterAddress ? (
             <DetailRow
               label="Liquidity adapter"

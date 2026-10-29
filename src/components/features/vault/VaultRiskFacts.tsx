@@ -6,7 +6,6 @@ import type { MorphoVaultData } from '@/types/vault';
 import { MORPHO_DISCLAIMER_URL, MORPHO_GRAPHQL_REVALIDATE_SECONDS } from '@/lib/constants';
 import { useUnixTimestamp } from '@/hooks/useClientOnly';
 import type { PendingChangeDirection, VaultPendingChange } from '@/lib/vault-v2-pending';
-import { findVaultByAddress } from '@/lib/vault-utils';
 import { getMorphoVaultUrl } from '@/lib/liquidity-utils';
 import { formatTimeUntil } from '@/lib/vault-details';
 
@@ -109,26 +108,13 @@ function PendingChanges({ vaultData }: { vaultData: MorphoVaultData }) {
 
 /** Risk in plain words: the strategy, how markets are screened, and pending curator changes. */
 export default function VaultRiskFacts({ vaultData }: { vaultData: MorphoVaultData }) {
-  const underlying =
-    vaultData.kind === 'wrapper' && vaultData.underlyingAddress
-      ? findVaultByAddress(vaultData.underlyingAddress)
-      : null;
-  const strategy = vaultData.strategy ?? underlying?.strategy;
-  // A wrapper's markets are on its underlying vault's Morpho page.
-  const marketsVaultAddress = underlying?.address ?? vaultData.address;
-  const marketsVaultName = underlying?.name ?? vaultData.name;
-  const marketsUrl = `${getMorphoVaultUrl(vaultData.chainId, marketsVaultAddress, marketsVaultName)}#allocation`;
+  const strategy = vaultData.strategy;
+  const marketsUrl = `${getMorphoVaultUrl(vaultData.chainId, vaultData.address, vaultData.name)}#allocation`;
 
   return (
     <div className="space-y-3">
       <div className="space-y-2 text-sm text-[var(--foreground-secondary)] leading-relaxed max-w-3xl">
         {strategy ? <p>{STRATEGY_TEXT[strategy]}</p> : null}
-        {underlying ? (
-          <p>
-            This is a fee wrapper: deposits go into {underlying.name}. It has no force withdraw, so a
-            large withdrawal may have to wait until that vault has liquidity.
-          </p>
-        ) : null}
       </div>
 
       <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-3 sm:p-4 space-y-2">

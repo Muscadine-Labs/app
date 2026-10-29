@@ -1,27 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import {
-  DEFAULT_VAULT_PREFS,
-  VAULT_PREFS_COOKIE,
-  parseVaultPrefs,
-  readVaultPrefsFromCookieHeader,
-} from '@/lib/vault-prefs';
 import { resolveDepositBlocked, resolveDepositEligibility } from '@/lib/vault-gates';
 import { getRegistryVaultList } from '@/lib/vaults';
-
-describe('vault prefs cookie', () => {
-  it('defaults when missing or broken', () => {
-    expect(parseVaultPrefs(undefined)).toEqual(DEFAULT_VAULT_PREFS);
-    expect(parseVaultPrefs('not json')).toEqual(DEFAULT_VAULT_PREFS);
-    expect(parseVaultPrefs(encodeURIComponent('{"kindMode":"bogus"}'))).toEqual(DEFAULT_VAULT_PREFS);
-  });
-  it('reads saved values from a Cookie header', () => {
-    const value = encodeURIComponent(JSON.stringify({ kindMode: 'all', sharedData: false }));
-    expect(readVaultPrefsFromCookieHeader(`a=1; ${VAULT_PREFS_COOKIE}=${value}; b=2`)).toEqual({
-      kindMode: 'all',
-      sharedData: false,
-    });
-  });
-});
 
 describe('deposit gates', () => {
   const vaults = getRegistryVaultList();

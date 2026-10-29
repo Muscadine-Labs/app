@@ -12,13 +12,12 @@ import {
   PositionHistoryPoint,
   VaultPositionSeriesPoint,
 } from '@/lib/portfolio-utils';
-import { getPairedVaultAddress } from '@/lib/vaults';
+import { getRetiredWrapperUnderlying } from '@/lib/vaults';
 import { formatCurrency, formatChartUsdAxisValue } from '@/lib/formatter';
 import { logger } from '@/lib/logger';
 import { useUnixTimestamp } from '@/hooks/useClientOnly';
 import { useLockPageScroll } from '@/hooks/useLockPageScroll';
 import { useWallet } from '@/contexts/WalletContext';
-import { useVaultPrefs } from '@/contexts/VaultPrefsContext';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Button } from '@/components/ui';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -79,28 +78,21 @@ async function fetchVaultHistory(
   );
 }
 
-/** Wrapper and underlying histories are merged before the portfolio sum. */
+/** A retired fee wrapper's history is merged into its underlying vault before the portfolio sum. */
 function groupProductVaults(vaults: readonly PortfolioVault[]): PortfolioVault[][] {
-  const used = new Set<string>();
-  const groups: PortfolioVault[][] = [];
+  const groups = new Map<string, PortfolioVault[]>();
   for (const vault of vaults) {
-    const key = vault.address.toLowerCase();
-    if (used.has(key)) continue;
-    used.add(key);
-    const pairAddress = getPairedVaultAddress(vault.address)?.toLowerCase();
-    const mate = pairAddress
-      ? vaults.find((item) => item.address.toLowerCase() === pairAddress)
-      : undefined;
-    if (mate && pairAddress) used.add(pairAddress);
-    groups.push(mate ? [vault, mate] : [vault]);
+    const key = (getRetiredWrapperUnderlying(vault.address) ?? vault.address).toLowerCase();
+    const group = groups.get(key);
+    if (group) group.push(vault);
+    else groups.set(key, [vault]);
   }
-  return groups;
+  return Array.from(groups.values());
 }
 
 export default function PortfolioPositionChart() {
   const { address, isConnected } = useAccount();
   const { morphoHoldings } = useWallet();
-  const { sharedData } = useVaultPrefs();
   const now = useUnixTimestamp();
   const [loading, setLoading] = useState(true);
   const [selectedTimeFrame, setSelectedTimeFrame] = useState<TimeFrame>('all');
@@ -144,10 +136,7 @@ export default function PortfolioPositionChart() {
 
       try {
         const productHistories = await Promise.all(
-          (sharedData
-            ? groupProductVaults(portfolioVaults)
-            : portfolioVaults.map((vault) => [vault])
-          ).map(async (group) => {
+          groupProductVaults(portfolioVaults).map(async (group) => {
             const histories = await Promise.all(
               group.map(async (vault) => {
                 try {
@@ -197,7 +186,7 @@ export default function PortfolioPositionChart() {
         setter([]);
       }
     },
-    [address, portfolioVaults, sharedData]
+    [address, portfolioVaults]
   );
 
   useEffect(() => {

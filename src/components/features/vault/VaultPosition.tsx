@@ -1,10 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { getAssetDecimalsForSymbol } from '@/lib/asset-decimals';
-import { vaultDustThreshold } from '@/lib/onchain-positions';
 import { useAccount, useReadContract } from 'wagmi';
-import Link from 'next/link';
 import { MorphoVaultData } from '@/types/vault';
 import {
   formatCurrency,
@@ -15,7 +12,7 @@ import {
   formatVaultChartTokenAmount,
   formatVaultDetailTokenAmount,
 } from '@/lib/formatter';
-import { calculateYAxisDomain, findVaultByAddress, getVaultRoute } from '@/lib/vault-utils';
+import { calculateYAxisDomain } from '@/lib/vault-utils';
 import { rawAmountToDecimal } from '@/lib/asset-decimals';
 import { CHART_MARGIN, axisWidthForLabels, withLeadingChartTick } from '@/lib/chart-utils';
 import {
@@ -39,9 +36,7 @@ import { VaultEarningsBreakdown } from './VaultEarningsBreakdown';
 import { VaultTransactPanel } from './VaultTransactPanel';
 import { resolveAssetDecimals } from '@/lib/asset-decimals';
 import { BASE_CHAIN_ID } from '@/lib/constants';
-import { getPairedVaultAddress } from '@/lib/vaults';
-import { useVaultDataFetch } from '@/hooks/useVaultDataFetch';
-import { useVaultPrefs } from '@/contexts/VaultPrefsContext';
+import { getProductVaultAddresses, getRetiredWrapper } from '@/lib/vaults';
 import { mergeVaultPositionSeries } from '@/lib/portfolio-utils';
 import type { Transaction } from '@/types/api';
 import type { VaultTransactionTab } from '@/hooks/useScopedVaultTransaction';
@@ -156,25 +151,20 @@ export default function VaultPosition({
   const [isTimeFrameMenuOpen, setIsTimeFrameMenuOpen] = useState(false);
   const [userPositionHistory, setUserPositionHistory] = useState<PositionHistoryPoint[]>([]);
   const [hourly30dPositionHistory, setHourly30dPositionHistory] = useState<PositionHistoryPoint[]>([]);
-  // The pair contract's own series, kept to shade the periods funds sat there.
-  const [pairPositionHistory, setPairPositionHistory] = useState<PositionHistoryPoint[]>([]);
-  const [pairHourly30dHistory, setPairHourly30dHistory] = useState<PositionHistoryPoint[]>([]);
+  // The retired wrapper's own series, kept to shade the periods funds sat there.
+  const [wrapperPositionHistory, setWrapperPositionHistory] = useState<PositionHistoryPoint[]>([]);
+  const [wrapperHourly30dHistory, setWrapperHourly30dHistory] = useState<PositionHistoryPoint[]>([]);
   const [activityFlowEvents, setActivityFlowEvents] = useState<ActivityFlowEvent[] | null>(null);
   const [activityLoading, setActivityLoading] = useState(false);
   const [activityError, setActivityError] = useState(false);
 
-  // Holding one side of a wrapper / underlying pair shows the pair as one position, so a
-  // move out and back leaves no gap. Holding both shows this vault, with a Combined toggle.
-  const pairedVaultAddress = getPairedVaultAddress(vaultData.address);
-  // Explicit choice from the This vault | Combined toggle; null = default.
-  const [viewOverride, setViewOverride] = useState<'vault' | 'combined' | null>(null);
-  const { sharedData } = useVaultPrefs();
-  const pairVault = useMemo(
-    () => (pairedVaultAddress ? findVaultByAddress(pairedVaultAddress) : null),
-    [pairedVaultAddress]
+  // A retired fee wrapper's history and earned interest count toward this vault, so a
+  // wallet that once held the wrapper sees one position. The live balance is this vault's.
+  const retiredWrapper = getRetiredWrapper(vaultData.address);
+  const productVaultAddresses = useMemo(
+    () => getProductVaultAddresses(vaultData.address),
+    [vaultData.address]
   );
-  // The pair's APY, so future earnings project its share of a combined position at its own rate.
-  const { vaultData: pairVaultData } = useVaultDataFetch(pairVault);
 
   const { data: sharesRaw } = useReadContract({
     address: address ? vaultData.address as `0x${string}` : undefined,
@@ -195,102 +185,54 @@ export default function VaultPosition({
     query: { enabled: sharesRaw !== undefined, ...VAULT_READ_QUERY },
   });
 
-  const { data: pairSharesRaw } = useReadContract({
-    address: address && pairedVaultAddress ? (pairedVaultAddress as `0x${string}`) : undefined,
-    chainId: vaultData.chainId as typeof BASE_CHAIN_ID,
-    abi: ERC20_BALANCE_ABI,
-    functionName: 'balanceOf',
-    args: address ? [address as `0x${string}`] : undefined,
-    query: { enabled: !!address && !!pairedVaultAddress, ...VAULT_READ_QUERY },
-  });
-
-  const { data: pairAssetsRaw } = useReadContract({
-    address:
-      pairSharesRaw !== undefined && pairedVaultAddress
-        ? (pairedVaultAddress as `0x${string}`)
-        : undefined,
-    chainId: vaultData.chainId as typeof BASE_CHAIN_ID,
-    abi: ERC4626_ABI,
-    functionName: 'convertToAssets',
-    args: pairSharesRaw !== undefined ? [pairSharesRaw] : undefined,
-    query: { enabled: pairSharesRaw !== undefined && !!pairedVaultAddress, ...VAULT_READ_QUERY },
-  });
-
-  const pageAssets = assetsFromBalance(sharesRaw, assetsRaw);
-  const pairAssets = pairedVaultAddress
-    ? assetsFromBalance(pairSharesRaw, pairAssetsRaw)
-    : BigInt(0);
-
+  const pageAssets = useMemo(() => assetsFromBalance(sharesRaw, assetsRaw), [sharesRaw, assetsRaw]);
   const currentAssetsRaw = pageAssets?.toString();
-  const pairCurrentAssetsRaw = pairedVaultAddress ? pairAssets?.toString() : undefined;
-
-  const holdsBoth =
-    !!pairedVaultAddress &&
-    pageAssets !== undefined &&
-    pairAssets !== undefined &&
-    // Dust left by a force-redeem exit does not count as holding that side.
-    pageAssets >= vaultDustThreshold(getAssetDecimalsForSymbol(vaultData.symbol)) &&
-    pairAssets >= vaultDustThreshold(getAssetDecimalsForSymbol(vaultData.symbol));
-  // Default: combined when holding one side (no gap after a move), this vault when holding both.
-  // Settings → Shared vault data off never mixes the two.
-  const positionView = viewOverride ?? (holdsBoth ? 'vault' : 'combined');
-  const showCombined = sharedData && !!pairedVaultAddress && positionView === 'combined';
-  const productVaultAddresses = useMemo(
-    () => (showCombined && pairedVaultAddress ? [vaultData.address, pairedVaultAddress] : [vaultData.address]),
-    [showCombined, pairedVaultAddress, vaultData.address]
-  );
-
-  const combinedAssets = useMemo(() => {
-    if (pageAssets === undefined) return undefined;
-    if (!showCombined) return pageAssets;
-    if (pairAssets === undefined) return undefined;
-    return pageAssets + pairAssets;
-  }, [pageAssets, pairAssets, showCombined]);
 
   const pageEarnedInterest = useVaultEarnedInterest(
     isConnected ? vaultData.address : undefined,
     vaultData.symbol,
     currentAssetsRaw
   );
-  const pairEarnedInterest = useVaultEarnedInterest(
-    isConnected ? pairedVaultAddress : undefined,
+  // Only dead shares remain in the retired wrappers, so a wallet's balance there is zero.
+  const wrapperEarnedInterest = useVaultEarnedInterest(
+    isConnected ? retiredWrapper?.address : undefined,
     vaultData.symbol,
-    pairCurrentAssetsRaw
+    retiredWrapper ? '0' : undefined
   );
   const earnedInterest = useMemo(() => {
-    if (!pairedVaultAddress || !showCombined) return pageEarnedInterest;
-    const isLoading = pageEarnedInterest.isLoading || pairEarnedInterest.isLoading;
+    if (!retiredWrapper) return pageEarnedInterest;
+    const isLoading = pageEarnedInterest.isLoading || wrapperEarnedInterest.isLoading;
     if (isLoading) {
       return { ...pageEarnedInterest, isLoading: true, error: null };
     }
     // A failed side would otherwise add as zero and hide that contract's profit.
-    if (pageEarnedInterest.error || pairEarnedInterest.error) {
+    if (pageEarnedInterest.error || wrapperEarnedInterest.error) {
       return {
         ...pageEarnedInterest,
         earnedInterest: 0,
         earnedInterestUsd: 0,
         earnedInterestRaw: '',
         isLoading: false,
-        error: pageEarnedInterest.error ?? pairEarnedInterest.error,
+        error: pageEarnedInterest.error ?? wrapperEarnedInterest.error,
       };
     }
     let earnedRaw = BigInt(0);
     try {
       earnedRaw =
         BigInt(pageEarnedInterest.earnedInterestRaw || '0') +
-        BigInt(pairEarnedInterest.earnedInterestRaw || '0');
+        BigInt(wrapperEarnedInterest.earnedInterestRaw || '0');
     } catch {
       earnedRaw = BigInt(0);
     }
     return {
       ...pageEarnedInterest,
-      earnedInterest: pageEarnedInterest.earnedInterest + pairEarnedInterest.earnedInterest,
-      earnedInterestUsd: pageEarnedInterest.earnedInterestUsd + pairEarnedInterest.earnedInterestUsd,
+      earnedInterest: pageEarnedInterest.earnedInterest + wrapperEarnedInterest.earnedInterest,
+      earnedInterestUsd: pageEarnedInterest.earnedInterestUsd + wrapperEarnedInterest.earnedInterestUsd,
       earnedInterestRaw: earnedRaw.toString(),
       isLoading: false,
       error: null,
     };
-  }, [pairedVaultAddress, showCombined, pageEarnedInterest, pairEarnedInterest]);
+  }, [retiredWrapper, pageEarnedInterest, wrapperEarnedInterest]);
   const interestDecimals = resolveAssetDecimals(
     vaultData.symbol,
     earnedInterest.assetDecimals || vaultData.assetDecimals
@@ -301,11 +243,11 @@ export default function VaultPosition({
     vaultData.assetDecimals
   );
 
-  const positionRawValue = combinedAssets?.toString() ?? null;
+  const positionRawValue = pageAssets?.toString() ?? null;
 
   const userVaultTotalUsd = useMemo(() => {
-    if (combinedAssets === undefined) return 0;
-    const assetsDecimal = rawAmountToDecimal(combinedAssets, depositAssetDecimals);
+    if (pageAssets === undefined) return 0;
+    const assetsDecimal = rawAmountToDecimal(pageAssets, depositAssetDecimals);
     const symbolUpper = vaultData.symbol.toUpperCase();
     let assetPrice = 0;
     if (symbolUpper === 'USDC') {
@@ -316,7 +258,7 @@ export default function VaultPosition({
       assetPrice = btcPrice || 0;
     }
     return assetsDecimal * assetPrice;
-  }, [combinedAssets, depositAssetDecimals, vaultData.symbol, ethPrice, btcPrice]);
+  }, [pageAssets, depositAssetDecimals, vaultData.symbol, ethPrice, btcPrice]);
 
   useLockPageScroll(isTimeFrameMenuOpen);
 
@@ -339,7 +281,7 @@ export default function VaultPosition({
       const userAddress = address;
       if (!userAddress) {
         setUserPositionHistory([]);
-        setPairPositionHistory([]);
+        setWrapperPositionHistory([]);
         setLoading(false);
         positionHistoryLoadedRef.current = false;
         return;
@@ -350,8 +292,8 @@ export default function VaultPosition({
         setLoading(true);
       }
       try {
-        // Graph history for this vault and its wrapper or underlying, summed so a
-        // move between the two stays one line. Live balance is the RPC sum above.
+        // Graph history for this vault and its retired wrapper, summed so a move
+        // between the two stays one line. Live balance is the RPC read above.
         const histories = await Promise.all(
           productVaultAddresses.map((vaultAddress) =>
             loadPositionHistory(
@@ -373,7 +315,7 @@ export default function VaultPosition({
         setUserPositionHistory(
           mergeVaultPositionSeries(histories.filter((history) => history != null))
         );
-        setPairPositionHistory(histories[1] ?? []);
+        setWrapperPositionHistory(histories[1] ?? []);
       } catch (error) {
         if (abortController.signal.aborted) return;
         if (error instanceof Error && error.name === 'AbortError') return;
@@ -383,7 +325,7 @@ export default function VaultPosition({
           { vaultAddress: productVaultAddresses[0], userAddress: address, chainId: vaultData.chainId }
         );
         setUserPositionHistory([]);
-        setPairPositionHistory([]);
+        setWrapperPositionHistory([]);
         showErrorToast('Failed to load position data. Please refresh the page.', 5000);
       } finally {
         if (!abortController.signal.aborted) {
@@ -423,7 +365,7 @@ export default function VaultPosition({
       const userAddress = address;
       if (!userAddress) {
         setHourly30dPositionHistory([]);
-        setPairHourly30dHistory([]);
+        setWrapperHourly30dHistory([]);
         return;
       }
       try {
@@ -442,14 +384,13 @@ export default function VaultPosition({
         if (abortController.signal.aborted) return;
         if (histories.some((history) => history == null)) {
           setHourly30dPositionHistory([]);
-          setPairHourly30dHistory([]);
-        setPairHourly30dHistory([]);
+          setWrapperHourly30dHistory([]);
           return;
         }
         setHourly30dPositionHistory(
           mergeVaultPositionSeries(histories.filter((history) => history != null))
         );
-        setPairHourly30dHistory(histories[1] ?? []);
+        setWrapperHourly30dHistory(histories[1] ?? []);
       } catch (error) {
         if (error instanceof Error && error.name === 'AbortError') return;
         // Silently fail, will fall back to daily data
@@ -463,7 +404,7 @@ export default function VaultPosition({
           }
         );
         setHourly30dPositionHistory([]);
-        setPairHourly30dHistory([]);
+        setWrapperHourly30dHistory([]);
       }
     };
 
@@ -711,14 +652,14 @@ export default function VaultPosition({
     return axisWidthForLabels([format(min), format(max), format((min + max) / 2)]);
   }, [yAxisDomain, valueType, depositAssetDecimals, vaultData.symbol]);
 
-  // Stretches of the chart where funds sat in the pair contract, shaded so a move to the
-  // wrapper (or underlying) and back reads as part of one position. Combined view only.
-  const pairHeldBands = useMemo(() => {
-    if (!showCombined || chartData.length === 0) return [];
-    const pairPoints = [...pairPositionHistory, ...pairHourly30dHistory].sort(
+  // Stretches of the chart where funds sat in the retired wrapper, shaded so a move to
+  // the wrapper and back reads as part of one position.
+  const wrapperHeldBands = useMemo(() => {
+    if (!retiredWrapper || chartData.length === 0) return [];
+    const wrapperPoints = [...wrapperPositionHistory, ...wrapperHourly30dHistory].sort(
       (a, b) => a.timestamp - b.timestamp
     );
-    if (!pairPoints.some((point) => point.assets > 0)) return [];
+    if (!wrapperPoints.some((point) => point.assets > 0)) return [];
 
     const bands: Array<{ x1: number; x2: number }> = [];
     let index = 0;
@@ -726,8 +667,8 @@ export default function VaultPosition({
     let bandStart: number | null = null;
     let bandEnd = 0;
     for (const point of chartData) {
-      while (index < pairPoints.length && pairPoints[index].timestamp <= point.timestamp) {
-        lastAssets = pairPoints[index].assets;
+      while (index < wrapperPoints.length && wrapperPoints[index].timestamp <= point.timestamp) {
+        lastAssets = wrapperPoints[index].assets;
         index++;
       }
       if (lastAssets > 0) {
@@ -740,7 +681,7 @@ export default function VaultPosition({
     }
     if (bandStart !== null) bands.push({ x1: bandStart, x2: bandEnd });
     return bands;
-  }, [showCombined, chartData, pairPositionHistory, pairHourly30dHistory]);
+  }, [retiredWrapper, chartData, wrapperPositionHistory, wrapperHourly30dHistory]);
 
   // Helper function to calculate chart ticks based on time frame.
   // Five labels fit a phone; more than that overlap.
@@ -825,29 +766,6 @@ export default function VaultPosition({
           <div className="min-w-0">
             <div className="flex items-center gap-2 mb-1">
               <p className="text-xs text-[var(--foreground-secondary)]">Your Position</p>
-              {holdsBoth && sharedData ? (
-                <div
-                  role="group"
-                  aria-label="Position view"
-                  className="inline-flex items-center rounded-md border border-[var(--border-subtle)] p-0.5"
-                >
-                  {(['vault', 'combined'] as const).map((view) => (
-                    <button
-                      key={view}
-                      type="button"
-                      aria-pressed={positionView === view}
-                      onClick={() => setViewOverride(view)}
-                      className={`px-2 py-0.5 text-[10px] font-medium rounded transition-colors cursor-pointer ${
-                        positionView === view
-                          ? 'bg-[var(--primary)] text-white'
-                          : 'text-[var(--foreground-secondary)] hover:text-[var(--foreground)]'
-                      }`}
-                    >
-                      {view === 'vault' ? 'This vault' : 'Combined'}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
             </div>
             {!isConnected ? (
               <p className="text-sm text-[var(--foreground-muted)]">Connect wallet</p>
@@ -873,25 +791,6 @@ export default function VaultPosition({
                 <p className="text-xs text-[var(--foreground-secondary)] mt-1">
                   {formatPositionUsd(userVaultTotalUsd)}
                 </p>
-                {showCombined && pairedVaultAddress && pairAssets !== undefined && pairAssets > BigInt(0) ? (
-                  <p className="text-xs text-[var(--foreground-muted)] mt-1">
-                    Includes{' '}
-                    {formatVaultDetailTokenAmount(
-                      pairAssets.toString(),
-                      depositAssetDecimals,
-                      vaultData.symbol
-                    )}{' '}
-                    in{' '}
-                    <Link
-                      href={getVaultRoute(pairedVaultAddress)}
-                      className="text-[var(--primary)] hover:underline"
-                    >
-                      {pairVault?.kind === 'wrapper' ? 'Wrapper' : 'Underlying'}
-                      {pairVault?.vaultSymbol ? ` (${pairVault.vaultSymbol})` : ''}
-                    </Link>
-                    . Withdraw it from that vault.
-                  </p>
-                ) : null}
               </>
             )}
           </div>
@@ -918,7 +817,7 @@ export default function VaultPosition({
           onTabChange={onTransactTabChange}
           positionDecimals={depositAssetDecimals}
           currentAssetsRaw={
-            address && combinedAssets === undefined ? null : combinedAssets ?? BigInt(0)
+            address && pageAssets === undefined ? null : pageAssets ?? BigInt(0)
           }
           history={userPositionHistory}
           events={activityFlowEvents}
@@ -929,8 +828,6 @@ export default function VaultPosition({
           activityLoading={activityLoading}
           activityError={activityError}
           canDeposit={canDeposit}
-          pairAssetsRaw={showCombined ? pairAssets : undefined}
-          pairApy={showCombined ? pairVaultData?.apy : undefined}
         />
       }
     >
@@ -1166,7 +1063,7 @@ export default function VaultPosition({
                         );
                       }}
                     />
-                    {pairHeldBands.map((band) => (
+                    {wrapperHeldBands.map((band) => (
                       <ReferenceArea
                         key={`${band.x1}-${band.x2}`}
                         x1={band.x1}
@@ -1190,11 +1087,9 @@ export default function VaultPosition({
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
-              {pairHeldBands.length > 0 ? (
+              {retiredWrapper && wrapperHeldBands.length > 0 ? (
                 <p className="mt-2 shrink-0 text-[8px] leading-tight text-[var(--foreground-muted)] pointer-events-none">
-                  Grey shaded area means deposited into the{' '}
-                  {pairVault?.kind === 'wrapper' ? 'wrapper' : 'underlying'} vault
-                  {pairVault?.vaultSymbol ? ` (${pairVault.vaultSymbol})` : ''}.
+                  Grey shaded area means deposited into the retired fee wrapper ({retiredWrapper.vaultSymbol}).
                 </p>
               ) : null}
             </div>

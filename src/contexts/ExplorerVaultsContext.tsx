@@ -1,82 +1,36 @@
 'use client';
 
 import { useContext, useMemo, type ReactNode, createContext } from 'react';
-import { useVaultPrefs } from '@/contexts/VaultPrefsContext';
-import { useWallet } from '@/contexts/WalletContext';
 import { useVaultDepositGates } from '@/hooks/useVaultDepositGates';
-import {
-  getDepositedVaultAddressSet,
-  resolveCanUseAdvanced,
-  selectRegistryVaultsForExplorer,
-  type VaultKindMode,
-} from '@/lib/vault-utils';
+import { getAllRegistryVaults } from '@/lib/vault-utils';
 import type { Vault } from '@/types/vault';
 
-
 interface ExplorerVaultsContextType {
-  /** Registry vaults the explorer lists for this wallet. */
+  /** Registry vaults the explorer lists: every vault, view-only when the wallet cannot deposit. */
   explorerRegistryVaults: Vault[];
   /** Lowercase addresses of `explorerRegistryVaults`. A listed vault's page is viewable. */
   listedVaultAddresses: ReadonlySet<string>;
-  /** Which contracts of each wrapper / underlying pair are listed (Settings, saved in a cookie). */
-  kindMode: VaultKindMode;
-  setKindMode: (mode: VaultKindMode) => void;
-  /**
-   * The Advanced filter only matters when the wallet can deposit into both the wrapper and
-   * the underlying of some vault, or holds at least one of each. Otherwise it is hidden and
-   * the list stays on recommended.
-   */
-  canUseAdvanced: boolean;
-  /** Gate reads that decide the list are still loading. */
+  /** Gate reads that decide deposit access are still loading. */
   isResolving: boolean;
 }
 
 const ExplorerVaultsContext = createContext<ExplorerVaultsContextType | undefined>(undefined);
 
+const REGISTRY_VAULTS = getAllRegistryVaults();
+const REGISTRY_VAULT_ADDRESSES: ReadonlySet<string> = new Set(
+  REGISTRY_VAULTS.map((vault) => vault.address.toLowerCase())
+);
+
 export function ExplorerVaultsProvider({ children }: { children: ReactNode }) {
-  const { morphoHoldings } = useWallet();
-  const { eligibleVaultAddresses, isResolving } = useVaultDepositGates();
-  const { kindMode: savedKindMode, setKindMode } = useVaultPrefs();
-  // Registry vault balances in morphoHoldings are read on chain (WalletContext), so a
-  // holder still sees the vault when the Morpho positions API fails or lags.
-  const depositedAddresses = useMemo(
-    () => getDepositedVaultAddressSet(morphoHoldings.positions),
-    [morphoHoldings.positions]
-  );
-
-  const canUseAdvanced = useMemo(
-    () => resolveCanUseAdvanced(eligibleVaultAddresses, depositedAddresses),
-    [eligibleVaultAddresses, depositedAddresses]
-  );
-
-  // The saved choice applies only while it matters to this wallet.
-  const kindMode: VaultKindMode = canUseAdvanced ? savedKindMode : 'recommended';
-
-  const explorerRegistryVaults = useMemo(
-    () =>
-      selectRegistryVaultsForExplorer({
-        depositedAddresses,
-        eligibleVaultAddresses,
-        mode: kindMode,
-      }),
-    [depositedAddresses, eligibleVaultAddresses, kindMode]
-  );
-
-  const listedVaultAddresses = useMemo(
-    () => new Set(explorerRegistryVaults.map((vault) => vault.address.toLowerCase())),
-    [explorerRegistryVaults]
-  );
+  const { isResolving } = useVaultDepositGates();
 
   const value = useMemo(
     () => ({
-      explorerRegistryVaults,
-      listedVaultAddresses,
-      kindMode,
-      setKindMode,
-      canUseAdvanced,
+      explorerRegistryVaults: REGISTRY_VAULTS,
+      listedVaultAddresses: REGISTRY_VAULT_ADDRESSES,
       isResolving,
     }),
-    [explorerRegistryVaults, listedVaultAddresses, kindMode, setKindMode, canUseAdvanced, isResolving]
+    [isResolving]
   );
 
   return (

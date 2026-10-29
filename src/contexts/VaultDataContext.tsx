@@ -190,8 +190,6 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
           chainId: effectiveChainId,
           version: 'v2',
           strategy: registryVault?.strategy,
-          kind: registryVault?.kind,
-          underlyingAddress: registryVault?.underlyingAddress,
           totalValueLocked: vaultInfo.state?.totalAssetsUsd || 0,
           totalAssets: vaultInfo.state?.totalAssets || '0',
           assetDecimals: assetDecimals,
@@ -303,8 +301,6 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
       managementFee: basic.managementFee || 0.0,
       description: basic.description || 'High-yield lending vault optimized for stablecoin deposits with automated market allocation.',
       strategy: basic.strategy,
-      kind: basic.kind,
-      underlyingAddress: basic.underlyingAddress,
       isCurated: basic.isCurated ?? isCuratedVaultAddress(address),
     };
   }, [vaultData]);

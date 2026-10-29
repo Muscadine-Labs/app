@@ -21,7 +21,7 @@ async function fetchVaultAllocations(
   return rows;
 }
 
-/** Morpho allocations for one vault (markets, idle, or a wrapper's underlying vault). */
+/** Morpho allocations for one vault (markets and idle). */
 export function useVaultAllocations(
   address: string | null | undefined,
   chainId: number = BASE_CHAIN_ID
