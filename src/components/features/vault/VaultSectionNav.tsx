@@ -63,6 +63,10 @@ function findActiveSection(
 export function VaultSectionNav({ sections }: { sections: readonly VaultSectionLink[] }) {
   const navRef = useRef<HTMLElement>(null);
   const [activeId, setActiveId] = useState(sections[0]?.id ?? '');
+  // The section a jump link picked, and where that jump left the page. A section near the
+  // bottom cannot scroll up to the header, and content above can still grow after the jump,
+  // so the picked link stays highlighted until the user scrolls somewhere else.
+  const jumpRef = useRef<{ id: string; scrollTop: number } | null>(null);
 
   useEffect(() => {
     const nav = navRef.current;
@@ -71,7 +75,16 @@ export function VaultSectionNav({ sections }: { sections: readonly VaultSectionL
     let frame = 0;
     const update = () => {
       cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => setActiveId(findActiveSection(sections, scroller, nav)));
+      frame = requestAnimationFrame(() => {
+        const jump = jumpRef.current;
+        const scrollTop = scroller ? scroller.scrollTop : window.scrollY;
+        if (jump && Math.abs(scrollTop - jump.scrollTop) <= 2) {
+          setActiveId(jump.id);
+          return;
+        }
+        jumpRef.current = null;
+        setActiveId(findActiveSection(sections, scroller, nav));
+      });
     };
     update();
     target.addEventListener('scroll', update, { passive: true });
@@ -99,6 +112,7 @@ export function VaultSectionNav({ sections }: { sections: readonly VaultSectionL
       contentTop(nav);
     if (scroller) scroller.scrollTo({ top, behavior: 'auto' });
     else window.scrollTo({ top, behavior: 'auto' });
+    jumpRef.current = { id, scrollTop: scroller ? scroller.scrollTop : window.scrollY };
   };
 
   return (
