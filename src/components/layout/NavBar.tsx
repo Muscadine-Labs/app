@@ -109,10 +109,10 @@ export function NavBar({ isRightSidebarCollapsed, onToggleSidebar }: NavBarProps
                             {/* Dropdown Menu */}
                             {isMenuOpen && (
                                 <div className="absolute left-0 top-full mt-2 w-48 bg-[var(--surface)] border border-[var(--border)] rounded-2xl shadow-xl py-4 z-50 animate-[fadeInUp_0.2s_ease-out]">
-                                    {/* Company Section */}
+                                    {/* Website Section */}
                                     <div className="px-4 mb-4">
                                         <h3 className="text-xs font-semibold text-[var(--foreground-secondary)] uppercase tracking-wider mb-2">
-                                            Company
+                                            Website
                                         </h3>
                                         <a
                                             href="https://muscadine.xyz"

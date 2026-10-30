@@ -77,15 +77,13 @@ export function AdvisoryAgreementModal() {
         {/* Main Content */}
         <div className="space-y-1.5 sm:space-y-2">
           <p className="text-xs sm:text-sm text-[var(--foreground)] leading-relaxed">
-            Muscadine is a personal, non-commercial project. This open-source app is an interface to Morpho vaults on Base set up for the operator’s own funds, open to approved wallets only. It is not a business and offers no services or advice. You keep custody at all times: we never hold your keys or your assets.
+            Muscadine is a personal, non-commercial project: this open-source app connects your own
+            wallet to Morpho vaults on Base, you keep custody of your assets, and nothing here is
+            advice or an offer.
           </p>
 
           <p className="text-xs sm:text-sm text-[var(--foreground)] leading-relaxed">
-            Every vault’s fees are set to 0%; check its page for the current values. Deposits open when a vault’s send-assets gate allows your wallet. Withdrawals stay open for shares you already hold. Each vault’s page lists its allocations, risk controls and fees.
-          </p>
-
-          <p className="text-xs sm:text-sm text-[var(--foreground)] leading-relaxed">
-            Accessing the Morpho Protocol through this app is governed by Muscadine’s{' '}
+            Using the Morpho Protocol through this app is governed by Muscadine’s{' '}
             <a
               href="https://muscadine.xyz/terms"
               target="_blank"
@@ -103,16 +101,7 @@ export function AdvisoryAgreementModal() {
             >
               Morpho’s Disclaimer
             </a>
-            . By using it, you acknowledge that you have read and understood these terms and the
-            risks involved.
-          </p>
-
-          <p className="text-xs sm:text-sm text-[var(--foreground)] leading-relaxed">
-            You sign your own deposits and withdrawals into non-custodial smart contracts. Third-party DeFi protocols (including Morpho) provide infrastructure only; they do not custody assets or provide investment advice. Muscadine chooses each vault’s markets and caps and runs this interface; nothing here is financial, tax, or legal advice.
-          </p>
-
-          <p className="text-xs sm:text-sm text-[var(--foreground)] leading-relaxed">
-            Nothing here is an offer to sell or a solicitation to buy any product, service, or investment. Yields are variable and not guaranteed, and past APY and rewards are not a reliable indicator of future results. Losses, liquidations, and smart-contract risks are possible, including total loss of principal. Seek your own professional advice before making any decision.
+            ; yields are not guaranteed, and you can lose some or all of what you deposit.
           </p>
 
           {/* Links */}
@@ -162,23 +151,6 @@ export function AdvisoryAgreementModal() {
                   className="block py-1 sm:py-1.5 text-xs sm:text-sm text-[var(--foreground)] hover:text-[var(--primary)] transition-colors cursor-pointer"
                 >
                   Risk Framework
-                </a>
-              </div>
-            </div>
-
-            {/* Company Section */}
-            <div className="px-0 flex-1">
-              <h3 className="text-xs font-semibold text-[var(--foreground-secondary)] uppercase tracking-wider mb-1.5 sm:mb-2">
-                Company
-              </h3>
-              <div className="space-y-0">
-                <a
-                  href="https://muscadine.xyz"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="block py-1 sm:py-1.5 text-xs sm:text-sm text-[var(--foreground)] hover:text-[var(--primary)] transition-colors cursor-pointer"
-                >
-                  Muscadine.xyz
                 </a>
               </div>
             </div>

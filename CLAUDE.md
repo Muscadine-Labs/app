@@ -427,15 +427,15 @@ Shown before wallet connect (`ConnectButton` → `AdvisoryAgreementProvider`), t
 | Risk Framework | https://muscadine.xyz/risk |
 | U.S. economic sanctions (checkbox) | https://ofac.treasury.gov/sanctions-programs-and-country-information |
 
-Same Risk Framework / Morpho’s Disclaimer links appear in **NavBar** Muscadine dropdown (Protocol section, with Terms / Legal / Privacy).
+Same Risk Framework / Morpho’s Disclaimer links appear in the **NavBar** Muscadine dropdown (Protocol section, with Terms / Legal / Privacy). Its first section is **Website** (muscadine.xyz), not Company.
 
 **Morpho Earn UX:** first-interaction copy includes Morpho’s required disclosure (Muscadine Terms + Morpho’s Disclaimer). Same Morpho Disclaimer link is in the NavBar Protocol menu and on review/confirm. Do **not** add a “Powered by Morpho” badge on vault hero, the transact panel, or review — it reads as tacky next to the product UI; the disclaimer links cover attribution.
 
 **Dead shares:** curated vaults already mint inflation-protection shares to `0x…dEaD`. Confirm that **when adding a vault** to `vaults.ts`. Do not RPC-check dead-share balances at runtime (no Alchemy call on `/complete` or elsewhere).
 
-**Re-acceptance:** `TERMS_VERSION` in `AdvisoryAgreementContext.tsx` (currently **`2.5.0`**) — bump when legal copy changes; stored in localStorage as `advisory-agreement-version` alongside `advisory-agreement-accepted`.
+**Re-acceptance:** `TERMS_VERSION` in `AdvisoryAgreementContext.tsx` (currently **`2.6.0`**) — bump when legal copy changes; stored in localStorage as `advisory-agreement-version` alongside `advisory-agreement-accepted`.
 
-**Advisory:** the first-connect modal covers custody, terms, and the Morpho disclaimer, and points to each vault's page for allocations, risk controls and fees (the analytics site is retired; do not link `analytics.muscadine.xyz`).
+**Advisory:** the first-connect modal is short on purpose: one line asking the user to review and accept, then two sentences (personal non-commercial project, open-source, non-custodial, no advice or offer; governed by Muscadine's Terms of Use and Morpho's Disclaimer, yields not guaranteed, deposits can be lost). Below them sit the Legal Documents links and the three checkboxes. There is no Company section. Do not link `analytics.muscadine.xyz` (retired).
 
 ---
 
