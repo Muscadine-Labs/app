@@ -23,6 +23,7 @@ import {
 } from '@/lib/interest-utils';
 import { logger } from '@/lib/logger';
 import { useToast } from '@/contexts/ToastContext';
+import { useWallet } from '@/contexts/WalletContext';
 import { usePrices } from '@/contexts/PriceContext';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceArea } from 'recharts';
 import { Button } from '@/components/ui';
@@ -36,7 +37,7 @@ import { VaultEarningsBreakdown } from './VaultEarningsBreakdown';
 import { VaultTransactPanel } from './VaultTransactPanel';
 import { resolveAssetDecimals } from '@/lib/asset-decimals';
 import { BASE_CHAIN_ID } from '@/lib/constants';
-import { getProductVaultAddresses, getRetiredWrapper } from '@/lib/vaults';
+import { getRetiredWrapper } from '@/lib/vaults';
 import { mergeVaultPositionSeries } from '@/lib/portfolio-utils';
 import type { Transaction } from '@/types/api';
 import type { VaultTransactionTab } from '@/hooks/useScopedVaultTransaction';
@@ -65,6 +66,9 @@ const TIME_FRAME_SECONDS: Record<TimeFrame, number> = {
 
 // Minimum timestamp: October 7, 2025 00:00:00 UTC
 const MIN_TIMESTAMP = 1759795200;
+
+/** A day of slack on the 30-day window, so a wrapper balance at its edge still counts. */
+const WRAPPER_RECENT_SECONDS = 31 * 24 * 60 * 60;
 
 type PositionHistoryPoint = {
   timestamp: number;
@@ -143,6 +147,7 @@ export default function VaultPosition({
   const { address, isConnected } = useAccount();
   const { btc: btcPrice, eth: ethPrice } = usePrices();
   const { error: showErrorToast } = useToast();
+  const { morphoHoldings } = useWallet();
 
   const now = useUnixTimestamp();
   const [loading, setLoading] = useState(true);
@@ -161,9 +166,24 @@ export default function VaultPosition({
   // A retired fee wrapper's history and earned interest count toward this vault, so a
   // wallet that once held the wrapper sees one position. The live balance is this vault's.
   const retiredWrapper = getRetiredWrapper(vaultData.address);
+  // The positions list keeps emptied positions, so it says whether this wallet ever held the
+  // retired wrapper. Until it has loaded cleanly, count the wrapper in so its history is never dropped.
+  const positionsResolved =
+    !!address && morphoHoldings.resolvedAddress?.toLowerCase() === address.toLowerCase();
+  const wrapperCheckPending = !!retiredWrapper && !!address && !positionsResolved;
+  const usesRetiredWrapper =
+    !!retiredWrapper &&
+    (!positionsResolved ||
+      !!morphoHoldings.error ||
+      morphoHoldings.positions.some(
+        (position) =>
+          position.vault.address.toLowerCase() === retiredWrapper.address.toLowerCase()
+      ));
+  const historyWrapperAddress = usesRetiredWrapper ? retiredWrapper?.address : undefined;
   const productVaultAddresses = useMemo(
-    () => getProductVaultAddresses(vaultData.address),
-    [vaultData.address]
+    () =>
+      historyWrapperAddress ? [vaultData.address, historyWrapperAddress] : [vaultData.address],
+    [vaultData.address, historyWrapperAddress]
   );
 
   const { data: sharesRaw } = useReadContract({
@@ -195,12 +215,12 @@ export default function VaultPosition({
   );
   // Only dead shares remain in the retired wrappers, so a wallet's balance there is zero.
   const wrapperEarnedInterest = useVaultEarnedInterest(
-    isConnected ? retiredWrapper?.address : undefined,
+    isConnected ? historyWrapperAddress : undefined,
     vaultData.symbol,
-    retiredWrapper ? '0' : undefined
+    historyWrapperAddress ? '0' : undefined
   );
   const earnedInterest = useMemo(() => {
-    if (!retiredWrapper) return pageEarnedInterest;
+    if (!historyWrapperAddress) return pageEarnedInterest;
     const isLoading = pageEarnedInterest.isLoading || wrapperEarnedInterest.isLoading;
     if (isLoading) {
       return { ...pageEarnedInterest, isLoading: true, error: null };
@@ -232,7 +252,7 @@ export default function VaultPosition({
       isLoading: false,
       error: null,
     };
-  }, [retiredWrapper, pageEarnedInterest, wrapperEarnedInterest]);
+  }, [historyWrapperAddress, pageEarnedInterest, wrapperEarnedInterest]);
   const interestDecimals = resolveAssetDecimals(
     vaultData.symbol,
     earnedInterest.assetDecimals || vaultData.assetDecimals
@@ -266,6 +286,14 @@ export default function VaultPosition({
   const positionHistoryFetchKeyRef = useRef('');
 
   const positionHistoryFetchKey = `${productVaultAddresses.join(',')}:${vaultData.chainId}:${address ?? ''}`;
+  // Whether the wrapper held funds in the last 30 days, from its full history. The hourly 30-day
+  // wrapper series is only fetched when it did; null until the full history for this key loads.
+  const [wrapperRecentState, setWrapperRecentState] = useState<{ key: string; recent: boolean }>({
+    key: '',
+    recent: false,
+  });
+  const wrapperRecent =
+    wrapperRecentState.key === positionHistoryFetchKey ? wrapperRecentState.recent : null;
 
   useEffect(() => {
     if (positionHistoryFetchKeyRef.current !== positionHistoryFetchKey) {
@@ -284,6 +312,11 @@ export default function VaultPosition({
         setWrapperPositionHistory([]);
         setLoading(false);
         positionHistoryLoadedRef.current = false;
+        return;
+      }
+
+      if (wrapperCheckPending) {
+        setLoading(true);
         return;
       }
 
@@ -316,6 +349,13 @@ export default function VaultPosition({
           mergeVaultPositionSeries(histories.filter((history) => history != null))
         );
         setWrapperPositionHistory(histories[1] ?? []);
+        const recentCutoff = Date.now() / 1000 - WRAPPER_RECENT_SECONDS;
+        setWrapperRecentState({
+          key: positionHistoryFetchKey,
+          recent: (histories[1] ?? []).some(
+            (point) => point.assets > 0 && point.timestamp >= recentCutoff
+          ),
+        });
       } catch (error) {
         if (abortController.signal.aborted) return;
         if (error instanceof Error && error.name === 'AbortError') return;
@@ -326,6 +366,7 @@ export default function VaultPosition({
         );
         setUserPositionHistory([]);
         setWrapperPositionHistory([]);
+        setWrapperRecentState({ key: positionHistoryFetchKey, recent: true });
         showErrorToast('Failed to load position data. Please refresh the page.', 5000);
       } finally {
         if (!abortController.signal.aborted) {
@@ -339,7 +380,15 @@ export default function VaultPosition({
 
     void fetchPositionHistory();
     return () => abortController.abort();
-  }, [productVaultAddresses, vaultData.chainId, vaultData.version, address, showErrorToast]);
+  }, [
+    productVaultAddresses,
+    vaultData.chainId,
+    vaultData.version,
+    address,
+    showErrorToast,
+    wrapperCheckPending,
+    positionHistoryFetchKey,
+  ]);
 
   const chartEndTimestamp = useMemo(() => {
     let maxTs = 0;
@@ -368,9 +417,13 @@ export default function VaultPosition({
         setWrapperHourly30dHistory([]);
         return;
       }
+      if (wrapperCheckPending) return;
+      // Wait for the full history to say whether the wrapper held funds in this window.
+      if (productVaultAddresses.length > 1 && wrapperRecent === null) return;
+      const addresses = wrapperRecent === false ? productVaultAddresses.slice(0, 1) : productVaultAddresses;
       try {
         const histories = await Promise.all(
-          productVaultAddresses.map((vaultAddress) =>
+          addresses.map((vaultAddress) =>
             loadPositionHistory(
               vaultData.version ?? 'v2',
               vaultAddress,
@@ -410,7 +463,14 @@ export default function VaultPosition({
 
     fetch30dHourlyPosition();
     return () => abortController.abort();
-  }, [productVaultAddresses, vaultData.chainId, vaultData.version, address]);
+  }, [
+    productVaultAddresses,
+    vaultData.chainId,
+    vaultData.version,
+    address,
+    wrapperCheckPending,
+    wrapperRecent,
+  ]);
 
   useEffect(() => {
     const abortController = new AbortController();
@@ -420,6 +480,10 @@ export default function VaultPosition({
         setActivityFlowEvents([]);
         setActivityLoading(false);
         setActivityError(false);
+        return;
+      }
+      if (wrapperCheckPending) {
+        setActivityLoading(true);
         return;
       }
 
@@ -458,7 +522,7 @@ export default function VaultPosition({
 
     void fetchActivity();
     return () => abortController.abort();
-  }, [productVaultAddresses, vaultData.chainId, address]);
+  }, [productVaultAddresses, vaultData.chainId, address, wrapperCheckPending]);
 
   // Get asset price for calculating USD value when assetsUsd is 0
   const getAssetPrice = useMemo(() => {
@@ -655,7 +719,7 @@ export default function VaultPosition({
   // Stretches of the chart where funds sat in the retired wrapper, shaded so a move to
   // the wrapper and back reads as part of one position.
   const wrapperHeldBands = useMemo(() => {
-    if (!retiredWrapper || chartData.length === 0) return [];
+    if (!historyWrapperAddress || chartData.length === 0) return [];
     const wrapperPoints = [...wrapperPositionHistory, ...wrapperHourly30dHistory].sort(
       (a, b) => a.timestamp - b.timestamp
     );
@@ -681,7 +745,7 @@ export default function VaultPosition({
     }
     if (bandStart !== null) bands.push({ x1: bandStart, x2: bandEnd });
     return bands;
-  }, [retiredWrapper, chartData, wrapperPositionHistory, wrapperHourly30dHistory]);
+  }, [historyWrapperAddress, chartData, wrapperPositionHistory, wrapperHourly30dHistory]);
 
   // Helper function to calculate chart ticks based on time frame.
   // Five labels fit a phone; more than that overlap.
