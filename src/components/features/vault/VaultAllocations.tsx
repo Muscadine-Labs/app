@@ -244,7 +244,7 @@ function AllocationRowList({
 }
 
 /** Allocated markets listed above the dropdown; the rest move into it. */
-const MAX_SHOWN_MARKETS = 7;
+const MAX_SHOWN_MARKETS = 5;
 
 /** Largest allocation first, then larger markets among equal allocations (often zero). */
 function sortByAllocation(rows: readonly VaultMarketAllocation[]): VaultMarketAllocation[] {
@@ -264,7 +264,7 @@ function sortOtherRows(rows: readonly VaultMarketAllocation[]): VaultMarketAlloc
   });
 }
 
-/** The top positions above one cent, at most seven. Idle joins them only while it holds funds. */
+/** The top positions above one cent, at most five. Idle joins them only while it holds funds. */
 function pickShownRows(sorted: readonly VaultMarketAllocation[]): VaultMarketAllocation[] {
   return sorted.filter(isDefaultAllocation).slice(0, MAX_SHOWN_MARKETS);
 }
