@@ -104,6 +104,11 @@ export function AdvisoryAgreementModal() {
             ; yields are not guaranteed, and you can lose some or all of what you deposit.
           </p>
 
+          <p className="text-xs sm:text-sm text-[var(--foreground)] leading-relaxed">
+            Each vault may or may not have a deposit gate, performance or management fee.
+            Review a vault&apos;s details before you deposit.
+          </p>
+
           {/* Links */}
           <div className="pt-1 flex flex-col sm:flex-row gap-4 sm:gap-6">
             {/* Legal Documents Section */}

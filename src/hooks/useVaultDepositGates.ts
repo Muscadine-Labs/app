@@ -6,7 +6,8 @@ import { useAccount, usePublicClient } from 'wagmi';
 import { BASE_CHAIN_ID } from '@/lib/constants';
 import {
   VAULT_DEPOSIT_GATES_QUERY_KEY,
-  readVaultGateStatus,
+  gatesOpenFrom,
+  readVaultSendAssetsGates,
   readWalletDepositAccess,
   resolveDepositBlocked,
   resolveDepositEligibility,
@@ -29,11 +30,11 @@ export function useVaultDepositGates() {
   const walletKey = address?.toLowerCase() ?? null;
 
   const vaultQuery = useQuery({
-    queryKey: VAULT_DEPOSIT_GATES_QUERY_KEY,
+    queryKey: [...VAULT_DEPOSIT_GATES_QUERY_KEY, 'send-assets-gates'],
     enabled: Boolean(publicClient),
     staleTime: GATE_STALE_MS,
     refetchOnWindowFocus: true,
-    queryFn: () => readVaultGateStatus(publicClient!, REGISTRY_VAULTS),
+    queryFn: () => readVaultSendAssetsGates(publicClient!, REGISTRY_VAULTS),
   });
 
   const walletQuery = useQuery({
@@ -44,7 +45,8 @@ export function useVaultDepositGates() {
     queryFn: () => readWalletDepositAccess(publicClient!, REGISTRY_VAULTS, address!),
   });
 
-  const gatesOpen = vaultQuery.data;
+  const sendAssetsGates = vaultQuery.data;
+  const gatesOpen = useMemo(() => gatesOpenFrom(sendAssetsGates), [sendAssetsGates]);
   const walletAccess = walletKey ? walletQuery.data : undefined;
 
   const eligibleVaultAddresses = useMemo(
@@ -61,6 +63,8 @@ export function useVaultDepositGates() {
     eligibleVaultAddresses,
     /** A successful read says this wallet cannot deposit. A failed read is not counted. */
     blockedVaultAddresses,
+    /** Per-vault `sendAssetsGate` (lowercase key); `zeroAddress` = none, `null` = read failed. */
+    sendAssetsGates,
     isResolving: vaultQuery.isLoading || (Boolean(address) && walletQuery.isLoading),
   };
 }
