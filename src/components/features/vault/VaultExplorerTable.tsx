@@ -30,6 +30,7 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { useIsClient } from '@/hooks/useClientOnly';
 import { useVaultEarnedInterest } from '@/hooks/useVaultEarnedInterest';
 import { useVaultDepositGates } from '@/hooks/useVaultDepositGates';
+import { ACCESS_REQUEST_EMAIL } from '@/lib/vault-gates';
 import { resolveAssetDecimals } from '@/lib/asset-decimals';
 import {
   resolveTotalUnderlyingLiquidityAssets,
@@ -601,7 +602,7 @@ function RestrictedMark() {
   return (
     <span
       className="shrink-0 inline-flex rounded-md bg-[var(--surface-elevated)] px-1.5 py-0.5 text-[10px] font-medium leading-none text-[var(--warning)] whitespace-nowrap"
-      title="Deposits are limited to whitelisted wallets. Request access by emailing muscadinelabs@gmail.com. Withdrawals stay open."
+      title={`Deposits are limited to whitelisted wallets. Request access by emailing ${ACCESS_REQUEST_EMAIL}. Withdrawals stay open.`}
     >
       Approved wallets only
     </span>

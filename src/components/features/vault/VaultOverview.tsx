@@ -14,7 +14,7 @@ import {
   formatVaultDetailTokenAmount,
 } from '@/lib/formatter';
 import { calculateYAxisDomain } from '@/lib/vault-utils';
-import { CHART_MARGIN, axisWidthForLabels, withLeadingChartTick, VAULT_DETAIL_CHART_HEIGHT_CLASS, VAULT_DETAIL_CHART_MIN_HEIGHT } from '@/lib/chart-utils';
+import { CHART_MARGIN, axisWidthForLabels, withLeadingChartTick, timeWeightedAverage, VAULT_DETAIL_CHART_HEIGHT_CLASS, VAULT_DETAIL_CHART_MIN_HEIGHT } from '@/lib/chart-utils';
 import { logger } from '@/lib/logger';
 import { MorphoVaultData } from '@/types/vault';
 import { VaultLiquidityInfo } from './VaultLiquidityInfo';
@@ -26,7 +26,7 @@ import VaultDetails from './VaultDetails';
 import { useVaultAllocations } from '@/hooks/useVaultAllocations';
 import { formatSharePercent } from '@/lib/vault-details';
 import { useToast } from '@/contexts/ToastContext';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, ReferenceLine } from 'recharts';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useUnixTimestamp } from '@/hooks/useClientOnly';
 import {
@@ -234,6 +234,12 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
     
     return filtered;
   }, [allHistoryData, hourly7dData, hourly30dData, period, chartType, valueType, chartEndTimestamp]);
+
+  // Average APY over the selected period (dotted reference line, like Morpho's chart).
+  const averageApy = useMemo(() => {
+    if (chartType !== 'apy' || historyData.length < 2) return null;
+    return timeWeightedAverage(historyData.map((d) => ({ timestamp: d.timestamp, value: d.apy })));
+  }, [historyData, chartType]);
 
   // Calculate Y-axis domain for APY chart
   const apyYAxisDomain = useMemo(() => {
@@ -911,6 +917,21 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                       dot={false}
                       isAnimationActive={false}
                     />
+                    {averageApy !== null && (
+                      <ReferenceLine
+                        y={averageApy}
+                        stroke="var(--foreground-secondary)"
+                        strokeDasharray="4 4"
+                        strokeWidth={1.5}
+                        ifOverflow="extendDomain"
+                        label={{
+                          value: `Avg ${formatPercentage(averageApy / 100)}`,
+                          position: 'insideTopRight',
+                          fill: 'var(--foreground-secondary)',
+                          fontSize: 11,
+                        }}
+                      />
+                    )}
                   </LineChart>
                 ) : chartType === 'sharePrice' ? (
                   <LineChart data={sharePriceChartData} margin={VAULT_CHART_MARGIN}>
@@ -1036,6 +1057,9 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
             {chartType === 'apy' && (
               <p className="mt-2 px-1 text-xs text-[var(--foreground-muted)]">
                 Average net APY over time. Net APY above is the current rate, so it can differ from the latest point.
+                {averageApy !== null && (
+                  <> The dotted line is the average over this period ({formatPercentage(averageApy / 100)}).</>
+                )}
               </p>
             )}
           </div>

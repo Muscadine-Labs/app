@@ -52,6 +52,8 @@ interface VaultPositionProps {
   transactTab: VaultTransactionTab;
   onTransactTabChange: (tab: VaultTransactionTab) => void;
   canDeposit: boolean;
+  /** A successful gate read says this wallet cannot deposit. */
+  depositGateBlocked: boolean;
 }
 
 type TimeFrame = 'all' | '1Y' | '90D' | '30D' | '7D';
@@ -143,6 +145,7 @@ export default function VaultPosition({
   transactTab,
   onTransactTabChange,
   canDeposit,
+  depositGateBlocked,
 }: VaultPositionProps) {
   const { address, isConnected } = useAccount();
   const { btc: btcPrice, eth: ethPrice } = usePrices();
@@ -890,6 +893,7 @@ export default function VaultPosition({
           activityLoading={activityLoading}
           activityError={activityError}
           canDeposit={canDeposit}
+          depositGateBlocked={depositGateBlocked}
         />
       }
     >

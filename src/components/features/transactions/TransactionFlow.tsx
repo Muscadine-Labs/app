@@ -531,7 +531,11 @@ export function TransactionFlow({
       }
       
       if (err instanceof VaultDepositBlockedError) {
+        // Our own message: show it as is (formatTransactionError drops long messages).
         void queryClient.invalidateQueries({ queryKey: VAULT_DEPOSIT_GATES_QUERY_KEY });
+        setStatus('error', err.message);
+        showErrorToast(err.message, 5000);
+        return;
       }
 
       if (err instanceof DepositCapExceededError) {

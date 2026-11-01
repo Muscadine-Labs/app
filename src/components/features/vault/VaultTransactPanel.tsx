@@ -17,8 +17,7 @@ import {
   formatVaultDetailTokenAmount,
 } from '@/lib/formatter';
 import { usePrices } from '@/contexts/PriceContext';
-import { useVaultDepositGates } from '@/hooks/useVaultDepositGates';
-import { ACCESS_REQUEST_EMAIL } from '@/lib/vault-gates';
+import { ACCESS_REQUEST_EMAIL, DEPOSIT_GATE_MESSAGE } from '@/lib/vault-gates';
 import { ConnectButton } from '@/components/features/wallet';
 import { parseTransactionAmount } from '@/lib/liquidity-utils';
 import {
@@ -45,7 +44,13 @@ interface VaultTransactPanelProps {
   activityLoading: boolean;
   activityError: boolean;
   canDeposit: boolean;
+  /** A successful gate read says this wallet cannot deposit. */
+  depositGateBlocked: boolean;
 }
+
+/** The gate message with its email turned into a mailto link (one source: `DEPOSIT_GATE_MESSAGE`). */
+const [GATE_MESSAGE_BEFORE_EMAIL, GATE_MESSAGE_AFTER_EMAIL] =
+  DEPOSIT_GATE_MESSAGE.split(ACCESS_REQUEST_EMAIL);
 
 function amountUsdValue(
   amount: string,
@@ -101,6 +106,7 @@ export function VaultTransactPanel({
   activityLoading,
   activityError,
   canDeposit,
+  depositGateBlocked: gateBlocked,
 }: VaultTransactPanelProps) {
   const { btc: btcPrice, eth: ethPrice } = usePrices();
   const [rewardsModeOverride, setRewardsModeOverride] = useState<RewardsMode | null>(
@@ -140,13 +146,8 @@ export function VaultTransactPanel({
     tx.handleResetToIdle();
   };
 
-  const { blockedVaultAddresses } = useVaultDepositGates();
-  const gateBlocked = blockedVaultAddresses.has(vaultData.address.toLowerCase());
-
-  const depositsDisabled =
-    !canDeposit ||
-    vaultData.status === 'paused' ||
-    vaultData.status === 'deprecated';
+  const vaultClosed = vaultData.status === 'paused' || vaultData.status === 'deprecated';
+  const depositsDisabled = !canDeposit || vaultClosed;
 
   const inputUsd = amountUsdValue(
     tx.amount,
@@ -233,7 +234,7 @@ export function VaultTransactPanel({
 
   const ctaLabel =
     depositsDisabled && isDepositTab
-      ? gateBlocked
+      ? gateBlocked && !vaultClosed
         ? 'Not whitelisted to deposit'
         : 'Deposits are disabled'
       : tx.depositCapFull
@@ -325,22 +326,21 @@ export function VaultTransactPanel({
                 Amount exceeds available balance.
               </p>
             )}
-            {gateBlocked && isConnected && isDepositTab && (
+            {gateBlocked && !vaultClosed && isConnected && isDepositTab && (
               <p className="mt-2 text-xs text-[var(--warning)]">
-                This wallet is not whitelisted to deposit into this vault. Request access by
-                emailing{' '}
+                {GATE_MESSAGE_BEFORE_EMAIL}
                 <a
                   href={`mailto:${ACCESS_REQUEST_EMAIL}`}
                   className="underline hover:text-[var(--foreground)]"
                 >
                   {ACCESS_REQUEST_EMAIL}
                 </a>
-                . Withdrawals stay open.
+                {GATE_MESSAGE_AFTER_EMAIL}
               </p>
             )}
             {tx.depositCapFull && !depositsDisabled && (
               <p className="mt-2 text-xs text-[var(--warning)]">
-                This vault is at its deposit cap right now. Try again later, or contact muscadinelabs@gmail.com.
+                This vault is at its deposit cap right now. Try again later, or contact {ACCESS_REQUEST_EMAIL}.
               </p>
             )}
             {tx.exceedsDepositCap && tx.depositCapRaw !== null && !tx.depositCapFull && (
@@ -353,7 +353,7 @@ export function VaultTransactPanel({
             {tx.depositCapAppliedRaw !== null && (
               <p className="mt-2 text-xs text-[var(--warning)]">
                 Lowered to {formatDepositCap(tx.depositCapAppliedRaw)}, the most this vault can
-                accept right now because of its deposit caps. Contact muscadinelabs@gmail.com for more information.
+                accept right now because of its deposit caps. Contact {ACCESS_REQUEST_EMAIL} for more information.
               </p>
             )}
           </div>

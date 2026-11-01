@@ -365,7 +365,7 @@ export default function VaultDetails({ vaultData }: { vaultData: MorphoVaultData
   const timelockGroups = groupTimelocks(vaultData.timelocks ?? []);
   const timelockCount = timelockGroups.reduce((count, group) => count + group.functions.length, 0);
   const maxRatePercent = maxRateToAnnualPercent(vaultData.maxRate);
-  const { sendAssetsGates, isResolving: gatesResolving } = useVaultDepositGates();
+  const { sendAssetsGates, sendAssetsGatesPending } = useVaultDepositGates();
   const sendAssetsGate = sendAssetsGates?.[vaultData.address.toLowerCase()];
   const liquidityAdapterLabel = vaultData.liquidityAdapterType
     ? LIQUIDITY_ADAPTER_LABELS[vaultData.liquidityAdapterType]
@@ -459,7 +459,7 @@ export default function VaultDetails({ vaultData }: { vaultData: MorphoVaultData
             label="Send-assets gate"
             info="Restricts deposits to a set of addresses. Withdrawals are not affected."
           >
-            {sendAssetsGate === undefined && gatesResolving ? (
+            {sendAssetsGate === undefined && sendAssetsGatesPending ? (
               <Skeleton className="h-4 w-40" />
             ) : sendAssetsGate === zeroAddress ? (
               <span>None</span>
