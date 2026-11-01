@@ -105,7 +105,7 @@ export function AdvisoryAgreementModal() {
           </p>
 
           <p className="text-xs sm:text-sm text-[var(--foreground)] leading-relaxed">
-            Each vault may or may not have a deposit gate or performance and management fees.
+            Each vault may or may not have a deposit gate, performance or management fee.
             Review a vault&apos;s details before you deposit.
           </p>
 
