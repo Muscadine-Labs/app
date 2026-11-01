@@ -257,6 +257,18 @@ function EarnedInterestCell({
 
   if (!hasWalletPosition) return zeroValue;
 
+  // The read failed: unknown, not zero.
+  if (walletPosition.pnlRaw === undefined && hookData.error) {
+    return (
+      <span
+        className="text-sm text-[var(--foreground-muted)]"
+        title="Earned interest could not be loaded right now"
+      >
+        -
+      </span>
+    );
+  }
+
   const ownRaw =
     walletPosition.pnlRaw ??
     (hookData.isLoading ? undefined : hookData.earnedInterestRaw || '0');

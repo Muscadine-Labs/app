@@ -26,6 +26,15 @@ interface VaultV2PositionData {
   };
 }
 
+/** Upstream read failed: the client shows a dash and can retry, instead of showing 0 earned. */
+function earnedInterestUnavailable(reason: string) {
+  logger.warn('Earned interest unavailable', { reason });
+  return NextResponse.json(
+    { error: 'Earned interest temporarily unavailable', retryable: true },
+    { status: 503, headers: { 'Cache-Control': 'no-store' } }
+  );
+}
+
 function zeroEarnedInterestResponse(
   assetDecimals: number,
   source: string,
@@ -121,9 +130,20 @@ export async function GET(
       { revalidate: 0, skipMemoryCache: true, tags: [`vault-${vaultAddress}-${chainId}`] }
     );
 
+    // A failed or rate-limited read is unknown, never "earned 0".
+    if (!positionResponse.ok) {
+      return earnedInterestUnavailable(`Morpho API returned ${positionResponse.status}`);
+    }
+
     const positionJson = (await positionResponse.json()) as GraphQLResponse<{
       vaultV2PositionByAddress: VaultV2PositionData | null;
     }>;
+    const positionNotFound = positionJson.errors?.some(
+      (err) => err.status === 'NOT_FOUND' || err.message?.includes('No results matching')
+    );
+    if (positionJson.errors?.length && !positionNotFound) {
+      return earnedInterestUnavailable(positionJson.errors[0]?.message ?? 'GraphQL error');
+    }
 
     const position = positionJson.data?.vaultV2PositionByAddress;
     const registryVault = findVaultByAddress(vaultAddress);
@@ -233,6 +253,8 @@ export async function GET(
         throw new Error('Failed to fetch vault activity for earned interest');
       }
     } catch (activityError) {
+      // An errored read must not look like "no activity".
+      activityData = null;
       logger.warn('Failed to fetch vault activity for earned interest', {
         vaultAddress,
         chainId,
@@ -247,6 +269,11 @@ export async function GET(
     const withdrawals = activityData?.withdrawals ?? [];
     const hasActivityFlow =
       !!activityData && (deposits.length > 0 || withdrawals.length > 0);
+
+    // Holding shares with no pnl and no activity read: the amount is unknown, not 0.
+    if (hasPosition && !activityData) {
+      return earnedInterestUnavailable('Vault activity unavailable');
+    }
 
     if (!hasPosition && !hasActivityFlow) {
       return zeroEarnedInterestResponse(assetDecimals, 'none');

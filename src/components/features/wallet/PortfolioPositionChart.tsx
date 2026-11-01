@@ -101,9 +101,11 @@ export default function PortfolioPositionChart() {
   const [dailyHistory, setDailyHistory] = useState<PositionHistoryPoint[]>([]);
   const [hourly30dHistory, setHourly30dHistory] = useState<PositionHistoryPoint[]>([]);
 
-  const portfolioVaults = useMemo((): PortfolioVault[] => {
+  // Keyed by the vault list's contents: a balance refresh rebuilds `positions` without changing
+  // which vaults the wallet has held, and must not refetch every history.
+  const portfolioVaultsKey = useMemo((): string => {
     const seenAddresses = new Set<string>();
-    return morphoHoldings.positions.flatMap((position) => {
+    const vaults = morphoHoldings.positions.flatMap((position): PortfolioVault[] => {
       // v2 only; include zero-share rows so fully withdrawn vaults still contribute history.
       if (position.version !== 'v2') return [];
       const key = position.vault.address.toLowerCase();
@@ -115,7 +117,16 @@ export default function PortfolioPositionChart() {
         symbol: position.vault.symbol,
       }];
     });
+    return JSON.stringify(vaults);
   }, [morphoHoldings.positions]);
+  const portfolioVaults = useMemo(
+    (): PortfolioVault[] => JSON.parse(portfolioVaultsKey) as PortfolioVault[],
+    [portfolioVaultsKey]
+  );
+  // True once this wallet's positions list has loaded. Unlike `isLoading`, it stays true while a
+  // same-wallet refresh runs, so a refresh does not refetch the chart.
+  const positionsReady =
+    !!address && morphoHoldings.resolvedAddress?.toLowerCase() === address.toLowerCase();
 
   const hourly7dHistory = useMemo(() => {
     if (hourly30dHistory.length === 0) return [];
@@ -190,7 +201,7 @@ export default function PortfolioPositionChart() {
   );
 
   useEffect(() => {
-    if (!address || morphoHoldings.isLoading) {
+    if (!address || !positionsReady) {
       return;
     }
 
@@ -215,10 +226,11 @@ export default function PortfolioPositionChart() {
       cancelled = true;
       abortController.abort();
     };
-  }, [address, fetchAggregatedHistory, morphoHoldings.isLoading]);
+  }, [address, fetchAggregatedHistory, positionsReady]);
 
   useEffect(() => {
-    if (!address) {
+    // Wait for the positions list, like the daily series, so it is fetched once.
+    if (!address || !positionsReady) {
       return;
     }
 
@@ -227,7 +239,7 @@ export default function PortfolioPositionChart() {
     fetchAggregatedHistory('30d', abortController.signal, setHourly30dHistory);
 
     return () => abortController.abort();
-  }, [address, fetchAggregatedHistory]);
+  }, [address, fetchAggregatedHistory, positionsReady]);
 
   const fullChartHistory = useMemo(() => {
     return mapPortfolioHistoryToChartData(dailyHistory, formatDate);
@@ -374,7 +386,7 @@ export default function PortfolioPositionChart() {
           <div className="h-full min-h-[160px] flex items-center justify-center bg-[var(--surface-elevated)] rounded-lg px-4">
             <p className="text-sm text-[var(--foreground-muted)]">Connect wallet to view portfolio history</p>
           </div>
-        ) : loading || morphoHoldings.isLoading ? (
+        ) : loading || !positionsReady ? (
           <div className="bg-[var(--surface-elevated)] rounded-lg p-3 h-full min-h-[160px] flex flex-col">
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">

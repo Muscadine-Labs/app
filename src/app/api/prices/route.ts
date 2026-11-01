@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { CACHE_DURATION_PRICES, DEFAULT_ASSET_PRICE, STABLECOIN_SYMBOLS } from '@/lib/constants';
 import { logger } from '@/lib/logger';
 
+const COINGECKO_TIMEOUT_MS = 8_000;
+
 // Token symbol to CoinGecko ID mapping
 const SYMBOL_TO_COINGECKO_ID: Record<string, string> = {
   'BTC': 'bitcoin',
@@ -86,6 +88,8 @@ export async function GET(request: NextRequest) {
         headers: {
           'Accept': 'application/json',
         },
+        // A stalled CoinGecko must not hold the route open until the platform timeout.
+        signal: AbortSignal.timeout(COINGECKO_TIMEOUT_MS),
         next: {
           revalidate: Math.floor(CACHE_DURATION_PRICES / 1000), // Convert to seconds
         },
@@ -142,16 +146,23 @@ export async function GET(request: NextRequest) {
                              errorMessage.includes('rate limit') ||
                              errorMessage.includes('CORS');
 
+    const timedOut = error instanceof Error && error.name === 'TimeoutError';
+    for (const symbol of symbolsToFetch) {
+      result[symbol.toLowerCase()] ??= null;
+    }
+
     // Return partial results with error indication
     return NextResponse.json({
       ...result,
       cached: false,
-      error: isRateLimitError 
-        ? 'Rate limited - please try again later' 
-        : 'Failed to fetch prices',
+      error: isRateLimitError
+        ? 'Rate limited - please try again later'
+        : timedOut
+          ? 'Price provider timed out'
+          : 'Failed to fetch prices',
       rateLimited: isRateLimitError,
     }, {
-      status: isRateLimitError ? 429 : 500,
+      status: isRateLimitError ? 429 : timedOut ? 504 : 500,
       headers: {
         'Cache-Control': 'no-cache',
       }
