@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { resolveDepositBlocked, resolveDepositEligibility } from '@/lib/vault-gates';
+import { zeroAddress } from 'viem';
+import { gatesOpenFrom, resolveDepositBlocked, resolveDepositEligibility } from '@/lib/vault-gates';
 import { getRegistryVaultList } from '@/lib/vaults';
 
 describe('deposit gates', () => {
@@ -21,5 +22,13 @@ describe('deposit gates', () => {
     expect(resolveDepositBlocked(vaults, { [a]: false }, undefined, true).has(a)).toBe(false);
     expect(resolveDepositBlocked(vaults, undefined, undefined, false).size).toBe(0);
     expect(resolveDepositBlocked(vaults, { [a]: false }, undefined, false).has(a)).toBe(true);
+  });
+});
+
+describe('gatesOpenFrom', () => {
+  it('treats an unset gate as open, a set gate as closed and a failed read as unknown', () => {
+    const gate = '0x0000000000000000000000000000000000000abc';
+    expect(gatesOpenFrom({ a: zeroAddress, b: gate, c: null })).toEqual({ a: true, b: false, c: null });
+    expect(gatesOpenFrom(undefined)).toBeUndefined();
   });
 });

@@ -10,6 +10,8 @@ import { getMorphoVaultUrl } from '@/lib/liquidity-utils';
 import { MORPHO_GRAPHQL_REVALIDATE_SECONDS } from '@/lib/constants';
 import { groupTimelocks, maxRateToAnnualPercent } from '@/lib/vault-details';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { useVaultDepositGates } from '@/hooks/useVaultDepositGates';
+import { zeroAddress } from 'viem';
 import { VaultStatPopover } from '@/components/features/vault/VaultStatPopover';
 
 /** uint128 max and above: the cap does not limit anything. */
@@ -363,6 +365,8 @@ export default function VaultDetails({ vaultData }: { vaultData: MorphoVaultData
   const timelockGroups = groupTimelocks(vaultData.timelocks ?? []);
   const timelockCount = timelockGroups.reduce((count, group) => count + group.functions.length, 0);
   const maxRatePercent = maxRateToAnnualPercent(vaultData.maxRate);
+  const { sendAssetsGates, isResolving: gatesResolving } = useVaultDepositGates();
+  const sendAssetsGate = sendAssetsGates?.[vaultData.address.toLowerCase()];
   const liquidityAdapterLabel = vaultData.liquidityAdapterType
     ? LIQUIDITY_ADAPTER_LABELS[vaultData.liquidityAdapterType]
     : undefined;
@@ -470,6 +474,20 @@ export default function VaultDetails({ vaultData }: { vaultData: MorphoVaultData
                 Basescan
               </a>
             </span>
+          </DetailRow>
+          <DetailRow
+            label="Send-assets gate"
+            info="Restricts deposits to a set of addresses. Withdrawals are not affected."
+          >
+            {sendAssetsGate === undefined && gatesResolving ? (
+              <Skeleton className="h-4 w-40" />
+            ) : sendAssetsGate === zeroAddress ? (
+              <span>None</span>
+            ) : sendAssetsGate ? (
+              <AddressLine address={sendAssetsGate} />
+            ) : (
+              <span className="text-[var(--foreground-muted)]">Could not be read</span>
+            )}
           </DetailRow>
         </dl>
       </Disclosure>

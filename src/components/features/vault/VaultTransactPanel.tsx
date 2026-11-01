@@ -17,6 +17,8 @@ import {
   formatVaultDetailTokenAmount,
 } from '@/lib/formatter';
 import { usePrices } from '@/contexts/PriceContext';
+import { useVaultDepositGates } from '@/hooks/useVaultDepositGates';
+import { ACCESS_REQUEST_EMAIL } from '@/lib/vault-gates';
 import { ConnectButton } from '@/components/features/wallet';
 import { parseTransactionAmount } from '@/lib/liquidity-utils';
 import {
@@ -138,6 +140,9 @@ export function VaultTransactPanel({
     tx.handleResetToIdle();
   };
 
+  const { blockedVaultAddresses } = useVaultDepositGates();
+  const gateBlocked = blockedVaultAddresses.has(vaultData.address.toLowerCase());
+
   const depositsDisabled =
     !canDeposit ||
     vaultData.status === 'paused' ||
@@ -228,7 +233,9 @@ export function VaultTransactPanel({
 
   const ctaLabel =
     depositsDisabled && isDepositTab
-      ? 'Deposits are disabled'
+      ? gateBlocked
+        ? 'Not whitelisted to deposit'
+        : 'Deposits are disabled'
       : tx.depositCapFull
         ? 'Deposit cap reached'
         : tx.isCheckingDepositCap
@@ -316,6 +323,19 @@ export function VaultTransactPanel({
             {tx.exceedsBalance && (
               <p className="mt-2 text-xs text-[var(--warning)]">
                 Amount exceeds available balance.
+              </p>
+            )}
+            {gateBlocked && isConnected && isDepositTab && (
+              <p className="mt-2 text-xs text-[var(--warning)]">
+                This wallet is not whitelisted to deposit into this vault. Request access by
+                emailing{' '}
+                <a
+                  href={`mailto:${ACCESS_REQUEST_EMAIL}`}
+                  className="underline hover:text-[var(--foreground)]"
+                >
+                  {ACCESS_REQUEST_EMAIL}
+                </a>
+                . Withdrawals stay open.
               </p>
             )}
             {tx.depositCapFull && !depositsDisabled && (

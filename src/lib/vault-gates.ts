@@ -45,11 +45,14 @@ function asAddress(item: MulticallItem | undefined): Address | null {
   }
 }
 
-/** Per-vault: `sendAssetsGate` is unset, so any wallet can deposit. Wallet-independent. */
-export async function readVaultGateStatus(
+/**
+ * Per-vault `sendAssetsGate` address (`zeroAddress` = unset, any wallet can deposit).
+ * `null` means the read failed. Wallet-independent.
+ */
+export async function readVaultSendAssetsGates(
   publicClient: PublicClient,
   vaults: readonly VaultDefinition[]
-): Promise<Record<string, GateCheck>> {
+): Promise<Record<string, Address | null>> {
   const results = (await publicClient.multicall({
     allowFailure: true,
     contracts: vaults.map((vault) => ({
@@ -59,12 +62,22 @@ export async function readVaultGateStatus(
     })),
   })) as MulticallItem[];
 
-  const open: Record<string, GateCheck> = {};
+  const gates: Record<string, Address | null> = {};
   vaults.forEach((vault, i) => {
-    const sendAssetsGate = asAddress(results[i]);
-    open[vault.address.toLowerCase()] =
-      sendAssetsGate === null ? null : sendAssetsGate === zeroAddress;
+    gates[vault.address.toLowerCase()] = asAddress(results[i]);
   });
+  return gates;
+}
+
+/** Per-vault: the send-assets gate is unset, so any wallet can deposit. */
+export function gatesOpenFrom(
+  gates: Record<string, Address | null> | undefined
+): Record<string, GateCheck> | undefined {
+  if (!gates) return undefined;
+  const open: Record<string, GateCheck> = {};
+  for (const [key, gate] of Object.entries(gates)) {
+    open[key] = gate === null ? null : gate === zeroAddress;
+  }
   return open;
 }
 
@@ -128,13 +141,18 @@ export function resolveDepositBlocked(
   return blocked;
 }
 
+export const ACCESS_REQUEST_EMAIL = 'muscadinelabs@gmail.com';
+
+/** Shown when the send-assets gate says this wallet cannot deposit. */
+export const DEPOSIT_GATE_MESSAGE = `This wallet is not whitelisted to deposit into this vault. Request access by emailing ${ACCESS_REQUEST_EMAIL}. Withdrawals stay open.`;
+
 /** Query key prefix for the vault and wallet gate reads. */
 export const VAULT_DEPOSIT_GATES_QUERY_KEY = ['vault-deposit-gates'] as const;
 
 /** The send-time gate read said no; the cached gate state is stale. */
 export class VaultDepositBlockedError extends Error {
   constructor() {
-    super('Deposits to this vault are limited to approved wallets. Withdrawals stay open.');
+    super(DEPOSIT_GATE_MESSAGE);
     this.name = 'VaultDepositBlockedError';
   }
 }
