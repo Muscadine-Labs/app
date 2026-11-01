@@ -214,7 +214,7 @@ Direct ERC-4626 for deposit, plain withdraw, and redeem. Force exits use vault `
 
 **Force withdraw** (`src/lib/force-withdraw-v2.ts`): when requested assets exceed instant liquidity, plan a cash exit. Warning modal shows estimated penalty, risks, and **Force withdraw**, plus **Open vault on Morpho**. If markets cannot cover the shortfall, the input is capped at the reachable amount. The plan is rebuilt from fresh on-chain reads immediately before it is sent. Instant liquidity for planning is always read on-chain (idle + what the liquidity adapter's route market can pay), never taken from the API.
 
-**Force-redeem dust:** the redeem share count is fixed when the tx is built (`balance − estimated penalty shares`), and interest accrued before it is mined makes the penalty burn slightly fewer shares, so a few shares stay behind (~1e-14 WETH). A vault-only `multicall` cannot redeem "whatever is left". `readRegistryVaultBalances` therefore treats a position below `vaultDustThreshold` (1e-9 token for 18 decimals, otherwise under one base unit) as empty. A near-max amount whose shares plus penalty shares exceed the balance is planned as a redeem of the rest (`expectedAssetsOut` = its value). The plan keeps the user's MAX intent in `maxExit`, separate from `exitMode`: when the send-time replan finds enough instant liquidity, a near-max plan falls back to `withdraw(requestedAssets)`, and only a MAX plan to `redeem` of every share. When a planned redeem fails its simulation, the fallback withdraws what the shares left after the penalty are worth (not the full requested amount, which would revert).
+**Force-redeem dust:** the redeem share count is fixed when the tx is built (`balance − estimated penalty shares`), and interest accrued before it is mined makes the penalty burn slightly fewer shares, so a few shares stay behind (~1e-14 WETH). A vault-only `multicall` cannot redeem "whatever is left". `readRegistryVaultBalances` therefore treats a position below `vaultDustThreshold` (1e-9 token for 18 decimals, otherwise under one base unit) as empty. A near-max amount whose shares plus penalty shares exceed the balance is planned as a redeem of the rest (`expectedAssetsOut` = its value). The plan keeps the user's MAX intent in `maxExit`, separate from `exitMode`: when the send-time replan finds enough instant liquidity, a near-max plan falls back to `withdraw(requestedAssets)`, and only a MAX plan to `redeem` of every share. When a planned redeem fails its simulation, the fallback withdraws what the shares left after the penalty are worth (not the full requested amount, which would revert). The send-time replan is compared with the plan the user accepted (`isForcePlanWorse`): if it pays more than 0.1% less or burns more than 0.1% more penalty, nothing is sent and `ForceWithdrawPlanChangedError` reopens the warning with the new figures and a "liquidity changed" note.
 
 Vault `multicall` of `forceDeallocate` × N + `withdraw` or **`redeem` (MAX)** from Morpho Blue market adapters (`abi.encode(marketParams)`). Planner reads on-chain market cash. The liquidity route market (`liquidityAdapter` + `liquidityData`) is never force-deallocated: it is already counted as instant liquidity, and draining it first makes the final withdraw revert. Vault V2 `maxWithdraw` is never used.
 
@@ -257,7 +257,7 @@ Notable fields: `asset`, `totalAssets`, `totalSupply`, `liquidity`, `liquidityUs
 
 ### V2 history route (`src/app/api/vault/v2/[address]/history/route.ts`)
 
-Query root: `vaultV2ByAddress` → `historicalState`. APY series uses **`avgNetApy` only** (`avgNetApyExcludingRewards` is not on the history type). Maps to `apy` / `netApy` in the JSON response (percent × 100).
+Query root: `vaultV2ByAddress` → `historicalState`. APY series uses **`avgNetApy` only** (`avgNetApyExcludingRewards` is not on the history type). Maps to `apy` / `netApy` in the JSON response (percent × 100). A bucket with no APY from Morpho is sent as `apy: 0` with `hasApy: false`, and the Overview's average line leaves it out.
 
 ### Position history (v2)
 
@@ -300,7 +300,7 @@ If `complete` routes return **HTTP 400**, validate queries against `https://api.
 
 `next: { revalidate: MORPHO_GRAPHQL_REVALIDATE_SECONDS }` (60 seconds by default in `constants.ts`) + cache tags like `vault-{address}-{chainId}`.
 
-`fetchMorphoGraphQL` also keeps a 60s in-memory cache. An expired entry is kept 10 more minutes and served only when Morpho rate-limits. Retries honor `Retry-After` up to 3s; a longer wait returns the error right away so a route handler never hangs.
+`fetchMorphoGraphQL` also keeps a 60s in-memory cache. An expired entry is kept 10 more minutes and served only when Morpho rate-limits. Retries honor `Retry-After` up to 3s; a longer wait returns the error right away so a route handler never hangs. Routes whose body changes every call (the vault `history` route's `endTimestamp`) pass a stable `cacheKey` (vault, chain, period).
 
 ### Client data
 

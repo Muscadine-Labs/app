@@ -9,7 +9,12 @@ import { builderWriteOpts } from './builder-code';
 import { VaultDepositBlockedError, isWalletDepositBlocked } from './vault-gates';
 import { assertDepositWithinCapacity } from './deposit-capacity';
 import type { ForceWithdrawPlan } from './force-withdraw-v2';
-import { planForceWithdrawV2, VAULT_V2_FORCE_ABI } from './force-withdraw-v2';
+import {
+  ForceWithdrawPlanChangedError,
+  isForcePlanWorse,
+  planForceWithdrawV2,
+  VAULT_V2_FORCE_ABI,
+} from './force-withdraw-v2';
 import type { TransactionProgressCallback } from '../types/transactions';
 
 // ERC20 ABI for approvals and balance checks
@@ -589,6 +594,10 @@ export async function forceWithdrawFromVaultV2(
       assetDecimals,
       onProgress
     );
+  }
+  // The user accepted the earlier figures; never send a worse exit without asking again.
+  if (isForcePlanWorse(plan, freshPlan)) {
+    throw new ForceWithdrawPlanChangedError(freshPlan);
   }
   plan = freshPlan;
 

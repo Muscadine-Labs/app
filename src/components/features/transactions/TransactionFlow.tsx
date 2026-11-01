@@ -16,6 +16,7 @@ import {
 import {
   formatForcePenaltyAmount,
   formatPenaltyRatePercent,
+  ForceWithdrawPlanChangedError,
   ForceWithdrawShortfallError,
   planForceWithdrawV2,
   readInstantLiquidityAssets,
@@ -42,6 +43,47 @@ import { DEPOSIT_CAPACITY_QUERY_KEY, DepositCapExceededError } from '@/lib/depos
 import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { ERC20_BALANCE_ABI, ERC4626_ABI } from '@/lib/abis';
+
+type LiquidityWarningContext = {
+  morphoVaultUrl: string | null;
+  requestedAmountLabel: string;
+  instantLiquidityLabel: string;
+  estimatedPenaltyLabel: string | null;
+  penaltyRateLabel: string | null;
+  expectedOutLabel: string | null;
+  forceWithdrawAvailable: boolean;
+  mayLeaveShareDust: boolean;
+  /** The figures were replanned at send time and got worse; the user must accept them again. */
+  planUpdated: boolean;
+};
+
+/** Labels for the forced-withdrawal warning, from a plan (or just the instant liquidity). */
+function buildLiquidityWarningContext(args: {
+  vaultAddress: string;
+  requested: bigint;
+  instant: bigint | null;
+  plan: ForceWithdrawPlan | null;
+  forceWithdrawAvailable: boolean;
+  maxIntent: boolean;
+  asset: { symbol: string; decimals: number };
+  planUpdated?: boolean;
+}): LiquidityWarningContext {
+  const { plan, asset } = args;
+  const amount = (raw: bigint) => formatAssetAmount(raw, asset.decimals, asset.symbol);
+  return {
+    morphoVaultUrl: getMorphoVaultUrl(BASE_CHAIN_ID, args.vaultAddress),
+    requestedAmountLabel: amount(args.requested),
+    instantLiquidityLabel: args.instant !== null ? amount(args.instant) : 'part of that amount',
+    estimatedPenaltyLabel: plan
+      ? formatForcePenaltyAmount(plan.estimatedPenaltyAssets, asset.decimals, asset.symbol)
+      : null,
+    penaltyRateLabel: plan ? formatPenaltyRatePercent(plan.maxPenaltyWad) : null,
+    expectedOutLabel: plan ? amount(plan.expectedAssetsOut) : null,
+    forceWithdrawAvailable: args.forceWithdrawAvailable && plan !== null,
+    mayLeaveShareDust: args.maxIntent && plan !== null && plan.exitMode === 'withdraw',
+    planUpdated: args.planUpdated ?? false,
+  };
+}
 
 interface TransactionFlowProps {
   onSuccess?: () => void;
@@ -113,16 +155,8 @@ export function TransactionFlow({
   const [isExecuting, setIsExecuting] = useState(false);
   const [partialFailure, setPartialFailure] = useState(false);
   const [liquidityWarningOpen, setLiquidityWarningOpen] = useState(false);
-  const [liquidityWarningContext, setLiquidityWarningContext] = useState<{
-    morphoVaultUrl: string | null;
-    requestedAmountLabel: string;
-    instantLiquidityLabel: string;
-    estimatedPenaltyLabel: string | null;
-    penaltyRateLabel: string | null;
-    expectedOutLabel: string | null;
-    forceWithdrawAvailable: boolean;
-    mayLeaveShareDust: boolean;
-  } | null>(null);
+  const [liquidityWarningContext, setLiquidityWarningContext] =
+    useState<LiquidityWarningContext | null>(null);
   const [isCheckingLiquidity, setIsCheckingLiquidity] = useState(false);
   const currentStepRef = useRef(0);
   const forcePlanRef = useRef<ForceWithdrawPlan | null>(null);
@@ -543,6 +577,29 @@ export function TransactionFlow({
         return;
       }
       
+      if (err instanceof ForceWithdrawPlanChangedError) {
+        // Nothing was sent. Show the worse figures and let the user accept them again.
+        const fresh = err.freshPlan;
+        forcePlanRef.current = fresh;
+        setStepsInfo([]);
+        setTotalSteps(0);
+        setStatus('preview');
+        setLiquidityWarningContext(
+          buildLiquidityWarningContext({
+            vaultAddress: fresh.vaultAddress,
+            requested: fresh.requestedAssets,
+            instant: fresh.instantLiquidityAssets,
+            plan: fresh,
+            forceWithdrawAvailable: true,
+            maxIntent: fresh.maxExit,
+            asset: assetToUse,
+            planUpdated: true,
+          })
+        );
+        setLiquidityWarningOpen(true);
+        return;
+      }
+
       if (err instanceof VaultDepositBlockedError) {
         // Our own message: show it as is (formatTransactionError drops long messages).
         void queryClient.invalidateQueries({ queryKey: VAULT_DEPOSIT_GATES_QUERY_KEY });
@@ -699,38 +756,17 @@ export function TransactionFlow({
                 return;
               }
 
-              setLiquidityWarningContext({
-                morphoVaultUrl: getMorphoVaultUrl(BASE_CHAIN_ID, vaultAccount.address),
-                requestedAmountLabel: formatAssetAmount(
+              setLiquidityWarningContext(
+                buildLiquidityWarningContext({
+                  vaultAddress: vaultAccount.address,
                   requested,
-                  assetToUse.decimals,
-                  assetToUse.symbol
-                ),
-                instantLiquidityLabel:
-                  instant !== null
-                    ? formatAssetAmount(instant, assetToUse.decimals, assetToUse.symbol)
-                    : 'part of that amount',
-                estimatedPenaltyLabel: forcePlan
-                  ? formatForcePenaltyAmount(
-                      forcePlan.estimatedPenaltyAssets,
-                      assetToUse.decimals,
-                      assetToUse.symbol
-                    )
-                  : null,
-                penaltyRateLabel: forcePlan
-                  ? formatPenaltyRatePercent(forcePlan.maxPenaltyWad)
-                  : null,
-                expectedOutLabel: forcePlan
-                  ? formatAssetAmount(
-                      forcePlan.expectedAssetsOut,
-                      assetToUse.decimals,
-                      assetToUse.symbol
-                    )
-                  : null,
-                forceWithdrawAvailable: Boolean(forceOk && forcePlan),
-                mayLeaveShareDust:
-                  shouldUseWithdrawAll && Boolean(forcePlan && forcePlan.exitMode === 'withdraw'),
-              });
+                  instant,
+                  plan: forcePlan,
+                  forceWithdrawAvailable: forceOk,
+                  maxIntent: shouldUseWithdrawAll,
+                  asset: assetToUse,
+                })
+              );
               setLiquidityWarningOpen(true);
               return;
             }
@@ -909,6 +945,7 @@ export function TransactionFlow({
           expectedOutLabel={liquidityWarningContext.expectedOutLabel}
           forceWithdrawAvailable={liquidityWarningContext.forceWithdrawAvailable}
           mayLeaveShareDust={liquidityWarningContext.mayLeaveShareDust}
+          planUpdated={liquidityWarningContext.planUpdated}
           isPreparingForce={isExecuting}
         />
       )}

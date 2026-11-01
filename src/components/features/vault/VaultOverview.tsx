@@ -44,6 +44,8 @@ interface HistoryDataPoint {
   totalAssetsUsd: number;
   totalAssets?: number;
   apy: number;
+  /** False when Morpho had no APY for this bucket (`apy` is then a placeholder 0). */
+  hasApy?: boolean;
   sharePrice?: number;
   sharePriceUsd?: number;
   assetPriceUsd?: number;
@@ -238,7 +240,11 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
   // Average APY over the selected period (dotted reference line, like Morpho's chart).
   const averageApy = useMemo(() => {
     if (chartType !== 'apy' || historyData.length < 2) return null;
-    return timeWeightedAverage(historyData.map((d) => ({ timestamp: d.timestamp, value: d.apy })));
+    return timeWeightedAverage(
+      historyData
+        .filter((d) => d.hasApy !== false)
+        .map((d) => ({ timestamp: d.timestamp, value: d.apy }))
+    );
   }, [historyData, chartType]);
 
   // Calculate Y-axis domain for APY chart

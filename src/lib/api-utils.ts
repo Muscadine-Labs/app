@@ -159,9 +159,14 @@ export async function fetchMorphoGraphQL(
     tags?: string[];
     /** Bypass the 60s in-memory cache (required for user-specific reads). */
     skipMemoryCache?: boolean;
+    /**
+     * In-memory cache identity when the body changes on every call (e.g. an `endTimestamp` of
+     * now), so a rate-limited request can still fall back to the last good response.
+     */
+    cacheKey?: string;
   }
 ): Promise<Response> {
-  const cacheKey = morphoCacheKey(body);
+  const cacheKey = options?.cacheKey ?? morphoCacheKey(body);
   const now = Date.now();
   pruneMorphoResponseCache(now);
   const skipMemoryCache =
