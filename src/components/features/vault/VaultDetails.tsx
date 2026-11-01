@@ -455,6 +455,20 @@ export default function VaultDetails({ vaultData }: { vaultData: MorphoVaultData
               <span className="tabular-nums">{maxRatePercent.toLocaleString('en-US')}% a year</span>
             </DetailRow>
           ) : null}
+          <DetailRow
+            label="Send-assets gate"
+            info="Restricts deposits to a set of addresses. Withdrawals are not affected."
+          >
+            {sendAssetsGate === undefined && gatesResolving ? (
+              <Skeleton className="h-4 w-40" />
+            ) : sendAssetsGate === zeroAddress ? (
+              <span>None</span>
+            ) : sendAssetsGate ? (
+              <AddressLine address={sendAssetsGate} />
+            ) : (
+              <span className="text-[var(--foreground-muted)]">Could not be read</span>
+            )}
+          </DetailRow>
           <DetailRow label="Links">
             <span className="inline-flex flex-wrap gap-3">
               <a
@@ -474,20 +488,6 @@ export default function VaultDetails({ vaultData }: { vaultData: MorphoVaultData
                 Basescan
               </a>
             </span>
-          </DetailRow>
-          <DetailRow
-            label="Send-assets gate"
-            info="Restricts deposits to a set of addresses. Withdrawals are not affected."
-          >
-            {sendAssetsGate === undefined && gatesResolving ? (
-              <Skeleton className="h-4 w-40" />
-            ) : sendAssetsGate === zeroAddress ? (
-              <span>None</span>
-            ) : sendAssetsGate ? (
-              <AddressLine address={sendAssetsGate} />
-            ) : (
-              <span className="text-[var(--foreground-muted)]">Could not be read</span>
-            )}
           </DetailRow>
         </dl>
       </Disclosure>
