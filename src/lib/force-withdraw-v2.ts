@@ -679,14 +679,16 @@ export async function planForceWithdrawV2(
       });
     } else {
       const redeemShares = userShares - penaltyShares;
+      // What the remaining shares are worth after the penalty burn (rounds down, so a withdraw of
+      // this amount needs no more than `redeemShares`).
+      const remainingAssets = (await publicClient.readContract({
+        address: normalizedVault,
+        abi: VAULT_V2_FORCE_ABI,
+        functionName: 'convertToAssets',
+        args: [redeemShares],
+      })) as bigint;
       if (!useRedeemExit) {
-        // What the remaining shares are worth after the penalty burn.
-        expectedAssetsOut = (await publicClient.readContract({
-          address: normalizedVault,
-          abi: VAULT_V2_FORCE_ABI,
-          functionName: 'convertToAssets',
-          args: [redeemShares],
-        })) as bigint;
+        expectedAssetsOut = remainingAssets;
       }
       const redeemArgs = buildMulticallArgs(deallocations, user, {
         mode: 'redeem',
@@ -715,6 +717,9 @@ export async function planForceWithdrawV2(
         logger.warn('Force redeem simulation failed; falling back to withdraw exit', {
           vaultAddress: normalizedVault,
         });
+        // Withdraw what the shares left after the penalty can pay: the full requested amount
+        // plus the penalty shares would exceed the balance and revert.
+        expectedAssetsOut = minBigInt(expectedAssetsOut, remainingAssets);
         multicallArgs = buildMulticallArgs(deallocations, user, {
           mode: 'withdraw',
           assets: expectedAssetsOut,

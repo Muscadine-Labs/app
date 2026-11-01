@@ -346,30 +346,43 @@ export function TransactionFlow({
     }
   }, [receipt, receiptError, status, txHash, effectiveCurrentTxHash, isExecuting, completeSuccessfulTransaction, setStatus, showErrorToast]);
 
+  /**
+   * Asset (symbol + decimals) for this transaction, after checking the wallet is ready.
+   * Shows the error and returns null when either is missing.
+   */
+  const resolveAssetForSend = useCallback((): { symbol: string; decimals: number } | null => {
+    const vaultSide =
+      fromAccount?.type === 'vault'
+        ? (fromAccount as VaultAccount)
+        : toAccount?.type === 'vault'
+          ? (toAccount as VaultAccount)
+          : null;
+    const assetToUse =
+      derivedAsset ||
+      (vaultSide ? { symbol: vaultSide.symbol, decimals: vaultSide.assetDecimals ?? 18 } : null);
+
+    let errorMessage: string | null = null;
+    if (!assetToUse) {
+      errorMessage = 'Unable to determine asset type. Please try again.';
+    } else if (!walletClient || !publicClient) {
+      errorMessage = 'Wallet not connected. Please connect your wallet and try again.';
+    }
+    if (errorMessage) {
+      setStatus('error', errorMessage);
+      showErrorToast(errorMessage, 5000);
+      return null;
+    }
+    return assetToUse;
+  }, [fromAccount, toAccount, derivedAsset, walletClient, publicClient, setStatus, showErrorToast]);
+
   const executeTransaction = useCallback(async () => {
     if (!fromAccount || !toAccount || !amount || !transactionType) return;
     if (executingRef.current) return;
     executingRef.current = true;
 
-    const assetToUse = derivedAsset || (fromAccount.type === 'vault' 
-      ? { symbol: (fromAccount as VaultAccount).symbol, decimals: (fromAccount as VaultAccount).assetDecimals ?? 18 }
-      : toAccount.type === 'vault'
-      ? { symbol: (toAccount as VaultAccount).symbol, decimals: (toAccount as VaultAccount).assetDecimals ?? 18 }
-      : null);
-
+    const assetToUse = resolveAssetForSend();
     if (!assetToUse) {
       executingRef.current = false;
-      const errorMessage = 'Unable to determine asset type. Please try again.';
-      setStatus('error', errorMessage);
-      showErrorToast(errorMessage, 5000);
-      return;
-    }
-
-    if (!walletClient || !publicClient) {
-      executingRef.current = false;
-      const errorMessage = 'Wallet not connected. Please connect your wallet and try again.';
-      setStatus('error', errorMessage);
-      showErrorToast(errorMessage, 5000);
       return;
     }
 
@@ -566,12 +579,11 @@ export function TransactionFlow({
     toAccount,
     amount,
     transactionType,
-    derivedAsset,
-    walletClient,
     publicClient,
     queryClient,
     partialFailure,
     shouldUseWithdrawAll,
+    resolveAssetForSend,
     resolveBaseWalletClient,
     completeSuccessfulTransaction,
     setAmount,
@@ -586,25 +598,12 @@ export function TransactionFlow({
     }
     confirmLockRef.current = true;
     try {
-      const assetToUse = derivedAsset || (fromAccount.type === 'vault' 
-        ? { symbol: (fromAccount as VaultAccount).symbol, decimals: (fromAccount as VaultAccount).assetDecimals ?? 18 }
-        : toAccount.type === 'vault'
-        ? { symbol: (toAccount as VaultAccount).symbol, decimals: (toAccount as VaultAccount).assetDecimals ?? 18 }
-        : null);
+      // A plan from an earlier confirm (maybe for another amount) must never be sent;
+      // the liquidity check below sets a fresh one when it is needed.
+      forcePlanRef.current = null;
 
-      if (!assetToUse) {
-        const errorMessage = 'Unable to determine asset type. Please try again.';
-        setStatus('error', errorMessage);
-        showErrorToast(errorMessage, 5000);
-        return;
-      }
-
-      if (!walletClient || !publicClient) {
-        const errorMessage = 'Wallet not connected. Please connect your wallet and try again.';
-        setStatus('error', errorMessage);
-        showErrorToast(errorMessage, 5000);
-        return;
-      }
+      const assetToUse = resolveAssetForSend();
+      if (!assetToUse || !walletClient || !publicClient) return;
 
       if (!partialFailure && transactionType === 'withdraw' && fromAccount.type === 'vault') {
         const vaultAccount = fromAccount as VaultAccount;

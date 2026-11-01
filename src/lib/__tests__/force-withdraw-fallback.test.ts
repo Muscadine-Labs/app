@@ -17,14 +17,18 @@ const REQUESTED = BigInt(1_999_990_000_000_000_000);
 
 function clients() {
   const writes: Array<{ functionName: string; args: readonly unknown[] }> = [];
+  const read = async ({ functionName }: { functionName: string }) => {
+    if (functionName === 'asset') return '0x4200000000000000000000000000000000000006';
+    if (functionName === 'decimals') return 18;
+    if (functionName === 'balanceOf') return SHARES;
+    if (functionName === 'previewWithdraw') return REQUESTED;
+    throw new Error(functionName);
+  };
   const publicClient = {
-    readContract: vi.fn(async ({ functionName }: { functionName: string }) => {
-      if (functionName === 'asset') return '0x4200000000000000000000000000000000000006';
-      if (functionName === 'decimals') return 18;
-      if (functionName === 'balanceOf') return SHARES;
-      if (functionName === 'previewWithdraw') return REQUESTED;
-      throw new Error(functionName);
-    }),
+    readContract: vi.fn(read),
+    multicall: vi.fn(async ({ contracts }: { contracts: Array<{ functionName: string }> }) =>
+      Promise.all(contracts.map(read))
+    ),
     waitForTransactionReceipt: vi.fn(async () => ({ status: 'success', logs: [] })),
   };
   const walletClient = {

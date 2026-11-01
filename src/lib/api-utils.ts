@@ -64,10 +64,14 @@ type MorphoCacheEntry = {
 
 const morphoResponseCache = new Map<string, MorphoCacheEntry>();
 const MORPHO_MEMORY_CACHE_MAX_ENTRIES = 50;
+/** An expired entry is kept this long so a rate-limited request can still serve it. */
+const MORPHO_STALE_ON_RATE_LIMIT_MS = 10 * 60_000;
+/** Longest a route handler waits on Morpho's Retry-After before retrying. */
+const MORPHO_MAX_RETRY_WAIT_MS = 3_000;
 
 function pruneMorphoResponseCache(now: number) {
   for (const [key, entry] of morphoResponseCache) {
-    if (entry.expiresAt <= now) {
+    if (entry.expiresAt + MORPHO_STALE_ON_RATE_LIMIT_MS <= now) {
       morphoResponseCache.delete(key);
     }
   }
@@ -227,10 +231,14 @@ export async function fetchMorphoGraphQL(
       }
       if (attempt < MORPHO_MAX_RETRIES) {
         const retryAfterHeader = response.headers.get('retry-after');
-        const retryMs = retryAfterHeader
+        const retryAfterMs = retryAfterHeader
           ? parseInt(retryAfterHeader, 10) * 1000
-          : 1500 * attempt;
-        await sleep(Number.isFinite(retryMs) ? retryMs : 1500 * attempt);
+          : Number.NaN;
+        const backoffMs = Number.isFinite(retryAfterMs) ? retryAfterMs : 1500 * attempt;
+        // Morpho can ask for a minute or more; waiting that long inside a route handler hangs
+        // the page and can hit the function timeout. A longer wait means give up now.
+        if (backoffMs > MORPHO_MAX_RETRY_WAIT_MS) break;
+        await sleep(Math.max(0, backoffMs));
         continue;
       }
     }

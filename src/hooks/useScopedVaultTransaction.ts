@@ -328,12 +328,9 @@ export function useScopedVaultTransaction({
 
   const maxAmount = useMemo((): number | null => {
     if (maxAmountRaw === null || !derivedAsset) return null;
-    const decimals =
-      effectiveActiveTab === 'withdraw'
-        ? getAssetDecimalsForSymbol(vaultSymbol)
-        : derivedAsset.decimals;
-    return parseFloat(formatUnits(maxAmountRaw, decimals));
-  }, [maxAmountRaw, derivedAsset, effectiveActiveTab, vaultSymbol]);
+    // Same decimals as the input parse, balance check and send (`derivedAsset`).
+    return parseFloat(formatUnits(maxAmountRaw, derivedAsset.decimals));
+  }, [maxAmountRaw, derivedAsset]);
 
   /** MAX fills the wallet balance, or the vault's deposit cap when that is lower. */
   const maxInputRaw = useMemo((): bigint | null => {
@@ -353,16 +350,10 @@ export function useScopedVaultTransaction({
       return;
     }
 
-    const symbol = derivedAsset?.symbol || vaultSymbol;
-    const decimals =
-      effectiveActiveTab === 'withdraw'
-        ? getAssetDecimalsForSymbol(vaultSymbol)
-        : getAssetDecimalsForSymbol(symbol);
-
+    const decimals = derivedAsset?.decimals ?? getAssetDecimalsForSymbol(vaultSymbol);
     setAmount(formatBigIntForInput(maxInputRaw, decimals));
   }, [
     maxInputRaw,
-    effectiveActiveTab,
     derivedAsset,
     vaultSymbol,
     setAmount,
