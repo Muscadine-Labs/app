@@ -4,7 +4,10 @@ import { logger } from '@/lib/logger';
 import { isValidEthereumAddress, findVaultByAddress } from '@/lib/vault-utils';
 import { getAssetDecimalsForSymbol, morphoAmountToDecimal, morphoAmountToRaw, normalizeMorphoShares, rawAmountToDecimal } from '@/lib/asset-decimals';
 import { isValidChainId, isValidPeriod, MIN_VALID_TIMESTAMP, PERIOD_SECONDS, INTERVAL_MAP, INTERVAL_SECONDS, finalizePositionHistory, fetchMorphoGraphQL, readMorphoGraphQLResponse, MORPHO_RATE_LIMIT_BODY } from '@/lib/api-utils';
-import { BASE_CHAIN_ID, MORPHO_GRAPHQL_REVALIDATE_SECONDS } from '@/lib/constants';
+import { BASE_CHAIN_ID } from '@/lib/constants';
+
+/** Per-wallet data: never cache in the CDN or the Next data cache. */
+export const dynamic = 'force-dynamic';
 
 export async function GET(
   request: NextRequest,
@@ -116,7 +119,8 @@ export async function GET(
           },
         },
       },
-      { revalidate: MORPHO_GRAPHQL_REVALIDATE_SECONDS, skipMemoryCache: true }
+      // One wallet's balance history: always fresh, so the chart catches up right after a tx.
+      { revalidate: 0, skipMemoryCache: true }
     );
 
     const { responseText, rateLimited } = await readMorphoGraphQLResponse(response);
@@ -260,9 +264,7 @@ export async function GET(
       cached: false,
       timestamp: Date.now(),
     }, {
-      headers: {
-        'Cache-Control': `public, s-maxage=${MORPHO_GRAPHQL_REVALIDATE_SECONDS}, stale-while-revalidate=${MORPHO_GRAPHQL_REVALIDATE_SECONDS * 2}`,
-      }
+      headers: { 'Cache-Control': 'private, no-store' },
     });
 
   } catch (error) {

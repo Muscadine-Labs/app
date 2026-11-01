@@ -23,6 +23,8 @@ interface WithdrawLiquidityWarningModalProps {
   forceWithdrawAvailable?: boolean;
   /** True when MAX force exit falls back to withdraw (not redeem) and may leave share dust. */
   mayLeaveShareDust?: boolean;
+  /** Liquidity changed after the user accepted; these are the new, worse figures. */
+  planUpdated?: boolean;
   isPreparingForce?: boolean;
 }
 
@@ -38,6 +40,7 @@ export function WithdrawLiquidityWarningModal({
   expectedOutLabel,
   forceWithdrawAvailable = false,
   mayLeaveShareDust = false,
+  planUpdated = false,
   isPreparingForce = false,
 }: WithdrawLiquidityWarningModalProps) {
   return (
@@ -50,6 +53,12 @@ export function WithdrawLiquidityWarningModal({
       closeOnEscape={!isPreparingForce}
     >
       <div className="space-y-4">
+        {planUpdated ? (
+          <p className="rounded-lg border border-[var(--warning)]/40 bg-[var(--warning)]/10 px-3 py-2 text-sm text-[var(--warning)]">
+            Vault liquidity changed since you reviewed this. Nothing was sent. Check the updated
+            penalty and amount below before you continue.
+          </p>
+        ) : null}
         <p className="text-sm text-[var(--foreground)] leading-relaxed">
           You&apos;re withdrawing <span className="font-medium">{requestedAmountLabel}</span>, but
           only <span className="font-medium">{instantLiquidityLabel}</span> is available instantly.

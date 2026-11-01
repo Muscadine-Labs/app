@@ -15,6 +15,7 @@
  * Vault V2 `maxDeposit` always returns 0, so it cannot be used.
  */
 
+import { ACCESS_REQUEST_EMAIL } from '@/lib/vault-gates';
 import {
   decodeAbiParameters,
   getAddress,
@@ -129,7 +130,7 @@ export class DepositCapExceededError extends Error {
     super(
       maxAssets > ZERO
         ? 'This amount is above what the vault can accept right now because of its deposit caps.'
-        : 'This vault is at its deposit cap right now. Try again later, or contact muscadinelabs@gmail.com.'
+        : `This vault is at its deposit cap right now. Try again later, or contact ${ACCESS_REQUEST_EMAIL}.`
     );
     this.name = 'DepositCapExceededError';
     this.maxAssets = maxAssets;

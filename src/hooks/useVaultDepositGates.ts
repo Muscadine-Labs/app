@@ -65,6 +65,8 @@ export function useVaultDepositGates() {
     blockedVaultAddresses,
     /** Per-vault `sendAssetsGate` (lowercase key); `zeroAddress` = none, `null` = read failed. */
     sendAssetsGates,
+    /** The per-vault gate read has not finished (independent of the wallet read). */
+    sendAssetsGatesPending: vaultQuery.isPending,
     isResolving: vaultQuery.isLoading || (Boolean(address) && walletQuery.isLoading),
   };
 }

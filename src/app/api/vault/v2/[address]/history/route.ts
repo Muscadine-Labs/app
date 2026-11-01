@@ -106,7 +106,11 @@ export async function GET(
           },
         },
       },
-      { revalidate: MORPHO_GRAPHQL_REVALIDATE_SECONDS }
+      {
+        revalidate: MORPHO_GRAPHQL_REVALIDATE_SECONDS,
+        // The body's endTimestamp changes every second; key the cache by what is asked for.
+        cacheKey: `vault-v2-history:${address.toLowerCase()}:${chainId}:${period}`,
+      }
     );
 
     const { responseText, rateLimited } = await readMorphoGraphQLResponse(response);
@@ -295,6 +299,9 @@ export async function GET(
         }
         
         const apyValue = typeof apy === 'number' ? apy : 0;
+        // Morpho can leave an APY bucket out while other series have that timestamp; it is
+        // plotted as 0 but must not count as a real 0% in averages.
+        const hasApy = typeof apyMap.get(timestamp) === 'number';
         const netApyValue = typeof netApy === 'number' ? netApy : 0;
 
         return {
@@ -307,6 +314,7 @@ export async function GET(
           assetPriceUsd: historicalAssetPriceUsd,
           apy: apyValue * 100,
           netApy: netApyValue * 100,
+          hasApy,
         };
       })
       .filter(item => {

@@ -9,7 +9,12 @@ import { builderWriteOpts } from './builder-code';
 import { VaultDepositBlockedError, isWalletDepositBlocked } from './vault-gates';
 import { assertDepositWithinCapacity } from './deposit-capacity';
 import type { ForceWithdrawPlan } from './force-withdraw-v2';
-import { planForceWithdrawV2, VAULT_V2_FORCE_ABI } from './force-withdraw-v2';
+import {
+  ForceWithdrawPlanChangedError,
+  isForcePlanWorse,
+  planForceWithdrawV2,
+  VAULT_V2_FORCE_ABI,
+} from './force-withdraw-v2';
 import type { TransactionProgressCallback } from '../types/transactions';
 
 // ERC20 ABI for approvals and balance checks
@@ -300,21 +305,21 @@ export async function depositToVaultV2(
 
   const amountBigInt = parseAmount(amount, assetDecimals);
 
-  const [depositBlocked, capError] = await Promise.all([
+  // Independent reads in one round: gate, caps, and the vault asset for the balance check.
+  const [depositBlocked, capError, assetAddress] = await Promise.all([
     isWalletDepositBlocked(publicClient, normalizedVault, userAddress),
     assertDepositWithinCapacity(publicClient, normalizedVault, amountBigInt).then(
       () => null,
       (err: unknown) => err
     ),
+    publicClient.readContract({
+      address: normalizedVault,
+      abi: ERC4626_ABI,
+      functionName: 'asset',
+    }) as Promise<Address>,
   ]);
   if (depositBlocked) throw new VaultDepositBlockedError();
   if (capError) throw capError;
-
-  const assetAddress = await publicClient.readContract({
-    address: normalizedVault,
-    abi: ERC4626_ABI,
-    functionName: 'asset',
-  }) as Address;
 
   const [assetBalance, allowance] = await publicClient.multicall({
     allowFailure: false,
@@ -418,25 +423,23 @@ export async function withdrawFromVaultV2(
 
   const amountBigInt = parseAmount(amount, assetDecimals);
 
-  // Get user's share balance
-  const userShares = await publicClient.readContract({
-    address: normalizedVault,
-    abi: ERC20_ABI,
-    functionName: 'balanceOf',
-    args: [userAddress],
-  }) as bigint;
+  // Share balance and the shares this amount needs (previewWithdraw rounds up), in one round.
+  const [userShares, sharesNeeded] = await publicClient.multicall({
+    allowFailure: false,
+    contracts: [
+      { address: normalizedVault, abi: ERC20_ABI, functionName: 'balanceOf', args: [userAddress] },
+      {
+        address: normalizedVault,
+        abi: ERC4626_ABI,
+        functionName: 'previewWithdraw',
+        args: [amountBigInt],
+      },
+    ],
+  });
 
   if (userShares === BigInt(0)) {
     throw new Error('No shares to withdraw');
   }
-
-  // Use previewWithdraw for accurate share calculation (avoids rounding issues)
-  const sharesNeeded = await publicClient.readContract({
-    address: normalizedVault,
-    abi: ERC4626_ABI,
-    functionName: 'previewWithdraw',
-    args: [amountBigInt],
-  }) as bigint;
 
   // Validate user has enough shares
   if (sharesNeeded > userShares) {
@@ -591,6 +594,10 @@ export async function forceWithdrawFromVaultV2(
       assetDecimals,
       onProgress
     );
+  }
+  // The user accepted the earlier figures; never send a worse exit without asking again.
+  if (isForcePlanWorse(plan, freshPlan)) {
+    throw new ForceWithdrawPlanChangedError(freshPlan);
   }
   plan = freshPlan;
 

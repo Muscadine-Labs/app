@@ -16,6 +16,7 @@ import {
 import {
   formatForcePenaltyAmount,
   formatPenaltyRatePercent,
+  ForceWithdrawPlanChangedError,
   ForceWithdrawShortfallError,
   planForceWithdrawV2,
   readInstantLiquidityAssets,
@@ -42,6 +43,47 @@ import { DEPOSIT_CAPACITY_QUERY_KEY, DepositCapExceededError } from '@/lib/depos
 import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { ERC20_BALANCE_ABI, ERC4626_ABI } from '@/lib/abis';
+
+type LiquidityWarningContext = {
+  morphoVaultUrl: string | null;
+  requestedAmountLabel: string;
+  instantLiquidityLabel: string;
+  estimatedPenaltyLabel: string | null;
+  penaltyRateLabel: string | null;
+  expectedOutLabel: string | null;
+  forceWithdrawAvailable: boolean;
+  mayLeaveShareDust: boolean;
+  /** The figures were replanned at send time and got worse; the user must accept them again. */
+  planUpdated: boolean;
+};
+
+/** Labels for the forced-withdrawal warning, from a plan (or just the instant liquidity). */
+function buildLiquidityWarningContext(args: {
+  vaultAddress: string;
+  requested: bigint;
+  instant: bigint | null;
+  plan: ForceWithdrawPlan | null;
+  forceWithdrawAvailable: boolean;
+  maxIntent: boolean;
+  asset: { symbol: string; decimals: number };
+  planUpdated?: boolean;
+}): LiquidityWarningContext {
+  const { plan, asset } = args;
+  const amount = (raw: bigint) => formatAssetAmount(raw, asset.decimals, asset.symbol);
+  return {
+    morphoVaultUrl: getMorphoVaultUrl(BASE_CHAIN_ID, args.vaultAddress),
+    requestedAmountLabel: amount(args.requested),
+    instantLiquidityLabel: args.instant !== null ? amount(args.instant) : 'part of that amount',
+    estimatedPenaltyLabel: plan
+      ? formatForcePenaltyAmount(plan.estimatedPenaltyAssets, asset.decimals, asset.symbol)
+      : null,
+    penaltyRateLabel: plan ? formatPenaltyRatePercent(plan.maxPenaltyWad) : null,
+    expectedOutLabel: plan ? amount(plan.expectedAssetsOut) : null,
+    forceWithdrawAvailable: args.forceWithdrawAvailable && plan !== null,
+    mayLeaveShareDust: args.maxIntent && plan !== null && plan.exitMode === 'withdraw',
+    planUpdated: args.planUpdated ?? false,
+  };
+}
 
 interface TransactionFlowProps {
   onSuccess?: () => void;
@@ -113,16 +155,8 @@ export function TransactionFlow({
   const [isExecuting, setIsExecuting] = useState(false);
   const [partialFailure, setPartialFailure] = useState(false);
   const [liquidityWarningOpen, setLiquidityWarningOpen] = useState(false);
-  const [liquidityWarningContext, setLiquidityWarningContext] = useState<{
-    morphoVaultUrl: string | null;
-    requestedAmountLabel: string;
-    instantLiquidityLabel: string;
-    estimatedPenaltyLabel: string | null;
-    penaltyRateLabel: string | null;
-    expectedOutLabel: string | null;
-    forceWithdrawAvailable: boolean;
-    mayLeaveShareDust: boolean;
-  } | null>(null);
+  const [liquidityWarningContext, setLiquidityWarningContext] =
+    useState<LiquidityWarningContext | null>(null);
   const [isCheckingLiquidity, setIsCheckingLiquidity] = useState(false);
   const currentStepRef = useRef(0);
   const forcePlanRef = useRef<ForceWithdrawPlan | null>(null);
@@ -346,30 +380,43 @@ export function TransactionFlow({
     }
   }, [receipt, receiptError, status, txHash, effectiveCurrentTxHash, isExecuting, completeSuccessfulTransaction, setStatus, showErrorToast]);
 
+  /**
+   * Asset (symbol + decimals) for this transaction, after checking the wallet is ready.
+   * Shows the error and returns null when either is missing.
+   */
+  const resolveAssetForSend = useCallback((): { symbol: string; decimals: number } | null => {
+    const vaultSide =
+      fromAccount?.type === 'vault'
+        ? (fromAccount as VaultAccount)
+        : toAccount?.type === 'vault'
+          ? (toAccount as VaultAccount)
+          : null;
+    const assetToUse =
+      derivedAsset ||
+      (vaultSide ? { symbol: vaultSide.symbol, decimals: vaultSide.assetDecimals ?? 18 } : null);
+
+    let errorMessage: string | null = null;
+    if (!assetToUse) {
+      errorMessage = 'Unable to determine asset type. Please try again.';
+    } else if (!walletClient || !publicClient) {
+      errorMessage = 'Wallet not connected. Please connect your wallet and try again.';
+    }
+    if (errorMessage) {
+      setStatus('error', errorMessage);
+      showErrorToast(errorMessage, 5000);
+      return null;
+    }
+    return assetToUse;
+  }, [fromAccount, toAccount, derivedAsset, walletClient, publicClient, setStatus, showErrorToast]);
+
   const executeTransaction = useCallback(async () => {
     if (!fromAccount || !toAccount || !amount || !transactionType) return;
     if (executingRef.current) return;
     executingRef.current = true;
 
-    const assetToUse = derivedAsset || (fromAccount.type === 'vault' 
-      ? { symbol: (fromAccount as VaultAccount).symbol, decimals: (fromAccount as VaultAccount).assetDecimals ?? 18 }
-      : toAccount.type === 'vault'
-      ? { symbol: (toAccount as VaultAccount).symbol, decimals: (toAccount as VaultAccount).assetDecimals ?? 18 }
-      : null);
-
+    const assetToUse = resolveAssetForSend();
     if (!assetToUse) {
       executingRef.current = false;
-      const errorMessage = 'Unable to determine asset type. Please try again.';
-      setStatus('error', errorMessage);
-      showErrorToast(errorMessage, 5000);
-      return;
-    }
-
-    if (!walletClient || !publicClient) {
-      executingRef.current = false;
-      const errorMessage = 'Wallet not connected. Please connect your wallet and try again.';
-      setStatus('error', errorMessage);
-      showErrorToast(errorMessage, 5000);
       return;
     }
 
@@ -530,8 +577,35 @@ export function TransactionFlow({
         return;
       }
       
+      if (err instanceof ForceWithdrawPlanChangedError) {
+        // Nothing was sent. Show the worse figures and let the user accept them again.
+        const fresh = err.freshPlan;
+        forcePlanRef.current = fresh;
+        setStepsInfo([]);
+        setTotalSteps(0);
+        setStatus('preview');
+        setLiquidityWarningContext(
+          buildLiquidityWarningContext({
+            vaultAddress: fresh.vaultAddress,
+            requested: fresh.requestedAssets,
+            instant: fresh.instantLiquidityAssets,
+            plan: fresh,
+            forceWithdrawAvailable: true,
+            maxIntent: fresh.maxExit,
+            asset: assetToUse,
+            planUpdated: true,
+          })
+        );
+        setLiquidityWarningOpen(true);
+        return;
+      }
+
       if (err instanceof VaultDepositBlockedError) {
+        // Our own message: show it as is (formatTransactionError drops long messages).
         void queryClient.invalidateQueries({ queryKey: VAULT_DEPOSIT_GATES_QUERY_KEY });
+        setStatus('error', err.message);
+        showErrorToast(err.message, 5000);
+        return;
       }
 
       if (err instanceof DepositCapExceededError) {
@@ -562,12 +636,11 @@ export function TransactionFlow({
     toAccount,
     amount,
     transactionType,
-    derivedAsset,
-    walletClient,
     publicClient,
     queryClient,
     partialFailure,
     shouldUseWithdrawAll,
+    resolveAssetForSend,
     resolveBaseWalletClient,
     completeSuccessfulTransaction,
     setAmount,
@@ -582,25 +655,12 @@ export function TransactionFlow({
     }
     confirmLockRef.current = true;
     try {
-      const assetToUse = derivedAsset || (fromAccount.type === 'vault' 
-        ? { symbol: (fromAccount as VaultAccount).symbol, decimals: (fromAccount as VaultAccount).assetDecimals ?? 18 }
-        : toAccount.type === 'vault'
-        ? { symbol: (toAccount as VaultAccount).symbol, decimals: (toAccount as VaultAccount).assetDecimals ?? 18 }
-        : null);
+      // A plan from an earlier confirm (maybe for another amount) must never be sent;
+      // the liquidity check below sets a fresh one when it is needed.
+      forcePlanRef.current = null;
 
-      if (!assetToUse) {
-        const errorMessage = 'Unable to determine asset type. Please try again.';
-        setStatus('error', errorMessage);
-        showErrorToast(errorMessage, 5000);
-        return;
-      }
-
-      if (!walletClient || !publicClient) {
-        const errorMessage = 'Wallet not connected. Please connect your wallet and try again.';
-        setStatus('error', errorMessage);
-        showErrorToast(errorMessage, 5000);
-        return;
-      }
+      const assetToUse = resolveAssetForSend();
+      if (!assetToUse || !walletClient || !publicClient) return;
 
       if (!partialFailure && transactionType === 'withdraw' && fromAccount.type === 'vault') {
         const vaultAccount = fromAccount as VaultAccount;
@@ -696,38 +756,17 @@ export function TransactionFlow({
                 return;
               }
 
-              setLiquidityWarningContext({
-                morphoVaultUrl: getMorphoVaultUrl(BASE_CHAIN_ID, vaultAccount.address),
-                requestedAmountLabel: formatAssetAmount(
+              setLiquidityWarningContext(
+                buildLiquidityWarningContext({
+                  vaultAddress: vaultAccount.address,
                   requested,
-                  assetToUse.decimals,
-                  assetToUse.symbol
-                ),
-                instantLiquidityLabel:
-                  instant !== null
-                    ? formatAssetAmount(instant, assetToUse.decimals, assetToUse.symbol)
-                    : 'part of that amount',
-                estimatedPenaltyLabel: forcePlan
-                  ? formatForcePenaltyAmount(
-                      forcePlan.estimatedPenaltyAssets,
-                      assetToUse.decimals,
-                      assetToUse.symbol
-                    )
-                  : null,
-                penaltyRateLabel: forcePlan
-                  ? formatPenaltyRatePercent(forcePlan.maxPenaltyWad)
-                  : null,
-                expectedOutLabel: forcePlan
-                  ? formatAssetAmount(
-                      forcePlan.expectedAssetsOut,
-                      assetToUse.decimals,
-                      assetToUse.symbol
-                    )
-                  : null,
-                forceWithdrawAvailable: Boolean(forceOk && forcePlan),
-                mayLeaveShareDust:
-                  shouldUseWithdrawAll && Boolean(forcePlan && forcePlan.exitMode === 'withdraw'),
-              });
+                  instant,
+                  plan: forcePlan,
+                  forceWithdrawAvailable: forceOk,
+                  maxIntent: shouldUseWithdrawAll,
+                  asset: assetToUse,
+                })
+              );
               setLiquidityWarningOpen(true);
               return;
             }
@@ -906,6 +945,7 @@ export function TransactionFlow({
           expectedOutLabel={liquidityWarningContext.expectedOutLabel}
           forceWithdrawAvailable={liquidityWarningContext.forceWithdrawAvailable}
           mayLeaveShareDust={liquidityWarningContext.mayLeaveShareDust}
+          planUpdated={liquidityWarningContext.planUpdated}
           isPreparingForce={isExecuting}
         />
       )}

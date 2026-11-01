@@ -120,6 +120,7 @@ export default function VaultV2Page() {
   const { morphoHoldings } = useWallet();
   const {
     eligibleVaultAddresses,
+    blockedVaultAddresses,
     isResolving: gatesResolving,
   } = useVaultDepositGates();
   const { listedVaultAddresses } = useExplorerVaults();
@@ -184,6 +185,7 @@ export default function VaultV2Page() {
   );
 
   const canDeposit = !!vault && eligibleVaultAddresses.has(vault.address.toLowerCase());
+  const depositGateBlocked = !!vault && blockedVaultAddresses.has(vault.address.toLowerCase());
 
   useEffect(() => {
     if (!address) return;
@@ -273,6 +275,7 @@ export default function VaultV2Page() {
               transactTab={transactTab}
               onTransactTabChange={setTransactTab}
               canDeposit={canDeposit}
+              depositGateBlocked={depositGateBlocked}
             />
           )}
           {activeTab === 'history' && <VaultHistory vaultData={vaultData} />}

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useElementWidth } from '@/hooks/useElementWidth';
 import {
   formatSmartCurrency,
   formatPercentage,
@@ -14,7 +15,7 @@ import {
   formatVaultDetailTokenAmount,
 } from '@/lib/formatter';
 import { calculateYAxisDomain } from '@/lib/vault-utils';
-import { CHART_MARGIN, axisWidthForLabels, withLeadingChartTick, VAULT_DETAIL_CHART_HEIGHT_CLASS, VAULT_DETAIL_CHART_MIN_HEIGHT } from '@/lib/chart-utils';
+import { CHART_MARGIN, axisWidthForLabels, evenTimeTicks, maxTimeTicksForWidth, timeWeightedAverage, VAULT_DETAIL_CHART_HEIGHT_CLASS, VAULT_DETAIL_CHART_MIN_HEIGHT } from '@/lib/chart-utils';
 import { logger } from '@/lib/logger';
 import { MorphoVaultData } from '@/types/vault';
 import { VaultLiquidityInfo } from './VaultLiquidityInfo';
@@ -26,7 +27,7 @@ import VaultDetails from './VaultDetails';
 import { useVaultAllocations } from '@/hooks/useVaultAllocations';
 import { formatSharePercent } from '@/lib/vault-details';
 import { useToast } from '@/contexts/ToastContext';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, ReferenceLine } from 'recharts';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useUnixTimestamp } from '@/hooks/useClientOnly';
 import {
@@ -44,6 +45,8 @@ interface HistoryDataPoint {
   totalAssetsUsd: number;
   totalAssets?: number;
   apy: number;
+  /** False when Morpho had no APY for this bucket (`apy` is then a placeholder 0). */
+  hasApy?: boolean;
   sharePrice?: number;
   sharePriceUsd?: number;
   assetPriceUsd?: number;
@@ -124,6 +127,7 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
   const [hourly30dData, setHourly30dData] = useState<HistoryDataPoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [chartType, setChartType] = useState<ChartType>('apy');
+  const [chartContainerRef, chartWidth] = useElementWidth<HTMLDivElement>();
   const [valueType, setValueType] = useState<'usd' | 'token'>('token');
   const { error: showErrorToast } = useToast();
   const now = useUnixTimestamp();
@@ -235,11 +239,33 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
     return filtered;
   }, [allHistoryData, hourly7dData, hourly30dData, period, chartType, valueType, chartEndTimestamp]);
 
+  // Buckets with no APY from Morpho become gaps the line bridges, not drops to 0%.
+  const apyChartData = useMemo(
+    () =>
+      chartType !== 'apy'
+        ? []
+        : historyData.map((d) => (d.hasApy === false ? { ...d, apy: null } : d)),
+    [historyData, chartType]
+  );
+
+  // Average APY over the selected period (dotted reference line, like Morpho's chart).
+  const averageApy = useMemo(() => {
+    if (chartType !== 'apy' || historyData.length < 2) return null;
+    return timeWeightedAverage(
+      historyData
+        .filter((d) => d.hasApy !== false)
+        .map((d) => ({ timestamp: d.timestamp, value: d.apy }))
+    );
+  }, [historyData, chartType]);
+
   // Calculate Y-axis domain for APY chart
   const apyYAxisDomain = useMemo(() => {
     if (historyData.length === 0 || chartType !== 'apy') return undefined;
     
-    const apyValues = historyData.map(d => d.apy).filter(v => v !== null && v !== undefined && !isNaN(v));
+    const apyValues = historyData
+      .filter((d) => d.hasApy !== false)
+      .map((d) => d.apy)
+      .filter((v) => v !== null && v !== undefined && !isNaN(v));
     if (apyValues.length === 0) return undefined;
     
     const domain = calculateYAxisDomain(apyValues, {
@@ -410,204 +436,16 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
     return periods;
   }, [allHistoryData, hourly30dData, chartEndTimestamp]);
 
-  // Get ticks for 7d period - show every day, prefer midnight but fallback to first data point of day
-  const get7dTicks = useMemo(() => {
-    if (period !== '7d' || historyData.length === 0) return undefined;
-    
-    const ticks: number[] = [];
-    const seenDates = new Set<string>();
-    
-    // Sort data by timestamp
-    const sortedData = [...historyData].sort((a, b) => a.timestamp - b.timestamp);
-    
-    sortedData.forEach((point: HistoryDataPoint) => {
-      const date = new Date(point.timestamp * 1000);
-      const dateKey = date.toDateString();
-      const hours = date.getHours();
-      
-      // Add tick for each day - prefer midnight (00:00-02:00), otherwise use first point of the day
-      if (!seenDates.has(dateKey)) {
-        // If it's early morning (0-2 AM), use it as the tick
-        if (hours >= 0 && hours < 2) {
-          ticks.push(point.timestamp);
-          seenDates.add(dateKey);
-        }
-      }
-    });
-    
-    // If we don't have enough ticks, add first point of each day
-    if (ticks.length < 3) {
-      const dayTicks: number[] = [];
-      const daySeen = new Set<string>();
-      
-      sortedData.forEach((point: HistoryDataPoint) => {
-        const date = new Date(point.timestamp * 1000);
-        const dateKey = date.toDateString();
-        
-        if (!daySeen.has(dateKey)) {
-          dayTicks.push(point.timestamp);
-          daySeen.add(dateKey);
-        }
-      });
-      
-      // Use every other day if we have too many points
-      if (dayTicks.length > 7) {
-        return dayTicks.filter((_, index) => index % 2 === 0);
-      }
-      
-      return dayTicks.length > 0 ? dayTicks : undefined;
-    }
-    
+  // Evenly spaced date ticks on a time axis: equal steps are equal distances on screen, and the
+  // step grows with the period so the labels fit the chart's measured width.
+  const xTicks = useMemo(() => {
+    if (historyData.length === 0) return undefined;
+    const first = historyData[0].timestamp;
+    const last = historyData[historyData.length - 1].timestamp;
+    // The y-axis gutter and margins take roughly 80px of the container.
+    const ticks = evenTimeTicks(first, last, maxTimeTicksForWidth(chartWidth - 80));
     return ticks.length > 0 ? ticks : undefined;
-  }, [period, historyData]);
-
-  // Get ticks for 30d period - only every other day
-  const get30dTicks = useMemo(() => {
-    if (period !== '30d' || historyData.length === 0) return undefined;
-    
-    const ticks: number[] = [];
-    const seenDates = new Set<string>();
-    let dayCount = 0;
-    
-    // Sort data by timestamp to ensure chronological order
-    const sortedData = [...historyData].sort((a, b) => a.timestamp - b.timestamp);
-    
-    sortedData.forEach((point: HistoryDataPoint) => {
-      const date = new Date(point.timestamp * 1000);
-      const dateKey = date.toDateString();
-      
-      // Only add tick if we haven't seen this date before
-      if (!seenDates.has(dateKey)) {
-        seenDates.add(dateKey);
-        // Add every other day (even dayCount: 0, 2, 4, 6...)
-        if (dayCount % 2 === 0) {
-          ticks.push(point.timestamp);
-        }
-        dayCount++;
-      }
-    });
-    
-    return ticks.length > 0 ? ticks : undefined;
-  }, [period, historyData]);
-
-  // Get ticks for 90d period - show every 5 days
-  const get90dTicks = useMemo(() => {
-    if (period !== '90d' || historyData.length === 0) return undefined;
-    
-    const ticks: number[] = [];
-    const seenDates = new Set<string>();
-    let dayCount = 0;
-    
-    // Sort data by timestamp to ensure chronological order
-    const sortedData = [...historyData].sort((a, b) => a.timestamp - b.timestamp);
-    
-    sortedData.forEach((point: HistoryDataPoint) => {
-      const date = new Date(point.timestamp * 1000);
-      const dateKey = date.toDateString();
-      
-      // Only add tick if we haven't seen this date before
-      if (!seenDates.has(dateKey)) {
-        seenDates.add(dateKey);
-        // Add every 5 days (dayCount: 0, 5, 10, 15...)
-        if (dayCount % 5 === 0) {
-          ticks.push(point.timestamp);
-        }
-        dayCount++;
-      }
-    });
-    
-    return ticks.length > 0 ? ticks : undefined;
-  }, [period, historyData]);
-
-  // Get ticks for "all" period - show at start of each year, plus dynamic intervals
-  const getAllTicks = useMemo(() => {
-    if (period !== 'all' || historyData.length === 0) return undefined;
-    
-    const ticks: number[] = [];
-    const seenYears = new Set<string>();
-    const yearTicks = new Set<number>();
-    
-    // Sort data by timestamp to ensure chronological order
-    const sortedData = [...historyData].sort((a, b) => a.timestamp - b.timestamp);
-    
-    if (sortedData.length === 0) return undefined;
-    
-    // Calculate total time span in days
-    const firstTimestamp = sortedData[0].timestamp;
-    const lastTimestamp = sortedData[sortedData.length - 1].timestamp;
-    const totalDays = (lastTimestamp - firstTimestamp) / (24 * 60 * 60);
-    
-    // Determine interval based on total days
-    // For shorter spans (< 60 days), use 3-5 day intervals
-    // For medium spans (60-180 days), use 5-10 day intervals
-    // For longer spans (180-365 days), use 12 day intervals
-    // For very long spans (> 365 days), use 15-30 day intervals
-    let dayInterval = 3;
-    if (totalDays > 365) {
-      dayInterval = 30; // Every 30 days for very long spans
-    } else if (totalDays > 180) {
-      dayInterval = 12; // Every 12 days for long spans
-    } else if (totalDays > 90) {
-      dayInterval = 10; // Every 10 days for medium-long spans
-    } else if (totalDays > 60) {
-      dayInterval = 7; // Every 7 days for medium spans
-    } else if (totalDays > 30) {
-      dayInterval = 5; // Every 5 days for shorter spans
-    } else {
-      dayInterval = 3; // Every 3 days for very short spans
-    }
-    
-    // First, collect all year boundary ticks
-    sortedData.forEach((point: HistoryDataPoint) => {
-      const date = new Date(point.timestamp * 1000);
-      const year = date.getFullYear();
-      const yearKey = `${year}`;
-      
-      // Always add tick at start of new year
-      if (!seenYears.has(yearKey)) {
-        ticks.push(point.timestamp);
-        yearTicks.add(point.timestamp);
-        seenYears.add(yearKey);
-      }
-    });
-    
-    // Then add regular interval ticks between year boundaries
-    const seenDates = new Set<string>();
-    let lastTickTimestamp = firstTimestamp;
-    
-    sortedData.forEach((point: HistoryDataPoint) => {
-      const date = new Date(point.timestamp * 1000);
-      const dateKey = date.toDateString();
-      
-      // Skip if already added as year boundary
-      if (yearTicks.has(point.timestamp)) {
-        return;
-      }
-      
-      // Skip if we've seen this date before
-      if (seenDates.has(dateKey)) {
-        return;
-      }
-      
-      // Calculate days since last tick
-      const daysSinceLastTick = (point.timestamp - lastTickTimestamp) / (24 * 60 * 60);
-      
-      // Add tick if interval has passed
-      if (daysSinceLastTick >= dayInterval) {
-        ticks.push(point.timestamp);
-        seenDates.add(dateKey);
-        lastTickTimestamp = point.timestamp;
-      }
-    });
-    
-    // Sort all ticks by timestamp; always anchor to first data point on "All"
-    ticks.sort((a, b) => a - b);
-
-    return withLeadingChartTick(
-      ticks.length > 0 ? ticks : undefined,
-      firstTimestamp
-    );
-  }, [period, historyData]);
+  }, [historyData, chartWidth]);
 
   // Format date for tooltip - always shows accurate date/time
   const formatTooltipDate = useCallback((timestamp: number | string) => {
@@ -863,17 +701,21 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                 </div>
               )}
             </div>
-            <div className={`w-full min-w-0 ${VAULT_DETAIL_CHART_HEIGHT_CLASS}`}>
+            <div ref={chartContainerRef} className={`w-full min-w-0 ${VAULT_DETAIL_CHART_HEIGHT_CLASS}`}>
               <ResponsiveContainer width="100%" height="100%" minHeight={VAULT_DETAIL_CHART_MIN_HEIGHT} debounce={50}>
                 {chartType === 'apy' ? (
-                  <LineChart data={historyData} margin={VAULT_CHART_MARGIN}>
+                  <LineChart data={apyChartData} margin={VAULT_CHART_MARGIN}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" />
                     <XAxis 
                       dataKey="timestamp" 
                       tickFormatter={formatDate}
                       stroke="var(--foreground-secondary)"
                       style={{ fontSize: '12px' }}
-                      ticks={period === '7d' ? get7dTicks : period === '30d' ? get30dTicks : period === '90d' ? get90dTicks : period === 'all' ? getAllTicks : undefined}
+                      type="number"
+                      scale="time"
+                      domain={['dataMin', 'dataMax']}
+                      ticks={xTicks}
+                      interval={0}
                       padding={{ left: 0, right: 0 }}
                     />
                     <YAxis 
@@ -909,8 +751,24 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                       stroke="var(--primary)" 
                       strokeWidth={2}
                       dot={false}
+                      connectNulls
                       isAnimationActive={false}
                     />
+                    {averageApy !== null && (
+                      <ReferenceLine
+                        y={averageApy}
+                        stroke="var(--foreground-secondary)"
+                        strokeDasharray="4 4"
+                        strokeWidth={1.5}
+                        ifOverflow="extendDomain"
+                        label={{
+                          value: `Avg ${formatPercentage(averageApy / 100)}`,
+                          position: 'insideTopRight',
+                          fill: 'var(--foreground-secondary)',
+                          fontSize: 11,
+                        }}
+                      />
+                    )}
                   </LineChart>
                 ) : chartType === 'sharePrice' ? (
                   <LineChart data={sharePriceChartData} margin={VAULT_CHART_MARGIN}>
@@ -920,7 +778,11 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                       tickFormatter={formatDate}
                       stroke="var(--foreground-secondary)"
                       style={{ fontSize: '12px' }}
-                      ticks={period === '7d' ? get7dTicks : period === '30d' ? get30dTicks : period === '90d' ? get90dTicks : period === 'all' ? getAllTicks : undefined}
+                      type="number"
+                      scale="time"
+                      domain={['dataMin', 'dataMax']}
+                      ticks={xTicks}
+                      interval={0}
                       padding={{ left: 0, right: 0 }}
                     />
                     <YAxis
@@ -979,7 +841,11 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
                           tickFormatter={formatDate}
                           stroke="var(--foreground-secondary)"
                           style={{ fontSize: '12px' }}
-                          ticks={period === '7d' ? get7dTicks : period === '30d' ? get30dTicks : period === '90d' ? get90dTicks : period === 'all' ? getAllTicks : undefined}
+                          type="number"
+                      scale="time"
+                      domain={['dataMin', 'dataMax']}
+                      ticks={xTicks}
+                      interval={0}
                           padding={{ left: 0, right: 0 }}
                         />
                         <YAxis
@@ -1036,6 +902,9 @@ export default function VaultOverview({ vaultData }: VaultOverviewProps) {
             {chartType === 'apy' && (
               <p className="mt-2 px-1 text-xs text-[var(--foreground-muted)]">
                 Average net APY over time. Net APY above is the current rate, so it can differ from the latest point.
+                {averageApy !== null && (
+                  <> The dotted line is the average over this period ({formatPercentage(averageApy / 100)}).</>
+                )}
               </p>
             )}
           </div>

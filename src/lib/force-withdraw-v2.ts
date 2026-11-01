@@ -85,6 +85,39 @@ export class ForceWithdrawShortfallError extends Error {
   }
 }
 
+/**
+ * The send-time replan is worse for the user than the plan they accepted (less out, or a bigger
+ * penalty). Nothing was sent; the UI must show `freshPlan` and ask again.
+ */
+export class ForceWithdrawPlanChangedError extends Error {
+  readonly freshPlan: ForceWithdrawPlan;
+
+  constructor(freshPlan: ForceWithdrawPlan) {
+    super('Vault liquidity changed. Review the updated force withdraw before sending.');
+    this.name = 'ForceWithdrawPlanChangedError';
+    this.freshPlan = freshPlan;
+  }
+}
+
+/** Relative slack (basis points) so interest accrued between plan and send does not re-prompt. */
+const PLAN_CHANGE_TOLERANCE_BPS = BigInt(10);
+const BPS = BigInt(10_000);
+
+/**
+ * True when `fresh` pays meaningfully less than `accepted`, or burns a meaningfully larger
+ * penalty. Changes within 0.1% (or one base unit) are interest noise and do not count.
+ */
+export function isForcePlanWorse(accepted: ForceWithdrawPlan, fresh: ForceWithdrawPlan): boolean {
+  const slack = (value: bigint) => {
+    const relative = (value * PLAN_CHANGE_TOLERANCE_BPS) / BPS;
+    return relative > BigInt(1) ? relative : BigInt(1);
+  };
+  const outDrop = accepted.expectedAssetsOut - fresh.expectedAssetsOut;
+  if (outDrop > slack(accepted.expectedAssetsOut)) return true;
+  const penaltyRise = fresh.estimatedPenaltyAssets - accepted.estimatedPenaltyAssets;
+  return penaltyRise > slack(accepted.estimatedPenaltyAssets);
+}
+
 const VAULT_V2_FORCE_ABI = [
   {
     name: 'adaptersLength',
@@ -679,14 +712,16 @@ export async function planForceWithdrawV2(
       });
     } else {
       const redeemShares = userShares - penaltyShares;
+      // What the remaining shares are worth after the penalty burn (rounds down, so a withdraw of
+      // this amount needs no more than `redeemShares`).
+      const remainingAssets = (await publicClient.readContract({
+        address: normalizedVault,
+        abi: VAULT_V2_FORCE_ABI,
+        functionName: 'convertToAssets',
+        args: [redeemShares],
+      })) as bigint;
       if (!useRedeemExit) {
-        // What the remaining shares are worth after the penalty burn.
-        expectedAssetsOut = (await publicClient.readContract({
-          address: normalizedVault,
-          abi: VAULT_V2_FORCE_ABI,
-          functionName: 'convertToAssets',
-          args: [redeemShares],
-        })) as bigint;
+        expectedAssetsOut = remainingAssets;
       }
       const redeemArgs = buildMulticallArgs(deallocations, user, {
         mode: 'redeem',
@@ -715,6 +750,9 @@ export async function planForceWithdrawV2(
         logger.warn('Force redeem simulation failed; falling back to withdraw exit', {
           vaultAddress: normalizedVault,
         });
+        // Withdraw what the shares left after the penalty can pay: the full requested amount
+        // plus the penalty shares would exceed the balance and revert.
+        expectedAssetsOut = minBigInt(expectedAssetsOut, remainingAssets);
         multicallArgs = buildMulticallArgs(deallocations, user, {
           mode: 'withdraw',
           assets: expectedAssetsOut,
