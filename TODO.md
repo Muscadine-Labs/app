@@ -1,6 +1,5 @@
 **To Work on Today:**
 
-
 **To work on another day:**
 
 **Future (optional):**
