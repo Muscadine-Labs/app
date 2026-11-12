@@ -1,5 +1,6 @@
 **To Work on Today:**
-
+- See if we can optimize the repo, such as rpc / api calls
+- Fix when a wallet is not on the sendassets gate, to have a pop up saying this wallet connect deposit into x vaults, you may continue to view positions, withdraw or to view vaults. Than on the vault pages dont have the deposit model, just withdraw. 
 
 **Future (optional):**
 - Have multichain for viewing such as with stocks, vaults like robinhood chain. With the actual functions on settings be able to switch the chain.
