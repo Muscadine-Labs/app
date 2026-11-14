@@ -23,7 +23,7 @@ import { logger } from '@/lib/logger';
 function resolveVaultDisplay(account: VaultAccount) {
   const registry = findVaultByAddress(account.address);
   return {
-    name: registry?.name ?? account.name,
+    name: account.name || registry?.name || 'Vault',
     address: account.address,
     shareSymbol: registry?.vaultSymbol ?? null,
     chainName: getChainDisplayName(registry?.chainId ?? BASE_CHAIN_ID),

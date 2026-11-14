@@ -4,9 +4,13 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import { useAccount, usePublicClient } from 'wagmi';
 import { useBalance, useReadContract } from 'wagmi';
 import { formatUnits, getAddress, type PublicClient } from 'viem';
-import type { AlchemyTokenBalancesResponse, AlchemyTokenMetadataResponse, AlchemyTokenBalance } from '@/types/api';
+import type { AlchemyTokenBalancesResponse, AlchemyTokenBalance } from '@/types/api';
 import { formatCurrency } from '@/lib/formatter';
 import { logger } from '@/lib/logger';
+import {
+  clearPositionHistoryCache,
+  markPositionHistoryTransaction,
+} from '@/lib/position-history-cache';
 import {
   BASE_CHAIN_ID,
   POST_TX_BALANCE_REFRESH_DELAY_MS,
@@ -71,6 +75,8 @@ interface WalletContextType {
   loading: boolean;
   error: string | null;
   refreshBalances: () => Promise<void>;
+  /** Refresh only when this wallet's data is older than `maxAgeMs` and no refresh is running. */
+  refreshBalancesIfStale: (maxAgeMs: number) => Promise<void>;
   refreshBalancesWithRetry: (options?: { maxRetries?: number; retryDelay?: number }) => Promise<void>;
   refreshBalancesWithPolling: (options?: { followUpDelayMs?: number; onComplete?: () => void | Promise<void> }) => Promise<void>;
 }
@@ -113,12 +119,7 @@ function isVaultShareTokenAddress(address: string, positionAddresses: Set<string
   return positionAddresses.has(address.toLowerCase());
 }
 
-// Token metadata cache - persists across component remounts
-// Token metadata rarely changes, so we cache it to avoid repeated RPC calls
-const tokenMetadataCache = new Map<string, { decimals: number; symbol: string; name?: string; timestamp: number }>();
-const METADATA_CACHE_DURATION = 60 * 60 * 1000; // 1 hour cache duration
-
-// Known token metadata - no need to fetch from API (most common tokens)
+// Metadata for the tokens read from Alchemy (no metadata call needed).
 const KNOWN_TOKEN_METADATA: Record<string, { decimals: number; symbol: string; name: string }> = {
   [TOKEN_ADDRESSES.USDC.toLowerCase()]: { decimals: 6, symbol: 'USDC', name: 'USD Coin' },
   [TOKEN_ADDRESSES.cbBTC.toLowerCase()]: { decimals: 8, symbol: 'cbBTC', name: 'Coinbase Wrapped BTC' },
@@ -168,9 +169,6 @@ const MAJOR_TOKEN_ADDRESSES = [
   TOKEN_ADDRESSES.WETH,
 ] as const;
 
-const MAJOR_TOKEN_ADDRESS_SET = new Set(
-  MAJOR_TOKEN_ADDRESSES.map((address) => address.toLowerCase())
-);
 
 function toTokenBalance(
   contractAddress: string,
@@ -416,118 +414,35 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     }
 
     try {
-      // Query majors by address. `erc20` is paginated (~100) and spam-token wallets
-      // can omit USDC/WETH from the first page even when the balance is nonzero.
-      const [majorResult, erc20Result] = await Promise.all([
-        requestAlchemyTokenBalances(alchemyApiKey, walletAddress, MAJOR_TOKEN_ADDRESSES),
-        requestAlchemyTokenBalances(alchemyApiKey, walletAddress, 'erc20'),
-      ]);
+      // Only USDC, cbBTC and WETH are priced or used (ETH comes from wagmi). Asking for the
+      // wallet's whole ERC-20 list also cost one metadata call per unknown (often spam) token,
+      // and those tokens were always valued at $0.
+      const result = await requestAlchemyTokenBalances(
+        alchemyApiKey,
+        walletAddress,
+        MAJOR_TOKEN_ADDRESSES
+      );
+      if (!result.ok) return { tokens: [], ok: false };
 
-      if (!majorResult.ok && !erc20Result.ok) {
-        return { tokens: [], ok: false };
-      }
-
-      const tokenAddresses = [
-        ...majorResult.tokenBalances,
-        ...erc20Result.tokenBalances.filter(
-          (token) => !MAJOR_TOKEN_ADDRESS_SET.has(token.contractAddress.toLowerCase())
-        ),
-      ];
-
-      const tokensWithBalance = tokenAddresses.filter((token: AlchemyTokenBalance) => {
-        try {
-          return BigInt(token.tokenBalance || '0') > BigInt(0);
-        } catch {
-          return false;
-        }
-      });
-
-      const knownTokens: Array<{ token: AlchemyTokenBalance; metadata: { decimals: number; symbol: string } }> = [];
-      const unknownTokens: AlchemyTokenBalance[] = [];
-
-      tokensWithBalance.forEach((token: AlchemyTokenBalance) => {
-        const addressLower = token.contractAddress.toLowerCase();
-
-        if (KNOWN_TOKEN_METADATA[addressLower]) {
-          knownTokens.push({
-            token,
-            metadata: KNOWN_TOKEN_METADATA[addressLower],
-          });
-          return;
-        }
-
-        const cached = tokenMetadataCache.get(addressLower);
-        if (cached && Date.now() - cached.timestamp < METADATA_CACHE_DURATION) {
-          knownTokens.push({
-            token,
-            metadata: cached,
-          });
-          return;
-        }
-
-        unknownTokens.push(token);
-      });
-
-      const knownTokenBalances = knownTokens
-        .map(({ token, metadata }) =>
-          toTokenBalance(token.contractAddress, token.tokenBalance, metadata.decimals, metadata.symbol)
-        )
-        .filter((result): result is TokenBalance => result !== null);
-
-      const tokenMetadataPromises = unknownTokens.map(async (token: AlchemyTokenBalance) => {
-        try {
-          const addressLower = token.contractAddress.toLowerCase();
-
-          const cached = tokenMetadataCache.get(addressLower);
-          if (cached && Date.now() - cached.timestamp < METADATA_CACHE_DURATION) {
-            return toTokenBalance(token.contractAddress, token.tokenBalance, cached.decimals, cached.symbol);
-          }
-
-          const metadataResponse = await fetch(
-            `https://base-mainnet.g.alchemy.com/v2/${alchemyApiKey}`,
-            {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                jsonrpc: '2.0',
-                id: 1,
-                method: 'alchemy_getTokenMetadata',
-                params: [token.contractAddress],
-              }),
-            }
-          );
-
-          const metadataData = await metadataResponse.json() as AlchemyTokenMetadataResponse;
-
-          if (metadataData.error || !metadataData.result) {
+      const tokens = result.tokenBalances
+        .map((token) => {
+          const metadata = KNOWN_TOKEN_METADATA[token.contractAddress.toLowerCase()];
+          if (!metadata) return null;
+          try {
+            if (BigInt(token.tokenBalance || '0') <= BigInt(0)) return null;
+          } catch {
             return null;
           }
+          return toTokenBalance(
+            token.contractAddress,
+            token.tokenBalance,
+            metadata.decimals,
+            metadata.symbol
+          );
+        })
+        .filter((balance): balance is TokenBalance => balance !== null);
 
-          const decimals = metadataData.result.decimals || 18;
-          let symbol = metadataData.result.symbol || 'UNKNOWN';
-          if (addressLower === TOKEN_ADDRESSES_LOWER.cbBTC) {
-            symbol = 'cbBTC';
-          }
-
-          tokenMetadataCache.set(addressLower, {
-            decimals,
-            symbol,
-            name: metadataData.result.name,
-            timestamp: Date.now(),
-          });
-
-          return toTokenBalance(token.contractAddress, token.tokenBalance, decimals, symbol);
-        } catch {
-          return null;
-        }
-      });
-
-      const metadataResults = await Promise.all(tokenMetadataPromises);
-      const fetchedTokens = metadataResults.filter((result): result is TokenBalance => result !== null);
-
-      return { tokens: [...knownTokenBalances, ...fetchedTokens], ok: true };
+      return { tokens, ok: true };
     } catch {
       return { tokens: [], ok: false };
     }
@@ -535,6 +450,12 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
 
   // Fetch all Morpho v2 vault positions from the API (curated + external).
   const morphoFetchIdRef = useRef(0);
+  /** Last wallet refresh: whose, when it finished cleanly (0 = not yet / failed), and if one is running. */
+  const refreshStateRef = useRef<{ address: string | null; at: number; inFlight: boolean }>({
+    address: null,
+    at: 0,
+    inFlight: false,
+  });
   const lastMorphoAddressRef = useRef<string | null>(null);
   const walletDataFetchIdRef = useRef(0);
 
@@ -678,7 +599,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
             version: p.version ?? 'v2',
             vault: {
               address: p.vault.address,
-              name: curated?.name || p.vault.name,
+              name: p.vault.name || curated?.name,
               symbol: p.vault.symbol,
               vaultSymbol: curated?.vaultSymbol ?? p.vault.vaultSymbol,
               strategy: (curated?.strategy ?? p.vault.strategy) as VaultStrategy | undefined,
@@ -739,16 +660,31 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   const performRefresh = useCallback(async (walletAddress?: string): Promise<void> => {
     if (!walletAddress) return;
     const fetchId = ++walletDataFetchIdRef.current;
+    refreshStateRef.current = { address: walletAddress.toLowerCase(), at: 0, inFlight: true };
 
     const symbols = ['ETH', 'USDC', 'CBBTC', 'WETH'];
 
-    const [, tokenResult, prices, morphoStatus] = await Promise.all([
+    let results;
+    try {
+      results = await Promise.all([
       refetchEthBalance?.() ?? Promise.resolve(),
       fetchAllTokenBalances(walletAddress),
       fetchTokenPrices(symbols),
       fetchVaultPositions(walletAddress),
-    ]);
+      ]);
+    } catch (error) {
+      if (fetchId === walletDataFetchIdRef.current) {
+        refreshStateRef.current = { ...refreshStateRef.current, inFlight: false };
+      }
+      throw error;
+    }
+    const [, tokenResult, prices, morphoStatus] = results;
     if (fetchId !== walletDataFetchIdRef.current) return;
+    refreshStateRef.current = {
+      address: walletAddress.toLowerCase(),
+      at: morphoStatus === 'ok' ? Date.now() : 0,
+      inFlight: false,
+    };
 
     const { tokens, ok } = tokenResult;
     setAlchemyTokenBalances(tokens);
@@ -818,6 +754,8 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   }, [stableIsConnected, stableAddress, performRefresh]);
 
   const refreshBalances = useCallback(async () => {
+    // Charts read position history through a short client cache; drop it so they see this refresh.
+    clearPositionHistoryCache();
     try {
       await performRefresh(address);
       logger.info('Balance refresh completed', {
@@ -831,6 +769,19 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       );
     }
   }, [performRefresh, address]);
+
+  const refreshBalancesIfStale = useCallback(
+    async (maxAgeMs: number) => {
+      if (!address) return;
+      const state = refreshStateRef.current;
+      if (state.address === address.toLowerCase()) {
+        if (state.inFlight) return;
+        if (state.at > 0 && Date.now() - state.at < maxAgeMs) return;
+      }
+      await refreshBalances();
+    },
+    [address, refreshBalances]
+  );
 
   const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -878,6 +829,8 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   const refreshBalancesWithPolling = useCallback(async (options?: { followUpDelayMs?: number; onComplete?: () => void | Promise<void> }) => {
     const followUpDelayMs = options?.followUpDelayMs ?? POST_TX_BALANCE_REFRESH_DELAY_MS;
 
+    // Post-transaction: Morpho may not have indexed it yet, so charts must not cache for a while.
+    markPositionHistoryTransaction();
     await sleep(followUpDelayMs);
 
     try {
@@ -1031,6 +984,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       loading: morphoHoldings.isLoading,
       error: morphoHoldings.error,
       refreshBalances,
+      refreshBalancesIfStale,
       refreshBalancesWithRetry,
       refreshBalancesWithPolling,
     }),
@@ -1042,6 +996,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       morphoHoldings,
       tokenBalances,
       refreshBalances,
+      refreshBalancesIfStale,
       refreshBalancesWithRetry,
       refreshBalancesWithPolling,
     ]

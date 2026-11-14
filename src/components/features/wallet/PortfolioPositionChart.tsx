@@ -21,6 +21,7 @@ import { useWallet } from '@/contexts/WalletContext';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Button } from '@/components/ui';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { fetchPositionHistoryJson } from '@/lib/position-history-cache';
 
 type TimeFrame = 'all' | '1Y' | '90D' | '30D' | '7D';
 
@@ -51,24 +52,23 @@ async function fetchVaultHistory(
   period: string,
   signal?: AbortSignal
 ): Promise<VaultPositionSeriesPoint[] | null> {
-  const response = await fetch(
+  const data = (await fetchPositionHistoryJson(
     `/api/vault/v2/${vault.address}/position-history?chainId=${vault.chainId}&userAddress=${userAddress}&period=${period}`,
-    { signal }
-  );
-
-  if (!response.ok) return null;
-
-  const data = await response.json().catch(() => null);
-  if (!data || data.error || !Array.isArray(data.history)) return null;
-
-  return data.history.map(
-    (point: {
+    signal
+  )) as {
+    error?: unknown;
+    history?: Array<{
       timestamp: number;
       assets?: number;
       assetsUsd?: number;
       shares?: number;
       assetsRaw?: string;
-    }) => ({
+    }>;
+  } | null;
+  if (!data || data.error || !Array.isArray(data.history)) return null;
+
+  return data.history.map(
+    (point) => ({
       timestamp: point.timestamp,
       assets: Math.max(0, point.assets ?? 0),
       assetsUsd: Math.max(0, point.assetsUsd ?? 0),

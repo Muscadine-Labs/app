@@ -4,6 +4,8 @@ import {
   getAllRegistryVaults,
   retiredWrapperEarnedPnl,
   type WalletMorphoPosition,
+  preferredVaultName,
+  vaultAddressPlaceholderName,
 } from '@/lib/vault-utils';
 import { getProductVaultAddresses, getRetiredWrapperUnderlying } from '@/lib/vaults';
 
@@ -53,5 +55,19 @@ describe('retiredWrapperEarnedPnl', () => {
   it('ignores a loss on the wrapper', () => {
     const positions = [position(MP_USDC, '10'), position(WMP_USDC, '0', '-5', -1)];
     expect(retiredWrapperEarnedPnl(positions, MP_USDC)).toBeNull();
+  });
+});
+
+describe('preferredVaultName', () => {
+  const address = '0x1234567890abcdef1234567890abcdef12345678';
+  it('prefers the Morpho name', () => {
+    expect(preferredVaultName('Morpho Name', 'Positions Name', address)).toBe('Morpho Name');
+  });
+  it('lets a real fallback beat the address placeholder', () => {
+    expect(preferredVaultName(vaultAddressPlaceholderName(address), 'Positions Name', address)).toBe('Positions Name');
+    expect(preferredVaultName('  ', 'Positions Name', address)).toBe('Positions Name');
+  });
+  it('uses the placeholder only when nothing else has a name', () => {
+    expect(preferredVaultName(undefined, '', address)).toBe(vaultAddressPlaceholderName(address));
   });
 });

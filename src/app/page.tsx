@@ -157,6 +157,21 @@ export default function Home() {
    * wallet → chart → Vaults.
    */
   const useWideDesktopLayout = showSideColumn && wideWallet && isSplitLayout;
+  const sideBySide = showSideColumn && isSplitLayout;
+  // Split: wallet over chart on the left, vaults spanning both rows on the right (the chart row
+  // takes any extra height, so the chart stays right under the wallet). Wide: wallet full width.
+  const gridStyle: CSSProperties | undefined = !sideBySide
+    ? undefined
+    : useWideDesktopLayout
+      ? {
+          gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+          gridTemplateAreas: '"wallet wallet" "chart side"',
+        }
+      : {
+          gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+          gridTemplateAreas: '"wallet side" "chart side"',
+          gridTemplateRows: 'auto 1fr',
+        };
 
   const vaultsPanel = showVaultsPanel ? (
     <DashboardPanel
@@ -177,44 +192,30 @@ export default function Home() {
     <div className="w-full bg-[var(--background)] h-full">
       <div className="flex-1 overflow-y-auto">
         <div className="flex flex-col gap-3 sm:gap-4 p-4 sm:p-6 min-h-full">
-          {useWideDesktopLayout ? (
+          {/*
+            One grid for every layout: only its template changes, so the wallet strip and the
+            chart never remount (a remount refetched every vault's position history).
+          */}
+          <div
+            ref={viewportRef}
+            className="grid grid-cols-1 gap-3 sm:gap-4 min-w-0 items-start"
+            style={gridStyle}
+          >
+            <div className="min-w-0" style={sideBySide ? { gridArea: 'wallet' } : undefined}>
+              <WalletOverview measureRef={walletStripRef} />
+            </div>
             <div
-              ref={viewportRef}
-              className="grid grid-cols-1 gap-3 sm:gap-4 min-w-0 items-start min-[1000px]:grid-cols-2 min-[1000px]:[grid-template-areas:var(--dash-areas)]"
-              style={
-                {
-                  ['--dash-areas' as string]: '"wallet wallet" "chart side"',
-                } as CSSProperties
-              }
+              className="flex flex-col gap-3 sm:gap-4 min-w-0 w-full"
+              style={sideBySide ? { gridArea: 'chart' } : undefined}
             >
-              <div className="min-w-0 min-[1000px]:[grid-area:wallet]">
-                <WalletOverview measureRef={walletStripRef} />
-              </div>
-              <div className="flex flex-col gap-3 sm:gap-4 min-w-0 w-full min-[1000px]:[grid-area:chart]">
-                {chartBlock}
-              </div>
-              <div className="min-w-0 w-full min-[1000px]:[grid-area:side]">
+              {chartBlock}
+            </div>
+            {vaultsPanel ? (
+              <div className="min-w-0 w-full" style={sideBySide ? { gridArea: 'side' } : undefined}>
                 {vaultsPanel}
               </div>
-            </div>
-          ) : isSplitLayout && showSideColumn ? (
-            <div
-              ref={viewportRef}
-              className="grid grid-cols-1 gap-3 sm:gap-4 min-w-0 items-start min-[1000px]:grid-cols-2"
-            >
-              <div className="flex flex-col gap-3 sm:gap-4 min-w-0">
-                <WalletOverview measureRef={walletStripRef} />
-                {chartBlock}
-              </div>
-              {vaultsPanel}
-            </div>
-          ) : (
-            <div ref={viewportRef} className="flex flex-col gap-3 sm:gap-4 min-w-0">
-              <WalletOverview measureRef={walletStripRef} />
-              {chartBlock}
-              {vaultsPanel}
-            </div>
-          )}
+            ) : null}
+          </div>
         </div>
       </div>
     </div>

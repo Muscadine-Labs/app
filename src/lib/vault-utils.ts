@@ -172,6 +172,28 @@ export function isCuratedVaultAddress(address: string): boolean {
 }
 
 /** Minimal vault stub for external Morpho vaults not in the Muscadine registry. */
+/** Label used when no source has a name for this vault. */
+export function vaultAddressPlaceholderName(address: string): string {
+  return `Vault ${address.slice(0, 6)}...${address.slice(-4)}`;
+}
+
+/**
+ * Morpho's vault name (from `/complete`) first, then the caller's name (positions API or
+ * registry), and the address placeholder only when neither has a real name.
+ */
+export function preferredVaultName(
+  vaultDataName: string | null | undefined,
+  fallbackName: string | null | undefined,
+  address: string
+): string {
+  const placeholder = vaultAddressPlaceholderName(address).toLowerCase();
+  const isReal = (name: string | null | undefined): name is string =>
+    Boolean(name?.trim()) && name!.trim().toLowerCase() !== placeholder;
+  if (isReal(vaultDataName)) return vaultDataName;
+  if (isReal(fallbackName)) return fallbackName;
+  return vaultAddressPlaceholderName(address);
+}
+
 export function createExternalVaultStub(
   address: string,
   options?: { name?: string; symbol?: string; chainId?: number }
