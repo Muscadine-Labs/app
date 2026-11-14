@@ -7,7 +7,10 @@ import { formatUnits, getAddress, type PublicClient } from 'viem';
 import type { AlchemyTokenBalancesResponse, AlchemyTokenBalance } from '@/types/api';
 import { formatCurrency } from '@/lib/formatter';
 import { logger } from '@/lib/logger';
-import { clearPositionHistoryCache } from '@/lib/position-history-cache';
+import {
+  clearPositionHistoryCache,
+  markPositionHistoryTransaction,
+} from '@/lib/position-history-cache';
 import {
   BASE_CHAIN_ID,
   POST_TX_BALANCE_REFRESH_DELAY_MS,
@@ -661,12 +664,21 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
 
     const symbols = ['ETH', 'USDC', 'CBBTC', 'WETH'];
 
-    const [, tokenResult, prices, morphoStatus] = await Promise.all([
+    let results;
+    try {
+      results = await Promise.all([
       refetchEthBalance?.() ?? Promise.resolve(),
       fetchAllTokenBalances(walletAddress),
       fetchTokenPrices(symbols),
       fetchVaultPositions(walletAddress),
-    ]);
+      ]);
+    } catch (error) {
+      if (fetchId === walletDataFetchIdRef.current) {
+        refreshStateRef.current = { ...refreshStateRef.current, inFlight: false };
+      }
+      throw error;
+    }
+    const [, tokenResult, prices, morphoStatus] = results;
     if (fetchId !== walletDataFetchIdRef.current) return;
     refreshStateRef.current = {
       address: walletAddress.toLowerCase(),
@@ -817,8 +829,9 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   const refreshBalancesWithPolling = useCallback(async (options?: { followUpDelayMs?: number; onComplete?: () => void | Promise<void> }) => {
     const followUpDelayMs = options?.followUpDelayMs ?? POST_TX_BALANCE_REFRESH_DELAY_MS;
 
+    // Post-transaction: Morpho may not have indexed it yet, so charts must not cache for a while.
+    markPositionHistoryTransaction();
     await sleep(followUpDelayMs);
-    clearPositionHistoryCache();
 
     try {
       await performRefresh(address);

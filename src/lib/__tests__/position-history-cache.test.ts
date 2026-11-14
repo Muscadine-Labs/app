@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   POSITION_HISTORY_CACHE_MS,
   clearPositionHistoryCache,
+  markPositionHistoryTransaction,
+  POST_TX_NO_CACHE_MS,
   fetchPositionHistoryJson,
 } from '@/lib/position-history-cache';
 
@@ -48,6 +50,34 @@ describe('fetchPositionHistoryJson', () => {
     const f = fetcher as unknown as typeof fetch;
     expect(await fetchPositionHistoryJson('/z', undefined, f)).toBeNull();
     expect(await fetchPositionHistoryJson('/z', undefined, f)).toEqual({ history: [2] });
+  });
+
+  it('does not keep an HTTP 200 body that carries an error', async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(okResponse({ error: 'Morpho GraphQL error' }))
+      .mockResolvedValueOnce(okResponse({ history: [4] }));
+    const f = fetcher as unknown as typeof fetch;
+    expect(await fetchPositionHistoryJson('/e', undefined, f)).toEqual({ error: 'Morpho GraphQL error' });
+    await Promise.resolve();
+    expect(await fetchPositionHistoryJson('/e', undefined, f)).toEqual({ history: [4] });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not store results for a while after a transaction', async () => {
+    vi.useFakeTimers();
+    const fetcher = vi.fn(async () => okResponse({ history: [] }));
+    const f = fetcher as unknown as typeof fetch;
+    markPositionHistoryTransaction();
+    await fetchPositionHistoryJson('/t', undefined, f);
+    await fetchPositionHistoryJson('/t', undefined, f);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    vi.advanceTimersByTime(POST_TX_NO_CACHE_MS + 1);
+    await fetchPositionHistoryJson('/t', undefined, f);
+    await fetchPositionHistoryJson('/t', undefined, f);
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    // A window that ended long ago, so later tests cache normally.
+    markPositionHistoryTransaction(0);
   });
 
   it('rejects an aborted caller without cancelling the shared request', async () => {

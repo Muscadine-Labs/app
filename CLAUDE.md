@@ -130,6 +130,8 @@ The product surface is four curated Morpho Vault V2 contracts in `src/lib/vaults
 **Routes:** `/vault/v2/{address}` only (curated registry addresses).  
 **API:** `/api/vault/v2/{address}/{complete|history|activity|position-history|earned-interest|allocations|caps|pending}`
 
+**Vault names in lists:** `preferredVaultName` (`vault-utils.ts`): Morpho `/complete` name, then the positions / registry name, and the `Vault 0x…` placeholder (`vaultAddressPlaceholderName`) only when nothing else has one.
+
 **Vault registry fields:** `name` (fallback label), `symbol` (underlying asset), `vaultSymbol` (share token label), `strategy` (`prime` | `frontier`). Once Morpho returns a vault, the UI shows Morpho's on-chain `name` (explorer, dashboard, vault page, positions route, review modal); the registry `name` shows only until then or when Morpho has none.
 
 **Retired fee wrappers.** Four fee wrappers once deposited into the vaults above. They are removed from the app: not in `VAULTS`, not listed, no vault page (`/vault/v2/{wrapper}` redirects home), no deposit or withdraw path. Their whole share supply is dead shares (`0x…dEaD`), so no user holds them. They stay in `vaults.ts` as `RETIRED_FEE_WRAPPERS` (`getRetiredWrapper`, `getRetiredWrapperUnderlying`, `getProductVaultAddresses`) only so a wallet that once held one keeps its chart and total interest together with the underlying vault:
@@ -170,7 +172,7 @@ All vault writes go through **`src/lib/transactionUtilsV2.ts`**. ERC-4626 ops an
 | **Deposit / withdraw amounts** | RPC only: deposit MAX is the wallet's on-chain `balanceOf` (Alchemy balances only while it loads); withdraw uses on-chain shares + `convertToAssets`, a simulate, the force planner, and `readInstantLiquidityAssets` (`force-withdraw-v2.ts`) for the warning's instant-liquidity figure. No API data feeds a transaction amount. |
 | **Live Morpho positions** | `/api/user/morpho-positions` → `WalletContext`: profit (`pnl`) and non-registry vaults; registry balances are replaced by the on-chain read |
 | **Liquid balances** | Alchemy `alchemy_getTokenBalances` for USDC / cbBTC / WETH only (one call; other tokens are priced $0 and never read) + wagmi ETH in `WalletContext` |
-| **Position history (charts)** | `vaultV2PositionByAddress` → `history` via `/api/vault/v2/.../position-history`. Client reads go through `fetchPositionHistoryJson` (`lib/position-history-cache.ts`): 60s cache shared by the dashboard and vault page, in-flight dedupe, failures not kept, cleared by `refreshBalances` / `refreshBalancesWithPolling` (so a transaction always shows). |
+| **Position history (charts)** | `vaultV2PositionByAddress` → `history` via `/api/vault/v2/.../position-history`. Client reads go through `fetchPositionHistoryJson` (`lib/position-history-cache.ts`): 60s cache shared by the dashboard and vault page, in-flight dedupe, failures not kept, cleared by `refreshBalances`; after a transaction `markPositionHistoryTransaction()` (in `refreshBalancesWithPolling`) clears it and stores nothing for 2 minutes while Morpho indexes the transaction. HTTP-200 `{ error }` bodies are failures and are not kept. |
 | **Earned interest** | Morpho `pnl` or activity-based fallback via `/api/vault/v2/.../earned-interest` |
 | **Vault TVL / APY** | `vaultV2ByAddress` via `/api/vault/v2/.../complete` and `history` |
 | **Headline APY** | Morpho `netApy` (current allocation-weighted; fallbacks `apy` / `avgNetApy` / `avgNetApyExcludingRewards`) |

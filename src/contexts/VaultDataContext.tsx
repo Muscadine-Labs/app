@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
 import { formatUnits } from 'viem';
 import { Vault, MorphoVaultData, VaultLiquidityBreakdown } from '@/types/vault';
-import { findVaultByAddress, isCuratedVaultAddress } from '@/lib/vault-utils';
+import { findVaultByAddress, isCuratedVaultAddress, vaultAddressPlaceholderName } from '@/lib/vault-utils';
 import { BASE_CHAIN_ID, MORPHO_PRELOAD_BATCH_SIZE, MORPHO_FETCH_ERROR_COOLDOWN_MS, CLIENT_VAULT_DATA_CACHE_MS } from '../lib/constants';
 
 interface VaultDataState {
@@ -184,7 +184,7 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
         // Build the vault object
         const vault: Vault = {
           address: vaultInfo.address,
-          name: vaultInfo.name || registryVault?.name || `Vault ${address.slice(0, 6)}...${address.slice(-4)}`,
+          name: vaultInfo.name || registryVault?.name || vaultAddressPlaceholderName(address),
           symbol: registryVault?.symbol || vaultInfo.asset?.symbol || 'UNKNOWN',
           vaultSymbol: registryVault?.vaultSymbol,
           chainId: effectiveChainId,

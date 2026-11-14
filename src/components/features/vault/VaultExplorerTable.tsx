@@ -11,6 +11,7 @@ import { useWallet } from '@/contexts/WalletContext';
 import { VaultName } from '@/components/features/vault/VaultName';
 import {
   getVaultRoute,
+  preferredVaultName,
   retiredWrapperEarnedPnl,
   hasOnChainVaultShares,
   isCuratedVaultAddress,
@@ -351,7 +352,7 @@ function VaultExplorerMobileCard({
         <VaultLogo vault={vault} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap min-w-0">
-            <VaultName name={vaultData?.name || vault.name} />
+            <VaultName name={preferredVaultName(vaultData?.name, vault.name, vault.address)} />
             {restricted ? <RestrictedMark /> : null}
             <span className="inline-flex rounded-md bg-[var(--surface-elevated)] px-2 py-0.5 text-[10px] font-medium text-[var(--foreground-secondary)]">
               Base
@@ -454,7 +455,7 @@ function DashboardVaultMobileCard({
       <div className="flex items-start gap-2.5 mb-2">
         <VaultLogo vault={vault} />
         <div className="min-w-0 flex-1">
-          <VaultName name={vaultData?.name || vault.name} lines={2} />
+          <VaultName name={preferredVaultName(vaultData?.name, vault.name, vault.address)} lines={2} />
           <VaultShareLabel vault={vault} />
           {!isCurated || showCuratedLabel ? (
             <span className="text-[10px] text-[var(--foreground-muted)] block">
@@ -642,7 +643,7 @@ function VaultExplorerRow({
     <tr
       role={isCurated ? 'button' : undefined}
       tabIndex={isCurated ? 0 : undefined}
-      aria-label={isCurated ? `Open ${vaultData?.name || vault.name}` : undefined}
+      aria-label={isCurated ? `Open ${preferredVaultName(vaultData?.name, vault.name, vault.address)}` : undefined}
       onClick={isCurated ? openVault : undefined}
       onKeyDown={
         isCurated ? (event) => handleRowKeyDown(event, openVault) : undefined
@@ -666,7 +667,7 @@ function VaultExplorerRow({
           <VaultLogo vault={vault} />
           <div className="min-w-0">
             <div className="flex items-center gap-2 min-w-0">
-              <VaultName name={vaultData?.name || vault.name} />
+              <VaultName name={preferredVaultName(vaultData?.name, vault.name, vault.address)} />
               {restricted ? <RestrictedMark /> : null}
               {!isCurated ? (
                 <span className="shrink-0 text-[10px] text-[var(--foreground-muted)]">
@@ -908,7 +909,7 @@ function DashboardVaultRow({ vault }: { vault: Vault }) {
     <tr
       role={isCurated ? 'button' : undefined}
       tabIndex={isCurated ? 0 : undefined}
-      aria-label={isCurated ? `Open ${vaultData?.name || vault.name}` : undefined}
+      aria-label={isCurated ? `Open ${preferredVaultName(vaultData?.name, vault.name, vault.address)}` : undefined}
       onClick={isCurated ? openVault : undefined}
       onKeyDown={isCurated ? (event) => handleRowKeyDown(event, openVault) : undefined}
       className={`border-b border-[var(--border)] transition-colors ${
@@ -919,7 +920,7 @@ function DashboardVaultRow({ vault }: { vault: Vault }) {
         <div className="flex items-start gap-2 min-w-0">
           <VaultLogo vault={vault} size={28} />
           <div className="min-w-0 flex-1">
-            <VaultName name={vaultData?.name || vault.name} lines={2} />
+            <VaultName name={preferredVaultName(vaultData?.name, vault.name, vault.address)} lines={2} />
             <VaultShareLabel vault={vault} />
           </div>
         </div>
