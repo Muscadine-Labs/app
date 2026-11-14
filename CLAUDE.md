@@ -130,7 +130,7 @@ The product surface is four curated Morpho Vault V2 contracts in `src/lib/vaults
 **Routes:** `/vault/v2/{address}` only (curated registry addresses).  
 **API:** `/api/vault/v2/{address}/{complete|history|activity|position-history|earned-interest|allocations|caps|pending}`
 
-**Vault registry fields:** `symbol` (underlying asset), `vaultSymbol` (share token label), `strategy` (`prime` | `frontier`).
+**Vault registry fields:** `name` (fallback label), `symbol` (underlying asset), `vaultSymbol` (share token label), `strategy` (`prime` | `frontier`). Once Morpho returns a vault, the UI shows Morpho's on-chain `name` (explorer, dashboard, vault page, positions route, review modal); the registry `name` shows only until then or when Morpho has none.
 
 **Retired fee wrappers.** Four fee wrappers once deposited into the vaults above. They are removed from the app: not in `VAULTS`, not listed, no vault page (`/vault/v2/{wrapper}` redirects home), no deposit or withdraw path. Their whole share supply is dead shares (`0x…dEaD`), so no user holds them. They stay in `vaults.ts` as `RETIRED_FEE_WRAPPERS` (`getRetiredWrapper`, `getRetiredWrapperUnderlying`, `getProductVaultAddresses`) only so a wallet that once held one keeps its chart and total interest together with the underlying vault:
 
@@ -150,7 +150,7 @@ The product surface is four curated Morpho Vault V2 contracts in `src/lib/vaults
 
 **Explorer visibility** (`ExplorerVaultsContext`): every registry vault is listed. Registry balances come from the chain (`WalletContext`), so a holder still sees the position when the positions API fails. A listed vault the wallet cannot deposit into gets an **Approved wallets only** pill; that needs a successful read saying no (`blockedVaultAddresses` from `useVaultDepositGates`, `resolveDepositBlocked`), so a failed gate read never shows it.
 
-Explorer filters default to **All** (network, strategy, asset). **No v1/v2 version filter** (v1 removed). There is no developer/over-balance bypass mode.
+Explorer filters default to **All** (network, strategy, asset). Strategy and Asset options come from the registry (`getRegistryVaultList`), and a filter with a single option is hidden. **No v1/v2 version filter** (v1 removed). There is no developer/over-balance bypass mode.
 
 **Dashboard:** Shows Morpho **v2** positions via `/api/user/morpho-positions`; non-curated vaults are read-only on dashboard. Portfolio chart aggregates v2 position-history only.
 
@@ -372,8 +372,8 @@ Adaptive layout (content-sized panels; empty sections omitted):
 | Filter | Options | Notes |
 |--------|---------|-------|
 | Network | All, Base | Default **All**; `base` filters `chainId === 8453` |
-| Strategy | All, Prime, Frontier | Default **All** (shows Prime + Frontier) |
-| Asset | All, USDC, cbBTC, WETH | Local filter state. |
+| Strategy | All + each registry strategy (Prime, Frontier) | Default **All**. Hidden when the registry has one strategy. |
+| Asset | All + each registry asset, registry order (USDC, cbBTC, WETH) | Local filter state. Hidden when the registry has one asset. |
 | Scope | Deposits + whitelisted, In wallet, **Whitelisted** | Default **Deposits + whitelisted**. Wallet modes can list external deposits as **External** (not clickable). |
 
 **Table columns** (`VaultExplorerTable.tsx`): Network, Vault, **Your Position** (when connected), **Deposits**, **Liquidity**, **APY**. **Whitelisted** rows navigate to `/vault/v2/{address}`; external rows are display-only.

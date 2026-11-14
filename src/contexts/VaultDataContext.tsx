@@ -184,7 +184,7 @@ export function VaultDataProvider({ children }: VaultDataProviderProps) {
         // Build the vault object
         const vault: Vault = {
           address: vaultInfo.address,
-          name: registryVault?.name || vaultInfo.name || `Vault ${address.slice(0, 6)}...${address.slice(-4)}`,
+          name: vaultInfo.name || registryVault?.name || `Vault ${address.slice(0, 6)}...${address.slice(-4)}`,
           symbol: registryVault?.symbol || vaultInfo.asset?.symbol || 'UNKNOWN',
           vaultSymbol: registryVault?.vaultSymbol,
           chainId: effectiveChainId,

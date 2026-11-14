@@ -13,7 +13,7 @@ import {
   useInteractions,
   useRole,
 } from '@floating-ui/react';
-import type { VaultStrategy } from '@/lib/vaults';
+import { getRegistryVaultList, type VaultStrategy } from '@/lib/vaults';
 
 interface FilterDropdownProps {
   label: string;
@@ -105,7 +105,7 @@ function FilterDropdown({ label, value, options, onChange }: FilterDropdownProps
   );
 }
 
-export type VaultAssetFilter = 'all' | 'USDC' | 'cbBTC' | 'WETH';
+export type VaultAssetFilter = 'all' | string;
 export type VaultNetworkFilter = 'all' | 'base';
 export type VaultStrategyFilter = 'all' | VaultStrategy;
 export type VaultWalletFilter = 'all' | 'inWallet' | 'inWalletAndWhitelisted';
@@ -258,6 +258,19 @@ export function getDefaultExplorerFilters(): VaultExplorerFilterState {
   };
 }
 
+const STRATEGY_LABELS: Record<VaultStrategy, string> = {
+  prime: 'Prime',
+  frontier: 'Frontier',
+};
+
+/** Filter options come from the registry, so adding a vault adds its asset and strategy. */
+const REGISTRY_VAULTS = getRegistryVaultList();
+/** Registry order (USDC, cbBTC, WETH today). */
+const REGISTRY_ASSET_SYMBOLS = [...new Set(REGISTRY_VAULTS.map((vault) => vault.symbol))];
+const REGISTRY_STRATEGIES = (['prime', 'frontier'] as const).filter((strategy) =>
+  REGISTRY_VAULTS.some((vault) => vault.strategy === strategy)
+);
+
 export default function VaultExplorerFilters({
   filters,
   onFiltersChange,
@@ -268,9 +281,14 @@ export default function VaultExplorerFilters({
 
   const assetOptions = [
     { label: 'All', value: 'all' },
-    { label: 'USDC', value: 'USDC' },
-    { label: 'cbBTC', value: 'cbBTC' },
-    { label: 'WETH', value: 'WETH' },
+    ...REGISTRY_ASSET_SYMBOLS.map((symbol) => ({ label: symbol, value: symbol })),
+  ];
+  const strategyOptions = [
+    { label: 'All', value: 'all' },
+    ...REGISTRY_STRATEGIES.map((strategy) => ({
+      label: STRATEGY_LABELS[strategy],
+      value: strategy,
+    })),
   ];
 
   return (
@@ -286,22 +304,22 @@ export default function VaultExplorerFilters({
             ]}
             onChange={(value) => update({ network: value as VaultNetworkFilter })}
           />
-          <FilterDropdown
-            label="Strategy"
-            value={filters.strategy}
-            options={[
-              { label: 'All', value: 'all' },
-              { label: 'Prime', value: 'prime' },
-              { label: 'Frontier', value: 'frontier' },
-            ]}
-            onChange={(value) => update({ strategy: value as VaultStrategyFilter })}
-          />
-          <FilterDropdown
-            label="Asset"
-            value={filters.asset}
-            options={assetOptions}
-            onChange={(value) => update({ asset: value as VaultAssetFilter })}
-          />
+          {strategyOptions.length > 2 ? (
+            <FilterDropdown
+              label="Strategy"
+              value={filters.strategy}
+              options={strategyOptions}
+              onChange={(value) => update({ strategy: value as VaultStrategyFilter })}
+            />
+          ) : null}
+          {assetOptions.length > 2 ? (
+            <FilterDropdown
+              label="Asset"
+              value={filters.asset}
+              options={assetOptions}
+              onChange={(value) => update({ asset: value as VaultAssetFilter })}
+            />
+          ) : null}
         </div>
 
         <WalletFilterControl

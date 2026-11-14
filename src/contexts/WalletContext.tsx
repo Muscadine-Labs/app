@@ -678,7 +678,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
             version: p.version ?? 'v2',
             vault: {
               address: p.vault.address,
-              name: curated?.name || p.vault.name,
+              name: p.vault.name || curated?.name,
               symbol: p.vault.symbol,
               vaultSymbol: curated?.vaultSymbol ?? p.vault.vaultSymbol,
               strategy: (curated?.strategy ?? p.vault.strategy) as VaultStrategy | undefined,
