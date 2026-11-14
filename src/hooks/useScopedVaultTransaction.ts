@@ -65,6 +65,9 @@ function buildVaultAccount(
   };
 }
 
+/** Opening the transact panel refreshes wallet data only when it is older than this. */
+const PANEL_REFRESH_MAX_AGE_MS = 60_000;
+
 export function useScopedVaultTransaction({
   vaultAddress,
   vaultName,
@@ -73,7 +76,7 @@ export function useScopedVaultTransaction({
   initialTab,
 }: UseScopedVaultTransactionOptions) {
   const { isConnected, address: walletAddress } = useAccount();
-  const { tokenBalances, morphoHoldings, refreshBalances } = useWallet();
+  const { tokenBalances, morphoHoldings, refreshBalancesIfStale } = useWallet();
   const { fetchVaultData } = useVaultData();
   const {
     fromAccount,
@@ -225,8 +228,10 @@ export function useScopedVaultTransaction({
     applyTabAccounts(initialTab);
 
     if (isConnected) {
-      refreshBalances();
-      fetchVaultData(vaultAddress, BASE_CHAIN_ID, true);
+      // The wallet and vault data usually just loaded (page load or a recent visit). Amounts in
+      // the form are read on chain anyway, so only refresh data that is actually stale.
+      void refreshBalancesIfStale(PANEL_REFRESH_MAX_AGE_MS);
+      fetchVaultData(vaultAddress, BASE_CHAIN_ID);
     }
   }, [
     isOpen,
@@ -239,7 +244,7 @@ export function useScopedVaultTransaction({
     reset,
     setAmount,
     applyTabAccounts,
-    refreshBalances,
+    refreshBalancesIfStale,
     fetchVaultData,
   ]);
 

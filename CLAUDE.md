@@ -169,8 +169,8 @@ All vault writes go through **`src/lib/transactionUtilsV2.ts`**. ERC-4626 ops an
 | **Your balances (registry vaults)** | On chain: `readRegistryVaultBalances` (`lib/onchain-positions.ts`, `balanceOf` + `convertToAssets` multicalls) merged into `WalletContext.morphoHoldings`, priced with live token prices. Vault page position and the withdraw max also read on chain. |
 | **Deposit / withdraw amounts** | RPC only: deposit MAX is the wallet's on-chain `balanceOf` (Alchemy balances only while it loads); withdraw uses on-chain shares + `convertToAssets`, a simulate, the force planner, and `readInstantLiquidityAssets` (`force-withdraw-v2.ts`) for the warning's instant-liquidity figure. No API data feeds a transaction amount. |
 | **Live Morpho positions** | `/api/user/morpho-positions` → `WalletContext`: profit (`pnl`) and non-registry vaults; registry balances are replaced by the on-chain read |
-| **Liquid balances** | Alchemy + wagmi in `WalletContext` |
-| **Position history (charts)** | `vaultV2PositionByAddress` → `history` via `/api/vault/v2/.../position-history` |
+| **Liquid balances** | Alchemy `alchemy_getTokenBalances` for USDC / cbBTC / WETH only (one call; other tokens are priced $0 and never read) + wagmi ETH in `WalletContext` |
+| **Position history (charts)** | `vaultV2PositionByAddress` → `history` via `/api/vault/v2/.../position-history`. Client reads go through `fetchPositionHistoryJson` (`lib/position-history-cache.ts`): 60s cache shared by the dashboard and vault page, in-flight dedupe, failures not kept, cleared by `refreshBalances` / `refreshBalancesWithPolling` (so a transaction always shows). |
 | **Earned interest** | Morpho `pnl` or activity-based fallback via `/api/vault/v2/.../earned-interest` |
 | **Vault TVL / APY** | `vaultV2ByAddress` via `/api/vault/v2/.../complete` and `history` |
 | **Headline APY** | Morpho `netApy` (current allocation-weighted; fallbacks `apy` / `avgNetApy` / `avgNetApyExcludingRewards`) |
@@ -348,7 +348,7 @@ Adaptive layout (content-sized panels; empty sections omitted):
 | Chart | `PortfolioPositionChart` | Under wallet; ~300–380px height |
 | Side | Your Vaults | Vaults when held |
 
-**Responsive wallet / vaults (`useWalletStripNeedsFullWidth`):** On desktop (`min-[1000px]`), compares wallet strip intrinsic width to half the dashboard. If it fits → vaults align with wallet; if too wide (big $ / narrow window) → wallet spans full width and vaults drop to align with the chart. Mobile always stacks (wallet → chart → vaults). Hysteresis avoids flicker on resize.
+**Responsive wallet / vaults (`useWalletStripNeedsFullWidth`):** On desktop (`min-[1000px]`), compares wallet strip intrinsic width to half the dashboard. If it fits → vaults align with wallet; if too wide (big $ / narrow window) → wallet spans full width and vaults drop to align with the chart. Mobile always stacks (wallet → chart → vaults). Hysteresis avoids flicker on resize. The dashboard is **one grid** whose template changes per layout (`gridStyle` in `page.tsx`); the wallet strip and chart keep their place in the tree, so a layout switch never remounts the chart (a remount refetched every vault's history). Do not go back to separate layout branches.
 
 **Important:** Portfolio chart includes **v2** positions from the API; **Your Vaults** is **v2-only**.
 
@@ -357,7 +357,7 @@ Adaptive layout (content-sized panels; empty sections omitted):
 - **Portfolio chart** (`PortfolioPositionChart.tsx`):
   1. Discovers vaults via `/api/user/morpho-positions?includeEmpty=true`.
   2. **`aggregatePortfolioHistory()`** in `portfolio-utils.ts` — forward-fill and sum USD.
-  - Histories load once this wallet's positions list has resolved (`positionsReady`), keyed by the list of vaults (not the `positions` array), so a same-wallet balance refresh does not refetch them.
+  - Histories load once this wallet's positions list has resolved (`positionsReady`), keyed by the list of vaults (not the `positions` array), so a same-wallet balance refresh does not refetch them. Vault page My Position asks for earned interest only once the on-chain balance is known (one request, not one before and one after), and the hourly 30d series depends on the wrapper flag only when a retired wrapper is in play.
   - **Current holdings** in `WalletOverview` / Your Vaults from **`WalletContext`** (`/api/user/morpho-positions`).
 - Preloads vault API data for deposited vaults via `useVaultListPreloader`.
 - **Position display:** `formatPositionUsd` / `formatPositionTokenAmount` in `formatter.ts` — USDC **6**, cbBTC/ETH/WETH **8**. Transactions use full chain decimals via `formatBigIntForInput`. Chart axes stay compact (2/6).
@@ -510,7 +510,7 @@ src/
 - Approval txs use `approving`; only the main vault op should set `confirming` with the hash users care about.
 - After success, balances refresh via `refreshBalancesWithPolling` in `TransactionFlow`.
 
-**Vault transact panel** (`VaultTransactPanel.tsx` + `useScopedVaultTransaction`): amount entry stays inline on My Position. After Deposit/Withdraw, review/confirm is the same popup (`Modal` + `TransactionFlow`) as before so addresses and steps are readable. Amounts over balance block the CTA. `/transact` redirects to `/vaults`.
+**Vault transact panel** (`VaultTransactPanel.tsx` + `useScopedVaultTransaction`): amount entry stays inline on My Position. After Deposit/Withdraw, review/confirm is the same popup (`Modal` + `TransactionFlow`) as before so addresses and steps are readable. Amounts over balance block the CTA. `/transact` redirects to `/vaults`. Opening the panel calls `refreshBalancesIfStale(60s)` (skips when a refresh is running or finished cleanly in the last minute) and a non-forced `fetchVaultData`; form amounts are read on chain regardless.
 
 **Transact tabs:** Tab highlight uses `activeTab` (user selection). `effectiveActiveTab` infers deposit vs withdraw from From/To when both accounts are set (WETH prefs, max amount). `handleTabChange` resets accounts per tab; do not no-op on `tab === activeTab` alone — use `accountsMatchTransactionTab()` so mismatched From/To does not block clicks.
 
@@ -527,7 +527,7 @@ src/
 
 `WalletContext`:
 
-- Native ETH + tokens: USDC, cbBTC, WETH (`TOKEN_ADDRESSES` in `constants.ts`) via Alchemy. USD prices come from CoinGecko (`/api/prices`).
+- Native ETH + tokens: USDC, cbBTC, WETH (`TOKEN_ADDRESSES` in `constants.ts`) via Alchemy (those three addresses only, one call per refresh). USD prices come from CoinGecko (`/api/prices`).
 - **Morpho positions:** `/api/user/morpho-positions` (v2); metadata from `/api/vault/v2/.../complete`
 - `refreshBalances`, `refreshBalancesWithPolling` after transactions
 

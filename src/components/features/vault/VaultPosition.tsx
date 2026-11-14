@@ -37,6 +37,7 @@ import { VaultEarningsBreakdown } from './VaultEarningsBreakdown';
 import { VaultTransactPanel } from './VaultTransactPanel';
 import { resolveAssetDecimals } from '@/lib/asset-decimals';
 import { BASE_CHAIN_ID } from '@/lib/constants';
+import { fetchPositionHistoryJson } from '@/lib/position-history-cache';
 import { getRetiredWrapper } from '@/lib/vaults';
 import { mergeVaultPositionSeries } from '@/lib/portfolio-utils';
 import type { Transaction } from '@/types/api';
@@ -88,14 +89,13 @@ async function loadPositionHistory(
   period: string,
   signal?: AbortSignal
 ): Promise<PositionHistoryPoint[] | null> {
-  const response = await fetch(
+  const data = (await fetchPositionHistoryJson(
     `/api/vault/${version}/${vaultAddress}/position-history?chainId=${chainId}&userAddress=${userAddress}&period=${period}`,
-    { signal }
-  );
-  if (!response.ok) return null;
-  const data = await response.json().catch(() => ({}));
+    signal
+  )) as { error?: unknown; history?: unknown } | null;
+  if (data == null) return null;
   if (data.error || !Array.isArray(data.history)) return data.error ? null : [];
-  return data.history;
+  return data.history as PositionHistoryPoint[];
 }
 
 async function fetchActivityFlows(
@@ -189,7 +189,7 @@ export default function VaultPosition({
     [vaultData.address, historyWrapperAddress]
   );
 
-  const { data: sharesRaw } = useReadContract({
+  const { data: sharesRaw, isError: sharesReadFailed } = useReadContract({
     address: address ? vaultData.address as `0x${string}` : undefined,
     chainId: vaultData.chainId as typeof BASE_CHAIN_ID,
     abi: ERC20_BALANCE_ABI,
@@ -199,7 +199,7 @@ export default function VaultPosition({
   });
 
   // Convert shares to assets using convertToAssets
-  const { data: assetsRaw } = useReadContract({
+  const { data: assetsRaw, isError: assetsReadFailed } = useReadContract({
     address: sharesRaw !== undefined ? vaultData.address as `0x${string}` : undefined,
     chainId: vaultData.chainId as typeof BASE_CHAIN_ID,
     abi: ERC4626_ABI,
@@ -210,19 +210,27 @@ export default function VaultPosition({
 
   const pageAssets = useMemo(() => assetsFromBalance(sharesRaw, assetsRaw), [sharesRaw, assetsRaw]);
   const currentAssetsRaw = pageAssets?.toString();
+  // Ask for earned interest once the on-chain balance is known (or its read failed). Asking
+  // before it is known sent the request twice: once without the balance, once with it.
+  const balanceReadSettled =
+    currentAssetsRaw !== undefined || sharesReadFailed || assetsReadFailed;
 
   const pageEarnedInterest = useVaultEarnedInterest(
-    isConnected ? vaultData.address : undefined,
+    isConnected && balanceReadSettled ? vaultData.address : undefined,
     vaultData.symbol,
     currentAssetsRaw
   );
   // Only dead shares remain in the retired wrappers, so a wallet's balance there is zero.
+  // Wait for the positions list to say whether this wallet ever held the wrapper.
   const wrapperEarnedInterest = useVaultEarnedInterest(
-    isConnected ? historyWrapperAddress : undefined,
+    isConnected && !wrapperCheckPending ? historyWrapperAddress : undefined,
     vaultData.symbol,
     historyWrapperAddress ? '0' : undefined
   );
   const earnedInterest = useMemo(() => {
+    if (wrapperCheckPending || (isConnected && !balanceReadSettled)) {
+      return { ...pageEarnedInterest, isLoading: true, error: null };
+    }
     if (!historyWrapperAddress) return pageEarnedInterest;
     const isLoading = pageEarnedInterest.isLoading || wrapperEarnedInterest.isLoading;
     if (isLoading) {
@@ -255,7 +263,14 @@ export default function VaultPosition({
       isLoading: false,
       error: null,
     };
-  }, [historyWrapperAddress, pageEarnedInterest, wrapperEarnedInterest]);
+  }, [
+    wrapperCheckPending,
+    isConnected,
+    balanceReadSettled,
+    historyWrapperAddress,
+    pageEarnedInterest,
+    wrapperEarnedInterest,
+  ]);
   const interestDecimals = resolveAssetDecimals(
     vaultData.symbol,
     earnedInterest.assetDecimals || vaultData.assetDecimals
@@ -297,6 +312,10 @@ export default function VaultPosition({
   });
   const wrapperRecent =
     wrapperRecentState.key === positionHistoryFetchKey ? wrapperRecentState.recent : null;
+  // The hourly series only waits on `wrapperRecent` when a wrapper is in play. Without one it must
+  // not depend on it, or the full history landing would refetch the hourly series.
+  const hourlyWrapperGate: boolean | null | 'none' =
+    productVaultAddresses.length > 1 ? wrapperRecent : 'none';
 
   useEffect(() => {
     if (positionHistoryFetchKeyRef.current !== positionHistoryFetchKey) {
@@ -422,8 +441,9 @@ export default function VaultPosition({
       }
       if (wrapperCheckPending) return;
       // Wait for the full history to say whether the wrapper held funds in this window.
-      if (productVaultAddresses.length > 1 && wrapperRecent === null) return;
-      const addresses = wrapperRecent === false ? productVaultAddresses.slice(0, 1) : productVaultAddresses;
+      if (hourlyWrapperGate === null) return;
+      const addresses =
+        hourlyWrapperGate === false ? productVaultAddresses.slice(0, 1) : productVaultAddresses;
       try {
         const histories = await Promise.all(
           addresses.map((vaultAddress) =>
@@ -472,7 +492,7 @@ export default function VaultPosition({
     vaultData.version,
     address,
     wrapperCheckPending,
-    wrapperRecent,
+    hourlyWrapperGate,
   ]);
 
   useEffect(() => {
