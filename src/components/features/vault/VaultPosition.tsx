@@ -148,7 +148,8 @@ export default function VaultPosition({
   depositGateBlocked,
 }: VaultPositionProps) {
   const { address, isConnected } = useAccount();
-  const { btc: btcPrice, eth: ethPrice } = usePrices();
+  const { priceForVault } = usePrices();
+  const vaultAssetPrice = priceForVault(vaultData.address) ?? 0;
   const { error: showErrorToast } = useToast();
   const { morphoHoldings } = useWallet();
 
@@ -286,17 +287,8 @@ export default function VaultPosition({
   const userVaultTotalUsd = useMemo(() => {
     if (pageAssets === undefined) return 0;
     const assetsDecimal = rawAmountToDecimal(pageAssets, depositAssetDecimals);
-    const symbolUpper = vaultData.symbol.toUpperCase();
-    let assetPrice = 0;
-    if (symbolUpper === 'USDC') {
-      assetPrice = 1;
-    } else if (symbolUpper === 'WETH') {
-      assetPrice = ethPrice || 0;
-    } else if (symbolUpper === 'CBBTC' || symbolUpper === 'CBTC') {
-      assetPrice = btcPrice || 0;
-    }
-    return assetsDecimal * assetPrice;
-  }, [pageAssets, depositAssetDecimals, vaultData.symbol, ethPrice, btcPrice]);
+    return assetsDecimal * vaultAssetPrice;
+  }, [pageAssets, depositAssetDecimals, vaultAssetPrice]);
 
   useLockPageScroll(isTimeFrameMenuOpen);
 
@@ -548,17 +540,7 @@ export default function VaultPosition({
   }, [productVaultAddresses, vaultData.chainId, address, wrapperCheckPending]);
 
   // Get asset price for calculating USD value when assetsUsd is 0
-  const getAssetPrice = useMemo(() => {
-    const symbolUpper = vaultData.symbol.toUpperCase();
-    if (symbolUpper === 'USDC') {
-      return 1;
-    } else if (symbolUpper === 'WETH' || symbolUpper === 'ETH') {
-      return ethPrice || 0;
-    } else if (symbolUpper === 'CBBTC' || symbolUpper === 'CBTC' || symbolUpper === 'BTC') {
-      return btcPrice || 0;
-    }
-    return 0;
-  }, [vaultData.symbol, ethPrice, btcPrice]);
+  const getAssetPrice = vaultAssetPrice;
 
   // Helper function to map position history to chart data format
   const mapPositionHistoryToChartData = useCallback((sourceData: Array<{ timestamp: number; assets: number; assetsUsd: number; shares: number }>) => {

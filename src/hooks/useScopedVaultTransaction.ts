@@ -6,7 +6,8 @@ import { formatUnits } from 'viem';
 import { useTransactionState } from '@/contexts/TransactionContext';
 import { useWallet } from '@/contexts/WalletContext';
 import { useVaultData } from '@/contexts/VaultDataContext';
-import { BASE_CHAIN_ID, TOKEN_ADDRESSES } from '@/lib/constants';
+import { BASE_CHAIN_ID } from '@/lib/constants';
+import { usePrices } from '@/contexts/PriceContext';
 import { formatBigIntForInput } from '@/lib/formatter';
 import { ERC20_BALANCE_ABI, ERC4626_ABI } from '@/lib/abis';
 import { getAssetDecimalsForSymbol } from '@/lib/asset-decimals';
@@ -42,7 +43,8 @@ function buildVaultAccount(
   vaultAddress: string,
   vaultName: string,
   vaultSymbol: string,
-  shares: string | undefined
+  shares: string | undefined,
+  asset: { address: string; decimals: number } | null
 ): VaultAccount {
   let balance = BigInt(0);
   if (shares) {
@@ -60,8 +62,9 @@ function buildVaultAccount(
     name: vaultName,
     symbol: vaultSymbol,
     balance,
-    assetAddress: '',
-    assetDecimals: getAssetDecimalsForSymbol(vaultSymbol),
+    // The vault's own asset, read on chain; the symbol default only until that read lands.
+    assetAddress: asset?.address ?? '',
+    assetDecimals: asset?.decimals ?? getAssetDecimalsForSymbol(vaultSymbol),
   };
 }
 
@@ -77,6 +80,10 @@ export function useScopedVaultTransaction({
 }: UseScopedVaultTransactionOptions) {
   const { isConnected, address: walletAddress } = useAccount();
   const { tokenBalances, morphoHoldings, refreshBalancesIfStale } = useWallet();
+  const { assetForVault } = usePrices();
+  const vaultAsset = assetForVault(vaultAddress);
+  const vaultAssetAddress = vaultAsset?.address ?? null;
+  const vaultAssetDecimals = vaultAsset?.decimals ?? null;
   const { fetchVaultData } = useVaultData();
   const {
     fromAccount,
@@ -89,6 +96,7 @@ export function useScopedVaultTransaction({
     setAmount,
     setStatus,
     reset,
+    pendingTx,
   } = useTransactionState();
 
   const [activeTab, setActiveTab] = useState<VaultTransactionTab>(initialTab);
@@ -117,12 +125,8 @@ export function useScopedVaultTransaction({
     query: { enabled: !!walletAddress },
   });
   // The wallet's balance of the vault asset, read on chain: deposits never size off an API.
-  const assetTokenAddress = useMemo(() => {
-    const key = Object.keys(TOKEN_ADDRESSES).find(
-      (symbol) => symbol.toLowerCase() === vaultSymbol.toLowerCase()
-    ) as keyof typeof TOKEN_ADDRESSES | undefined;
-    return key ? TOKEN_ADDRESSES[key] : undefined;
-  }, [vaultSymbol]);
+  // The vault's own `asset()`, read on chain, so any token the registry uses works here.
+  const assetTokenAddress = vaultAsset?.address;
   const { data: onChainAssetBalance, refetch: refetchOnChainAssetBalance } = useReadContract({
     address: walletAddress && assetTokenAddress ? (assetTokenAddress as `0x${string}`) : undefined,
     chainId: BASE_CHAIN_ID,
@@ -152,8 +156,17 @@ export function useScopedVaultTransaction({
   }, [vaultShareBalance]);
 
   const vaultAccount = useMemo(
-    () => buildVaultAccount(vaultAddress, vaultName, vaultSymbol, vaultShareBalance ?? undefined),
-    [vaultAddress, vaultName, vaultSymbol, vaultShareBalance]
+    () =>
+      buildVaultAccount(
+        vaultAddress,
+        vaultName,
+        vaultSymbol,
+        vaultShareBalance ?? undefined,
+        vaultAssetAddress && vaultAssetDecimals !== null
+          ? { address: vaultAssetAddress, decimals: vaultAssetDecimals }
+          : null
+      ),
+    [vaultAddress, vaultName, vaultSymbol, vaultShareBalance, vaultAssetAddress, vaultAssetDecimals]
   );
 
   const walletAccount = useMemo(
@@ -191,6 +204,17 @@ export function useScopedVaultTransaction({
       setToAccount,
     ]
   );
+
+  // The asset read can land after the panel set its accounts (a token with no built-in
+  // decimals). While the form is idle, swap in the account with the real decimals.
+  useEffect(() => {
+    if (!isOpen || status !== 'idle' || vaultAssetDecimals === null) return;
+    const current =
+      fromAccount?.type === 'vault' ? fromAccount : toAccount?.type === 'vault' ? toAccount : null;
+    if (!current || current.address.toLowerCase() !== vaultAddress.toLowerCase()) return;
+    if ((current as VaultAccount).assetDecimals === vaultAssetDecimals) return;
+    applyTabAccounts(fromAccount?.type === 'vault' ? 'withdraw' : 'deposit');
+  }, [isOpen, status, vaultAssetDecimals, fromAccount, toAccount, vaultAddress, applyTabAccounts]);
 
   useEffect(() => {
     if (vaultKeyRef.current !== vaultAddress) {
@@ -489,8 +513,10 @@ export function useScopedVaultTransaction({
     return [{ ...baseSteps[0], active: true }, baseSteps[1], baseSteps[2]];
   }, [status]);
 
+  // A transaction still pending on chain keeps the review open: closing it would reset the
+  // form and allow sending the same deposit or withdraw again.
   const canClose =
-    status === 'idle' || status === 'success' || status === 'error';
+    !pendingTx && (status === 'idle' || status === 'success' || status === 'error');
 
   return {
     isConnected,

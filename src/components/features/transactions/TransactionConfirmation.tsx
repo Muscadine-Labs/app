@@ -51,21 +51,10 @@ function partyCopyValue(account: Account, walletAddress?: string): string | null
   return (account as VaultAccount).address;
 }
 
-function amountUsdValue(
-  amount: string,
-  symbol: string,
-  btcPrice: number | null,
-  ethPrice: number | null
-): number {
+function amountUsdValue(amount: string, priceUsd: number | null): number {
   const parsed = parseFloat(amount);
-  if (!Number.isFinite(parsed) || parsed <= 0) return 0;
-  const upper = symbol.toUpperCase();
-  if (upper === 'USDC') return parsed;
-  if (upper === 'WETH' || upper === 'ETH') return ethPrice && ethPrice > 0 ? parsed * ethPrice : 0;
-  if (upper === 'CBBTC' || upper === 'CBTC' || upper === 'BTC') {
-    return btcPrice && btcPrice > 0 ? parsed * btcPrice : 0;
-  }
-  return 0;
+  if (!Number.isFinite(parsed) || parsed <= 0 || !priceUsd || priceUsd <= 0) return 0;
+  return parsed * priceUsd;
 }
 
 function PartyAvatar({ symbol, alt }: { symbol: string; alt: string }) {
@@ -193,7 +182,7 @@ export function TransactionConfirmation({
   const { address } = useAccount();
   const router = useRouter();
   const { reset } = useTransactionState();
-  const { btc: btcPrice, eth: ethPrice } = usePrices();
+  const { priceForVault } = usePrices();
   const { error: showErrorToast, showToast } = useToast();
   const { fetchVaultData } = useVaultData();
   const { refreshBalances } = useWallet();
@@ -254,7 +243,13 @@ export function TransactionConfirmation({
   };
 
   const formattedAmount = formatAmount();
-  const amountUsd = amountUsdValue(amount, assetSymbol, btcPrice, ethPrice);
+  const vaultForPrice =
+    fromAccount.type === 'vault'
+      ? (fromAccount as VaultAccount).address
+      : toAccount.type === 'vault'
+        ? (toAccount as VaultAccount).address
+        : null;
+  const amountUsd = amountUsdValue(amount, priceForVault(vaultForPrice));
 
   // Get current date for transaction details
   const getCurrentDate = () => {

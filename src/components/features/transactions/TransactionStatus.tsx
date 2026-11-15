@@ -7,9 +7,11 @@ interface TransactionStatusProps {
   message: string;
   txHash?: string | null;
   onRetry?: () => void;
+  /** Shown while a sent transaction is unresolved: the user confirms they checked it. */
+  onDismissPending?: () => void;
 }
 
-export function TransactionStatus({ type, message, txHash, onRetry }: TransactionStatusProps) {
+export function TransactionStatus({ type, message, txHash, onRetry, onDismissPending }: TransactionStatusProps) {
   if (type === 'success') {
     return (
       <div className="flex items-center gap-3 p-4 bg-[var(--success-subtle)] rounded-lg border border-[var(--success)]">
@@ -59,9 +61,22 @@ export function TransactionStatus({ type, message, txHash, onRetry }: Transactio
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
           </svg>
         </div>
-        <p className="text-sm font-medium text-[var(--foreground)]">
-          {message}
-        </p>
+        <div className="flex-1">
+          <p className="text-sm font-medium text-[var(--foreground)]">
+            {message}
+          </p>
+          {txHash && (
+            <a
+              href={`https://basescan.org/tx/${txHash}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-[var(--foreground-secondary)] hover:text-[var(--foreground)] transition-colors mt-1 inline-flex items-center gap-1 cursor-pointer"
+            >
+              <span className="font-mono">{`${txHash.slice(0, 6)}...${txHash.slice(-4)}`}</span>
+              <span aria-hidden="true">↗</span>
+            </a>
+          )}
+        </div>
       </div>
       {onRetry && (
         <Button
@@ -71,6 +86,11 @@ export function TransactionStatus({ type, message, txHash, onRetry }: Transactio
           fullWidth
         >
           Try Again
+        </Button>
+      )}
+      {onDismissPending && (
+        <Button onClick={onDismissPending} variant="secondary" size="lg" fullWidth>
+          I checked it on Basescan
         </Button>
       )}
     </>

@@ -32,6 +32,12 @@ interface TransactionContextType extends TransactionState {
   setAmount: (amount: string) => void;
   setStatus: (status: TransactionStatus, error?: string | null, txHash?: string | null) => void;
   reset: () => void;
+  /**
+   * A sent transaction that outlived the receipt wait. Kept here, above the review modal, and
+   * not cleared by `reset`, so closing the modal can never re-enable a second send.
+   */
+  pendingTx: { hash: `0x${string}`; final: boolean } | null;
+  setPendingTx: (pending: { hash: `0x${string}`; final: boolean } | null) => void;
 }
 
 const TransactionContext = createContext<TransactionContextType | undefined>(undefined);
@@ -91,6 +97,8 @@ export function TransactionProvider({ children }: { children: React.ReactNode })
       txHash: txHash ?? null,
     }));
   }, []);
+
+  const [pendingTx, setPendingTx] = useState<{ hash: `0x${string}`; final: boolean } | null>(null);
 
   const reset = useCallback(() => {
     setState({
@@ -152,6 +160,8 @@ export function TransactionProvider({ children }: { children: React.ReactNode })
     setAmount,
     setStatus,
     reset,
+    pendingTx,
+    setPendingTx,
   };
 
   return (

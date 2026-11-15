@@ -169,9 +169,9 @@ All vault writes go through **`src/lib/transactionUtilsV2.ts`**. ERC-4626 ops an
 | Concern | Source |
 |---------|--------|
 | **Your balances (registry vaults)** | On chain: `readRegistryVaultBalances` (`lib/onchain-positions.ts`, `balanceOf` + `convertToAssets` multicalls) merged into `WalletContext.morphoHoldings`, priced with live token prices. Vault page position and the withdraw max also read on chain. |
-| **Deposit / withdraw amounts** | RPC only: deposit MAX is the wallet's on-chain `balanceOf` (Alchemy balances only while it loads); withdraw uses on-chain shares + `convertToAssets`, a simulate, the force planner, and `readInstantLiquidityAssets` (`force-withdraw-v2.ts`) for the warning's instant-liquidity figure. No API data feeds a transaction amount. |
+| **Deposit / withdraw amounts** | RPC only: deposit MAX is the wallet's on-chain `balanceOf` (the wallet token list only while it loads); withdraw uses on-chain shares + `convertToAssets`, a simulate, the force planner, and `readInstantLiquidityAssets` (`force-withdraw-v2.ts`) for the warning's instant-liquidity figure. No API data feeds a transaction amount. |
 | **Live Morpho positions** | `/api/user/morpho-positions` → `WalletContext`: profit (`pnl`) and non-registry vaults; registry balances are replaced by the on-chain read |
-| **Liquid balances** | Alchemy `alchemy_getTokenBalances` for USDC / cbBTC / WETH only (one call; other tokens are priced $0 and never read) + wagmi ETH in `WalletContext` |
+| **Liquid balances** | One `balanceOf` multicall over every registry vault asset (`fetchAllTokenBalances` in `WalletContext`), priced by address from Morpho, plus wagmi ETH (priced as WETH) |
 | **Position history (charts)** | `vaultV2PositionByAddress` → `history` via `/api/vault/v2/.../position-history`. Client reads go through `fetchPositionHistoryJson` (`lib/position-history-cache.ts`): 60s cache shared by the dashboard and vault page, in-flight dedupe, failures not kept, cleared by `refreshBalances`; after a transaction `markPositionHistoryTransaction()` (in `refreshBalancesWithPolling`) clears it and stores nothing for 2 minutes while Morpho indexes the transaction. HTTP-200 `{ error }` bodies are failures and are not kept. |
 | **Earned interest** | Morpho `pnl` or activity-based fallback via `/api/vault/v2/.../earned-interest` |
 | **Vault TVL / APY** | `vaultV2ByAddress` via `/api/vault/v2/.../complete` and `history` |
@@ -180,7 +180,9 @@ All vault writes go through **`src/lib/transactionUtilsV2.ts`**. ERC-4626 ops an
 
 **Rule:** anything about the user's own money (position, deposit / withdraw amounts, share balance) comes from on-chain RPC. Vault-level data (deposits, TVL, APY, liquidity, token prices) and every chart come from APIs. Earned interest is Morpho `pnl`, with an activity-based fallback against the on-chain balance.
 
-Share tokens use **18 decimals**; underlying assets use registry decimals (USDC **6**, cbBTC **8**, WETH **18**).
+**Token list and prices (any token):** the token list is each registry vault's own `asset()`, read on chain once per page load with its `decimals()` and `symbol()` (`readRegistryAssets` in `lib/registry-assets.ts`). `PriceContext` loads that list and prices it from `/api/prices?addresses=…`, which reads Morpho `assets(where: { address_in })` → `price { usd }` and `logoURI` (`lib/token-prices.ts`, cached 60s). Native ETH uses the WETH price. Learned tokens are registered in `lib/token-metadata.ts`, so `getAssetDecimalsForSymbol`, `findTokenBySymbol` and `getVaultLogo` (bundled logo, then Morpho logo from `cdn.morpho.org`, then the app icon) work for a token with no hardcoded entry. Adding a vault in a new token needs only the registry row. CoinGecko and the hardcoded USDC / cbBTC / WETH token list are gone. Resilience: each vault is read with `allowFailure`, a `bytes32` `symbol()` is decoded, and a failed or partial read is retried every 30s while `fallbackRegistryAssets` (merged into a partial read by `withFallbackAssets`, in prices and wallet balances; the wallet re-reads token balances when the asset list changes) (USDC / cbBTC / WETH matched by the registry label, plus WETH for ETH) stands in. With no Morpho price, a stablecoin is $1 and anything else is 0 (activity too). The wallet token list is tagged with its wallet, so a failed read after a switch never shows another wallet's tokens. The transact panel takes decimals from the vault's on-chain asset and re-applies its accounts when that read lands. Logos use `useTokenLogo` so a Morpho logo shows once it loads; only `https://cdn.morpho.org/` logos are kept. A registry label is an extra symbol only when no other token holds it. Reown AppKit analytics is off (the privacy page says no analytics).
+
+Share tokens use **18 decimals**; underlying assets use the decimals read from each vault asset on chain (USDC **6**, cbBTC **8**, WETH **18**).
 
 ---
 
@@ -226,6 +228,8 @@ This is **not** in-kind redemption. In-kind (`vault.inKindRedeem` → VaultExitB
 
 - Direct deposit: spender is the **vault**.
 - USDC-style reset-to-zero runs before a new ERC-20 asset approval when a smaller allowance is already set. `depositToVaultV2` reads balance + allowance in one multicall and throws a readable error when the amount exceeds the wallet balance.
+
+**Safety checks:** every write passes `chain: base`, so a wallet on another chain is refused instead of signing there. Deposit and withdraw compare the vault asset's on-chain `decimals()` with the registry and throw before sending if they differ. A receipt wait that times out (10 minutes) throws `TransactionStillPendingError` with the hash: `TransactionFlow` shows the Basescan link and no Retry, so a slow transaction is never sent twice. The backup receipt handler only reports success for `status === 'success'`. A force plan whose penalty would burn the whole position is refused (`ForceWithdrawPenaltyTooLargeError`, shown as its own message). A transaction that outlives the 10-minute wait is stored as `pendingTx` in `TransactionContext` (above the review modal, not cleared by `reset`); the review cannot be closed and nothing can be sent while it is set. It keeps being watched, including a wallet speed-up (`onReplaced`: `repriced` counts as the same transaction, `cancelled` / `replaced` as not run). **I checked it on Basescan** clears it for a dropped transaction, which brings back Retry. While watched: a successful vault transaction completes the flow, a revert or a confirmed approval offers Retry. The force path also checks the form's decimals against the vault asset.
 
 **Progress:** `TransactionProgressCallback` — `approving` for approvals, `confirming` for the vault tx (do not treat approval hash as final success).
 
@@ -302,7 +306,7 @@ If `complete` routes return **HTTP 400**, validate queries against `https://api.
 
 `next: { revalidate: MORPHO_GRAPHQL_REVALIDATE_SECONDS }` (60 seconds by default in `constants.ts`) + cache tags like `vault-{address}-{chainId}`.
 
-Per-wallet routes (`morpho-positions`, `position-history`, `earned-interest`) are `force-dynamic`, read Morpho with `revalidate: 0`, and send `private, no-store`, so charts catch up right after a transaction. `earned-interest` returns 503 (`retryable`) when the Morpho position read fails or a holder's activity fallback fails, so the UI shows a dash instead of 0 earned. `/api/prices` aborts CoinGecko after 8s (504).
+Per-wallet routes (`morpho-positions`, `position-history`, `earned-interest`, and `activity` with `userAddress`) are `force-dynamic`, read Morpho with `revalidate: 0`, and send `private, no-store`, so charts catch up right after a transaction. Per-wallet activity pages through up to 10 pages so an old deposit is not cut off; the vault-wide feed stays one cached page. `earned-interest` returns 503 (`retryable`) when the Morpho position read fails or a holder's activity fallback fails, so the UI shows a dash instead of 0 earned. `/api/prices` returns 502 when Morpho prices fail; the client keeps the last prices.
 
 `fetchMorphoGraphQL` also keeps a 60s in-memory cache. An expired entry is kept 10 more minutes and served only when Morpho rate-limits. Retries honor `Retry-After` up to 3s; a longer wait returns the error right away so a route handler never hangs. Routes whose body changes every call (the vault `history` route's `endTimestamp`) pass a stable `cacheKey` (vault, chain, period).
 
@@ -328,7 +332,7 @@ Morpho GraphQL is **server-only** (`fetchMorphoGraphQL()` in route handlers). Th
 | `/vaults` | **Vault explorer** — filter bar + table of registry vaults |
 | `/transact` | **Removed** — 308 redirect to `/vaults`. Deposit/withdraw is the inline `VaultTransactPanel` on vault **My Position**. |
 | `/vault/v2/[address]` | V2 vault detail |
-| `/api/prices` | Price proxy/cache |
+| `/api/prices` | Morpho USD prices by token address (`?addresses=`) |
 | `/api/user/morpho-positions` | User Morpho v2 positions |
 | `/api/vault/v2/...` | V2 Morpho GraphQL proxies |
 
@@ -407,14 +411,14 @@ Pure helpers and their tests: `src/lib/vault-details.ts` (`__tests__/vault-detai
 
 Provider tree (`src/app/Providers.tsx`):
 
-`ErrorBoundary` → `WagmiProvider` → `QueryClient` → `ThemeProvider` → `AdvisoryAgreementProvider` → `ToastProvider` → `WalletProvider` → `ExplorerVaultsProvider` → `VaultDataProvider` → `TransactionProvider` (Reown AppKit initialized via `createAppKit` in `src/config/appkit.ts`; no SIWE/SIWX)
+`ErrorBoundary` → `WagmiProvider` → `QueryClient` → `ThemeProvider` → `AdvisoryAgreementProvider` → `ToastProvider` → `PriceProvider` → `WalletProvider` → `ExplorerVaultsProvider` → `VaultDataProvider` → `TransactionProvider` (Reown AppKit initialized via `createAppKit` in `src/config/appkit.ts`; no SIWE/SIWX)
 
 | Context | File | Role |
 |---------|------|------|
-| `WalletContext` | `contexts/WalletContext.tsx` | Alchemy liquid balances; Morpho positions via `/api/user/morpho-positions`; refresh after txs |
+| `WalletContext` | `contexts/WalletContext.tsx` | Wallet balances of every registry vault asset (one multicall); Morpho positions via `/api/user/morpho-positions`; refresh after txs |
 | `VaultDataContext` | `contexts/VaultDataContext.tsx` | Cached vault metadata from `/api/vault/.../complete` |
 | `TransactionContext` | `contexts/TransactionContext.tsx` | Vault transact modal: from/to accounts, amount, status |
-| `PriceContext` | `contexts/PriceContext.tsx` | Asset USD prices |
+| `PriceContext` | `contexts/PriceContext.tsx` | Registry vault assets (on chain) and their Morpho USD prices: `priceOf`, `priceForVault`, `assetForVault` |
 | `ToastContext` | `contexts/ToastContext.tsx` | Toasts |
 | `ThemeContext` | `contexts/ThemeContext.tsx` | Light/dark |
 | `AdvisoryAgreementContext` | `contexts/AdvisoryAgreementContext.tsx` | Legal modal gating |
@@ -440,7 +444,7 @@ Same Risk Framework / Morpho’s Disclaimer links appear in the **NavBar** Musca
 
 **Dead shares:** curated vaults already mint inflation-protection shares to `0x…dEaD`. Confirm that **when adding a vault** to `vaults.ts`. Do not RPC-check dead-share balances at runtime (no Alchemy call on `/complete` or elsewhere).
 
-**Re-acceptance:** `TERMS_VERSION` in `AdvisoryAgreementContext.tsx` (currently **`2.8.0`**) — bump when legal copy changes; stored in localStorage as `advisory-agreement-version` alongside `advisory-agreement-accepted`.
+**Re-acceptance:** `TERMS_VERSION` in `AdvisoryAgreementContext.tsx` (currently **`2.9.0`**) — bump when legal copy changes; stored in localStorage as `advisory-agreement-version` alongside `advisory-agreement-accepted`.
 
 **Advisory:** the first-connect modal is short on purpose: one line asking the user to review and accept, then two sentences (personal non-commercial project, open-source, non-custodial, no advice or offer; governed by Muscadine's Terms of Use and Morpho's Disclaimer, yields not guaranteed, deposits can be lost), then one line that a vault can have a deposit gate and performance or management fees, so review a vault's details before depositing. Below them sit the Legal Documents links and the three checkboxes. There is no Company section. Do not link `analytics.muscadine.xyz` (retired).
 
@@ -490,13 +494,16 @@ src/
     interest-utils.ts     # Earned interest from activity; period + projected estimates
     asset-decimals.ts     # Morpho amount normalization
     constants.ts          # Chain, WETH, cache TTLs
+    registry-assets.ts    # Each registry vault's asset() + decimals/symbol, read on chain
+    token-prices.ts       # /api/prices helpers (Morpho prices by address)
+    token-metadata.ts     # Runtime token registry (decimals, symbols, Morpho logos)
     abis.ts               # Shared ERC20 balance + ERC4626 convertToAssets
     formatter.ts          # formatCurrency, formatSmartCurrency, formatAssetAmount, …
     logger.ts             # Structured logging
   types/
     vault.ts              # Vault, MorphoVaultData, account types
     transactions.ts       # Progress step types
-    api.ts                # Alchemy / API response types
+    api.ts                # API response types
 ```
 
 ---
@@ -529,7 +536,7 @@ src/
 
 `WalletContext`:
 
-- Native ETH + tokens: USDC, cbBTC, WETH (`TOKEN_ADDRESSES` in `constants.ts`) via Alchemy (those three addresses only, one call per refresh). USD prices come from CoinGecko (`/api/prices`).
+- Native ETH + every registry vault asset (`readRegistryAssets`), read in one multicall per refresh. USD prices come from Morpho by address (`/api/prices`, `PriceContext`).
 - **Morpho positions:** `/api/user/morpho-positions` (v2); metadata from `/api/vault/v2/.../complete`
 - `refreshBalances`, `refreshBalancesWithPolling` after transactions
 
@@ -558,8 +565,7 @@ Optional later: [Base Notifications API](https://docs.base.org/apps/technical-gu
 - `BASE_CHAIN_ID = 8453` — use this constant; never write `8453` inline
 - `MORPHO_CHAIN_SLUG` / `getMorphoChainSlug` — chain slug for app.morpho.org links
 - `BASE_WETH_ADDRESS` — Base canonical WETH
-- `TOKEN_ADDRESSES` / `TOKEN_ADDRESSES_LOWER` — USDC, cbBTC, WETH on Base
-- Cache TTLs: vault client + Morpho in-memory **60s**; prices 10m; activity 1m
+- Cache TTLs: vault client + Morpho in-memory **60s**; prices 60s server / refetch every 5 min; activity 1m
 - Morpho GraphQL: `MORPHO_GRAPHQL_URL`, `MORPHO_GRAPHQL_REVALIDATE_SECONDS`, fetch timeout/retries, preload batch size — all Morpho calls go through `fetchMorphoGraphQL()` in `api-utils.ts`
 
 `next.config.ts`:

@@ -52,21 +52,10 @@ interface VaultTransactPanelProps {
 const [GATE_MESSAGE_BEFORE_EMAIL, GATE_MESSAGE_AFTER_EMAIL] =
   DEPOSIT_GATE_MESSAGE.split(ACCESS_REQUEST_EMAIL);
 
-function amountUsdValue(
-  amount: string,
-  symbol: string,
-  btcPrice: number | null,
-  ethPrice: number | null
-): number {
+function amountUsdValue(amount: string, priceUsd: number | null): number {
   const parsed = parseFloat(amount);
-  if (!Number.isFinite(parsed) || parsed <= 0) return 0;
-  const upper = symbol.toUpperCase();
-  if (upper === 'USDC') return parsed;
-  if (upper === 'WETH' || upper === 'ETH') return ethPrice && ethPrice > 0 ? parsed * ethPrice : 0;
-  if (upper === 'CBBTC' || upper === 'CBTC' || upper === 'BTC') {
-    return btcPrice && btcPrice > 0 ? parsed * btcPrice : 0;
-  }
-  return 0;
+  if (!Number.isFinite(parsed) || parsed <= 0 || !priceUsd || priceUsd <= 0) return 0;
+  return parsed * priceUsd;
 }
 
 function StatsRow({
@@ -108,7 +97,7 @@ export function VaultTransactPanel({
   canDeposit,
   depositGateBlocked: gateBlocked,
 }: VaultTransactPanelProps) {
-  const { btc: btcPrice, eth: ethPrice } = usePrices();
+  const { priceForVault } = usePrices();
   const [rewardsModeOverride, setRewardsModeOverride] = useState<RewardsMode | null>(
     null
   );
@@ -149,12 +138,7 @@ export function VaultTransactPanel({
   const vaultClosed = vaultData.status === 'paused' || vaultData.status === 'deprecated';
   const depositsDisabled = !canDeposit || vaultClosed;
 
-  const inputUsd = amountUsdValue(
-    tx.amount,
-    tx.derivedAsset?.symbol || vaultData.symbol,
-    btcPrice,
-    ethPrice
-  );
+  const inputUsd = amountUsdValue(tx.amount, priceForVault(vaultData.address));
 
   const availableLabel = useMemo(() => {
     const symbol = tx.derivedAsset?.symbol || vaultData.symbol;

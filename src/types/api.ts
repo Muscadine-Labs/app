@@ -45,6 +45,7 @@ export interface GraphQLV2TransactionItem {
   type: string;
   blockNumber?: number;
   txIndex?: number;
+  logIndex?: number | null;
   vault?: {
     address: string;
   };
@@ -59,34 +60,3 @@ export interface GraphQLV2TransactionItem {
     to?: string;
   };
 }
-
-// Alchemy API Types
-export interface AlchemyTokenBalance {
-  contractAddress: string;
-  tokenBalance: string;
-}
-
-export interface AlchemyTokenMetadata {
-  decimals: number;
-  symbol: string;
-  name?: string;
-}
-
-export interface AlchemyTokenBalancesResponse {
-  result?: {
-    tokenBalances: AlchemyTokenBalance[];
-  };
-  error?: {
-    code: number;
-    message: string;
-  };
-}
-
-export interface AlchemyTokenMetadataResponse {
-  result?: AlchemyTokenMetadata;
-  error?: {
-    code: number;
-    message: string;
-  };
-}
-

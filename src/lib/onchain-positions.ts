@@ -26,7 +26,9 @@ export interface OnChainVaultBalance {
  */
 export async function readRegistryVaultBalances(
   publicClient: PublicClient,
-  wallet: Address
+  wallet: Address,
+  /** Lowercase vault address → asset decimals read on chain; symbol fallback otherwise. */
+  assetDecimals?: Readonly<Record<string, number>>
 ): Promise<Record<string, OnChainVaultBalance> | null> {
   const vaults = getRegistryVaultList();
   try {
@@ -60,7 +62,9 @@ export async function readRegistryVaultBalances(
       balances[vault.address.toLowerCase()] = { shares: BigInt(0), assets: BigInt(0) };
     }
     held.forEach((item, i) => {
-      if (assets[i] < vaultDustThreshold(getAssetDecimalsForSymbol(item.vault.symbol))) return;
+      const decimals =
+        assetDecimals?.[item.vault.address.toLowerCase()] ?? getAssetDecimalsForSymbol(item.vault.symbol);
+      if (assets[i] < vaultDustThreshold(decimals)) return;
       balances[item.vault.address.toLowerCase()] = { shares: item.shares, assets: assets[i] };
     });
     return balances;

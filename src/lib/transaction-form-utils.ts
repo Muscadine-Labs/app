@@ -1,5 +1,5 @@
 import type { TokenBalance } from '@/contexts/WalletContext';
-import { TOKEN_ADDRESSES_LOWER } from '@/lib/constants';
+import { tokenMetadataForSymbol } from '@/lib/token-metadata';
 import { findVaultByAddress } from '@/lib/vault-utils';
 import type { Account } from '@/types/vault';
 
@@ -17,22 +17,20 @@ export function accountsMatchTransactionTab(
   return from?.type === 'vault' && to?.type === 'wallet';
 }
 
-/** Address-based token lookup for major Base assets (Alchemy symbol variants). */
+/** Token lookup by address when the symbol is a known registry asset, else by symbol. */
 export function findTokenBySymbol(
   symbol: string,
   tokenBalances: TokenBalance[]
 ): TokenBalance | undefined {
-  if (symbol === 'cbBTC' || symbol === 'CBBTC') {
-    return tokenBalances.find((t) => t.address.toLowerCase() === TOKEN_ADDRESSES_LOWER.cbBTC);
-  }
-  if (symbol === 'USDC') {
-    return tokenBalances.find((t) => t.address.toLowerCase() === TOKEN_ADDRESSES_LOWER.USDC);
-  }
-  if (symbol === 'WETH') {
-    return tokenBalances.find((t) => t.address.toLowerCase() === TOKEN_ADDRESSES_LOWER.WETH);
-  }
   if (symbol === 'ETH') {
     return tokenBalances.find((t) => t.address === 'ETH');
+  }
+  const known = tokenMetadataForSymbol(symbol);
+  if (known) {
+    const byAddress = tokenBalances.find(
+      (t) => t.address.toLowerCase() === known.address.toLowerCase()
+    );
+    if (byAddress) return byAddress;
   }
   return tokenBalances.find((t) => t.symbol.toUpperCase() === symbol.toUpperCase());
 }
