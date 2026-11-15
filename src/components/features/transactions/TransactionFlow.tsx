@@ -18,6 +18,7 @@ import {
   formatPenaltyRatePercent,
   ForceWithdrawPlanChangedError,
   ForceWithdrawShortfallError,
+  ForceWithdrawPenaltyTooLargeError,
   planForceWithdrawV2,
   readInstantLiquidityAssets,
   simulateForceWithdrawPlan,
@@ -157,6 +158,8 @@ export function TransactionFlow({
   const [partialFailure, setPartialFailure] = useState(false);
   /** A sent transaction that was not mined in time; resending is blocked while it is shown. */
   const [pendingTxHash, setPendingTxHash] = useState<`0x${string}` | null>(null);
+  /** Whether `pendingTxHash` is the vault transaction (true) or an approval before it. */
+  const [pendingTxFinal, setPendingTxFinal] = useState(true);
   const [liquidityWarningOpen, setLiquidityWarningOpen] = useState(false);
   const [liquidityWarningContext, setLiquidityWarningContext] =
     useState<LiquidityWarningContext | null>(null);
@@ -326,6 +329,32 @@ export function TransactionFlow({
       refreshBalancesWithPolling,
     ]
   );
+
+  // A transaction that outlived the in-flow wait keeps being watched, so the flow finishes when
+  // it lands instead of sitting on the "still pending" screen.
+  const { data: pendingReceipt } = useWaitForTransactionReceipt({
+    hash: pendingTxHash ?? undefined,
+    chainId: BASE_CHAIN_ID,
+    query: { enabled: !!pendingTxHash },
+  });
+
+  useEffect(() => {
+    if (!pendingReceipt || !pendingTxHash) return;
+    if (pendingReceipt.transactionHash.toLowerCase() !== pendingTxHash.toLowerCase()) return;
+    const hash = pendingTxHash;
+    const succeeded = pendingReceipt.status === 'success';
+    queueMicrotask(() => {
+      setPendingTxHash(null);
+      if (!succeeded) {
+        setStatus('error', 'The transaction reverted on chain. Nothing was deposited or withdrawn. You can try again.');
+      } else if (pendingTxFinal) {
+        completeSuccessfulTransaction(hash);
+      } else {
+        // Only the approval landed; the vault transaction was never sent.
+        setStatus('error', 'The approval confirmed, but the vault transaction was not sent. Press Retry to send it.');
+      }
+    });
+  }, [pendingReceipt, pendingTxHash, pendingTxFinal, completeSuccessfulTransaction, setStatus]);
 
   // Handle transaction receipt (fallback path when not using in-flow completion)
   useEffect(() => {
@@ -544,7 +573,8 @@ export function TransactionFlow({
             publicClient as PublicClient,
             baseWalletClient,
             forcePlan,
-            onProgress
+            onProgress,
+            assetToUse.decimals
           );
           forcePlanRef.current = null;
         } else if (shouldUseWithdrawAll) {
@@ -617,6 +647,7 @@ export function TransactionFlow({
       if (err instanceof TransactionStillPendingError) {
         // It may still land: show the hash and do not offer to send again.
         setPendingTxHash(err.hash);
+        setPendingTxFinal(err.final);
         setPartialFailure(false);
         setStatus('error', err.message);
         showErrorToast(err.message, 8000);
@@ -746,6 +777,11 @@ export function TransactionFlow({
                   const errorMessage = `That amount is above available liquidity. The maximum is ${capped}.`;
                   setStatus('error', errorMessage);
                   showErrorToast(errorMessage, 5000);
+                  return;
+                }
+                if (planErr instanceof ForceWithdrawPenaltyTooLargeError) {
+                  setStatus('error', planErr.message);
+                  showErrorToast(planErr.message, 6000);
                   return;
                 }
                 logger.warn('Force withdraw planning failed', {

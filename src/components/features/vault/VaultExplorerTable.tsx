@@ -1,10 +1,11 @@
 'use client';
 
 import { useMemo, type KeyboardEvent, type ReactNode } from 'react';
+import { useTokenLogo } from '@/contexts/PriceContext';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useAccount } from 'wagmi';
-import { Vault, getVaultLogo } from '@/types/vault';
+import { Vault } from '@/types/vault';
 import type { MorphoVaultData } from '@/types/vault';
 import { useVaultData } from '@/contexts/VaultDataContext';
 import { useWallet } from '@/contexts/WalletContext';
@@ -158,13 +159,14 @@ function formatCompactTokenAmount(rawValue: string | undefined, decimals: number
 }
 
 function VaultLogo({ vault, size = 32 }: { vault: Vault; size?: number }) {
+  const logo = useTokenLogo(vault.symbol);
   return (
     <div
       className="flex-shrink-0 rounded-full flex items-center justify-center overflow-hidden bg-white"
       style={{ width: size, height: size }}
     >
       <Image
-        src={getVaultLogo(vault.symbol)}
+        src={logo}
         alt={`${vault.symbol} logo`}
         width={size}
         height={size}

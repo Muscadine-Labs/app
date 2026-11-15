@@ -42,7 +42,8 @@ const appKit = createAppKit({
     WALLET_IDS.phantom,
   ],
   features: {
-    analytics: true,
+    // Off: the privacy pages promise no analytics, and this would send usage data to Reown.
+    analytics: false,
     email: false,
     socials: false,
     swaps: false,

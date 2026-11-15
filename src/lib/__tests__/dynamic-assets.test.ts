@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { buildRegistryAssets } from '@/lib/registry-assets';
+import { buildRegistryAssets, fallbackRegistryAssets } from '@/lib/registry-assets';
 import { mapMorphoAssetPrices, parsePriceAddresses, MAX_PRICE_ADDRESSES } from '@/lib/token-prices';
 import {
   registerTokenLogo,
@@ -39,6 +39,26 @@ describe('buildRegistryAssets', () => {
     const result = buildRegistryAssets([{ address: VAULT_A }], [NEW_TOKEN], {});
     expect(result.assets).toEqual([]);
     expect(result.byVault[VAULT_A]).toBeUndefined();
+    expect(result.complete).toBe(false);
+  });
+
+  it('marks a read with an unreadable vault as incomplete but keeps the others', () => {
+    const result = buildRegistryAssets([{ address: VAULT_A }, { address: VAULT_B }], [null, USDC], {
+      [USDC.toLowerCase()]: { symbol: 'USDC', decimals: 6 },
+    });
+    expect(result.complete).toBe(false);
+    expect(result.byVault[VAULT_B].symbol).toBe('USDC');
+  });
+
+  it('falls back to known Base tokens by registry label, always keeping WETH for ETH', () => {
+    const fallback = fallbackRegistryAssets([
+      { address: VAULT_A, symbol: 'usdc' },
+      { address: VAULT_B, symbol: 'NEW' },
+    ]);
+    expect(fallback.complete).toBe(false);
+    expect(fallback.byVault[VAULT_A].address).toBe(USDC);
+    expect(fallback.byVault[VAULT_B]).toBeUndefined();
+    expect(fallback.assets.map((a) => a.symbol)).toEqual(['USDC', 'WETH']);
   });
 });
 

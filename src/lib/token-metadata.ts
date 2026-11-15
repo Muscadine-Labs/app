@@ -19,9 +19,15 @@ function symbolKey(symbol: string): string {
 
 /** Register a token under its address and each given symbol (on-chain and registry label). */
 export function registerTokenMetadata(token: TokenMetadata, aliases: readonly string[] = []): void {
-  byAddress.set(token.address.toLowerCase(), token);
-  for (const symbol of [token.symbol, ...aliases]) {
-    if (symbol.trim()) bySymbol.set(symbolKey(symbol), token);
+  const address = token.address.toLowerCase();
+  byAddress.set(address, token);
+  if (token.symbol.trim()) bySymbol.set(symbolKey(token.symbol), token);
+  // A registry label is an extra name only when no other token already holds it: a row copied
+  // with the wrong label must not give another token's decimals to a symbol lookup.
+  for (const alias of aliases) {
+    if (!alias.trim()) continue;
+    const held = bySymbol.get(symbolKey(alias));
+    if (!held || held.address.toLowerCase() === address) bySymbol.set(symbolKey(alias), token);
   }
 }
 
@@ -35,8 +41,11 @@ export function tokenMetadataForAddress(address: string | null | undefined): Tok
   return byAddress.get(address.toLowerCase()) ?? null;
 }
 
+/** Logos are drawn with `next/image`, which only loads hosts listed in next.config.ts. */
+const ALLOWED_LOGO_PREFIX = 'https://cdn.morpho.org/';
+
 export function registerTokenLogo(address: string, logoURI: string): void {
-  if (/^https:\/\//.test(logoURI)) logosByAddress.set(address.toLowerCase(), logoURI);
+  if (logoURI.startsWith(ALLOWED_LOGO_PREFIX)) logosByAddress.set(address.toLowerCase(), logoURI);
 }
 
 /** Morpho logo for a registered token symbol, when one was loaded. */

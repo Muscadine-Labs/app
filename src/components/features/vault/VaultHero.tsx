@@ -1,8 +1,8 @@
 'use client';
 
 import Image from 'next/image';
+import { useTokenLogo } from '@/contexts/PriceContext';
 import { useToast } from '@/contexts/ToastContext';
-import { getVaultLogo } from '@/types/vault';
 import { MorphoVaultData } from '@/types/vault';
 
 interface VaultHeroProps {
@@ -10,6 +10,7 @@ interface VaultHeroProps {
 }
 
 export default function VaultHero({ vaultData }: VaultHeroProps) {
+  const logo = useTokenLogo(vaultData.symbol);
   const { showToast, error: showErrorToast } = useToast();
 
   const handleCopyAddress = async () => {
@@ -34,7 +35,7 @@ export default function VaultHero({ vaultData }: VaultHeroProps) {
         <div className="flex items-center gap-2 mt-1">
           <div className="w-5 h-5 rounded-full bg-white flex items-center justify-center overflow-hidden shrink-0">
             <Image
-              src={getVaultLogo(vaultData.symbol)}
+              src={logo}
               alt={`${vaultData.symbol} logo`}
               width={20}
               height={20}

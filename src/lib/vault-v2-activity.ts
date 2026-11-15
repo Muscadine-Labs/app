@@ -26,6 +26,12 @@ export interface VaultV2ActivityData {
   error?: string;
 }
 
+/** One event's identity: a log index is unique within its transaction. */
+function eventKey(item: { txHash?: string; logIndex?: number | null }): string | null {
+  if (!item.txHash || item.logIndex === undefined || item.logIndex === null) return null;
+  return `${item.txHash.toLowerCase()}:${item.logIndex}`;
+}
+
 type V2TxData = {
   __typename?: string;
   assets?: number | string;
@@ -192,6 +198,7 @@ export async function fetchVaultV2ActivityData(
           type
           blockNumber
           txIndex
+          logIndex
           vault {
             address
           }
@@ -239,6 +246,7 @@ export async function fetchVaultV2ActivityData(
   const allItems: NonNullable<
     NonNullable<ActivityResponse['data']>['vaultV2transactions']
   >['items'] = [];
+  const seenEvents = new Set<string>();
   for (let page = 0; page < maxPages; page++) {
     let pageData: ActivityResponse;
     try {
@@ -299,7 +307,14 @@ export async function fetchVaultV2ActivityData(
     }
     const items = pageData.data?.vaultV2transactions?.items ?? [];
     if (!data) data = pageData;
-    allItems.push(...items);
+    // Offsets shift when Morpho indexes a new event between page reads, so a page can repeat
+    // an event the previous page returned. txHash + logIndex names one event exactly.
+    for (const item of items) {
+      const key = eventKey(item);
+      if (key && seenEvents.has(key)) continue;
+      if (key) seenEvents.add(key);
+      allItems.push(item);
+    }
     if (items.length < transactionLimit) break;
   }
   if (!data) return { ...empty, error: 'Failed to connect to Morpho API' };
@@ -329,6 +344,8 @@ export async function fetchVaultV2ActivityData(
           symbol,
           vaultAddress,
         });
+        // Unknown price: value it at 0 like positions do, never $1 per token.
+        assetPrice = 0;
       }
     }
   }
@@ -388,7 +405,7 @@ export async function fetchVaultV2ActivityData(
       const txIndex = tx.txIndex ?? 0;
 
       return {
-        id: `${tx.txHash}-${txIndex}`,
+        id: tx.logIndex !== undefined && tx.logIndex !== null ? `${tx.txHash}-${tx.logIndex}` : `${tx.txHash}-${txIndex}`,
         type: transactionType,
         timestamp: tx.timestamp,
         blockNumber: tx.blockNumber,

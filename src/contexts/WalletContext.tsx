@@ -13,7 +13,7 @@ import {
 import { BASE_CHAIN_ID, POST_TX_BALANCE_REFRESH_DELAY_MS } from '@/lib/constants';
 import { ERC20_BALANCE_ABI } from '@/lib/abis';
 import { usePrices } from '@/contexts/PriceContext';
-import { readRegistryAssets } from '@/lib/registry-assets';
+import { fallbackRegistryAssets, readRegistryAssets } from '@/lib/registry-assets';
 import { findVaultByAddress } from '@/lib/vault-utils';
 import { getRegistryVaultList, type VaultStrategy } from '@/lib/vaults';
 import { readRegistryVaultBalances, type OnChainVaultBalance } from '@/lib/onchain-positions';
@@ -179,7 +179,12 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   const { address, isConnected } = useAccount();
   const publicClient = usePublicClient({ chainId: BASE_CHAIN_ID });
   const { priceOf, priceForVault, assetForVault, refresh: refreshPrices } = usePrices();
-  const [assetTokenBalances, setAssetTokenBalances] = useState<TokenBalance[]>([]);
+  // Tagged with the wallet they belong to, so a failed read after a wallet switch never shows
+  // the previous wallet's tokens.
+  const [assetTokenState, setAssetTokenState] = useState<{ address: string | null; tokens: TokenBalance[] }>({
+    address: null,
+    tokens: [],
+  });
   const [rawMorphoHoldings, setMorphoHoldings] = useState<MorphoHoldings>({
     totalValueUsd: 0,
     positions: [],
@@ -216,7 +221,8 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     if (!walletAddress) return { tokens: [], ok: true };
     if (!publicClient) return { tokens: [], ok: false };
     try {
-      const { assets } = await readRegistryAssets(publicClient);
+      // A failed asset read falls back to the known Base tokens rather than an empty wallet.
+      const { assets } = await readRegistryAssets(publicClient).catch(() => fallbackRegistryAssets());
       if (assets.length === 0) return { tokens: [], ok: true };
       const wallet = getAddress(walletAddress);
       const results = await publicClient.multicall({
@@ -478,8 +484,11 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     };
 
     const { tokens, ok } = tokenResult;
-    // A failed balance read keeps the last good list instead of showing an empty wallet.
-    if (ok || tokens.length > 0) setAssetTokenBalances(tokens);
+    // A failed read keeps this wallet's last good list; another wallet's list is never kept.
+    const owner = walletAddress.toLowerCase();
+    setAssetTokenState((prev) =>
+      ok || tokens.length > 0 || prev.address !== owner ? { address: owner, tokens } : prev
+    );
 
     logger.debug('Token balances updated', { ok, tokenCount: tokens.length });
 
@@ -520,7 +529,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
           error: null,
           resolvedAddress: null,
         }));
-        setAssetTokenBalances([]);
+        setAssetTokenState({ address: null, tokens: [] });
       });
     }
   }, [stableIsConnected, stableAddress, performRefresh]);
@@ -635,7 +644,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       formatted: ethBalance?.formatted || '0',
       usdValue: ethUsdValue,
     },
-    ...assetTokenBalances.map((token) => ({
+    ...(assetTokenState.address === address?.toLowerCase() ? assetTokenState.tokens : []).map((token) => ({
       ...token,
       usdValue: parseFloat(token.formatted) * (priceOf(token.address) ?? 0),
     })),

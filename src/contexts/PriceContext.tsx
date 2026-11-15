@@ -3,10 +3,11 @@
 import { createContext, useCallback, useContext, useMemo, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { usePublicClient } from 'wagmi';
-import { BASE_CHAIN_ID, BASE_WETH_ADDRESS } from '@/lib/constants';
-import { readRegistryAssets, type RegistryAsset } from '@/lib/registry-assets';
+import { BASE_CHAIN_ID, BASE_WETH_ADDRESS, STABLECOIN_SYMBOLS } from '@/lib/constants';
+import { fallbackRegistryAssets, readRegistryAssets, type RegistryAsset, type RegistryAssets } from '@/lib/registry-assets';
 import { registerTokenLogo } from '@/lib/token-metadata';
 import type { TokenPriceResponse } from '@/lib/token-prices';
+import { getVaultLogo } from '@/types/vault';
 
 interface PriceContextValue {
   /** USD price of a token by address; `'ETH'` (native) uses WETH. Null when unknown. */
@@ -23,7 +24,10 @@ interface PriceContextValue {
   refresh: () => Promise<void>;
 }
 
-const NO_ASSETS: RegistryAsset[] = [];
+/** Retry a failed or partial asset read this often (the read is cheap and never changes once complete). */
+const REGISTRY_RETRY_MS = 30_000;
+
+const STABLECOINS = new Set<string>(STABLECOIN_SYMBOLS.map((s) => s.toUpperCase()));
 
 const PriceContext = createContext<PriceContextValue | null>(null);
 
@@ -45,9 +49,25 @@ export function PriceProvider({ children }: { children: ReactNode }) {
     staleTime: Infinity,
     gcTime: Infinity,
     retry: 3,
+    // Keep trying after a failed or partial read: until then the known Base tokens stand in.
+    refetchInterval: (query) =>
+      query.state.status === 'error' || query.state.data?.complete === false ? REGISTRY_RETRY_MS : false,
   });
 
-  const assets = registryQuery.data?.assets ?? NO_ASSETS;
+  // Known Base tokens for the vaults whose label names one, until the on-chain read lands.
+  const fallback = useMemo<RegistryAssets>(() => fallbackRegistryAssets(), []);
+  const registry = useMemo<RegistryAssets>(() => {
+    const read = registryQuery.data;
+    if (!read) return fallback;
+    if (read.complete) return read;
+    // Partial read: fill vaults it missed from the fallback.
+    const byVault = { ...fallback.byVault, ...read.byVault };
+    const seen = new Set(read.assets.map((a) => a.address.toLowerCase()));
+    const assets = [...read.assets, ...fallback.assets.filter((a) => !seen.has(a.address.toLowerCase()))];
+    return { byVault, assets, complete: false };
+  }, [registryQuery.data, fallback]);
+
+  const assets = registry.assets;
   // WETH is always priced: native ETH balances use it.
   const priceAddresses = useMemo(() => {
     const set = new Set<string>([BASE_WETH_ADDRESS.toLowerCase()]);
@@ -72,21 +92,25 @@ export function PriceProvider({ children }: { children: ReactNode }) {
   });
 
   const prices = priceQuery.data?.prices;
-  const byVault = registryQuery.data?.byVault;
+  const byVault = registry.byVault;
   const { refetch: refetchPrices } = priceQuery;
 
   const priceOf = useCallback(
     (address: string | null | undefined) => {
-      if (!address || !prices) return null;
+      if (!address) return null;
       const key = address === 'ETH' ? BASE_WETH_ADDRESS.toLowerCase() : address.toLowerCase();
-      return prices[key] ?? null;
+      const price = prices?.[key];
+      if (price !== undefined) return price;
+      // No Morpho price (first load failed, or Morpho does not price it): a stablecoin is $1.
+      const asset = assets.find((a) => a.address.toLowerCase() === key);
+      return asset && STABLECOINS.has(asset.symbol.toUpperCase()) ? 1 : null;
     },
-    [prices]
+    [prices, assets]
   );
 
   const assetForVault = useCallback(
     (vaultAddress: string | null | undefined) =>
-      (vaultAddress && byVault?.[vaultAddress.toLowerCase()]) || null,
+      (vaultAddress && byVault[vaultAddress.toLowerCase()]) || null,
     [byVault]
   );
 
@@ -129,4 +153,16 @@ export function usePrices(): PriceContextValue {
   const context = useContext(PriceContext);
   if (!context) throw new Error('usePrices must be used within a PriceProvider');
   return context;
+}
+
+/**
+ * A token's logo that updates when Morpho logos arrive with prices (they are learned after the
+ * first render, so a plain `getVaultLogo` call would keep the placeholder).
+ */
+export function useTokenLogo(symbol: string): string {
+  const context = useContext(PriceContext);
+  const pricesLoaded = context?.loading === false;
+  const assetsKnown = context?.assets.length ?? 0;
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- re-read the module registry when prices or assets load
+  return useMemo(() => getVaultLogo(symbol), [symbol, pricesLoaded, assetsKnown]);
 }

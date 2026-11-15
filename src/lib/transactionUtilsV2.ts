@@ -168,26 +168,30 @@ const RECEIPT_TIMEOUT_MS = 10 * 60 * 1000;
  */
 export class TransactionStillPendingError extends Error {
   readonly hash: `0x${string}`;
-  constructor(hash: `0x${string}`, label: string) {
+  /** True for the vault transaction itself; false for an approval sent before it. */
+  readonly final: boolean;
+  constructor(hash: `0x${string}`, label: string, final = true) {
     super(
       `Your ${label.toLowerCase()} transaction is still pending. Check it on Basescan before trying again; sending again could make a second transaction.`
     );
     this.name = 'TransactionStillPendingError';
     this.hash = hash;
+    this.final = final;
   }
 }
 
 async function waitForSuccessfulReceipt(
   publicClient: PublicClient,
   hash: `0x${string}`,
-  label: string
+  label: string,
+  final = true
 ): Promise<TransactionReceipt> {
   let receipt: TransactionReceipt;
   try {
     receipt = await publicClient.waitForTransactionReceipt({ hash, timeout: RECEIPT_TIMEOUT_MS });
   } catch (error) {
     if (error instanceof WaitForTransactionReceiptTimeoutError) {
-      throw new TransactionStillPendingError(hash, label);
+      throw new TransactionStillPendingError(hash, label, final);
     }
     throw error;
   }
@@ -294,7 +298,7 @@ async function ensureApproval(
       txHash: resetHash,
     });
 
-    await waitForSuccessfulReceipt(publicClient, resetHash, resetLabel);
+    await waitForSuccessfulReceipt(publicClient, resetHash, resetLabel, false);
   }
 
   // Approve only the exact amount needed (more secure than unlimited approval)
@@ -327,7 +331,7 @@ async function ensureApproval(
     txHash: approveHash,
   });
 
-  await waitForSuccessfulReceipt(publicClient, approveHash, approveLabel);
+  await waitForSuccessfulReceipt(publicClient, approveHash, approveLabel, false);
   return needsReset;
 }
 
@@ -617,10 +621,15 @@ export async function forceWithdrawFromVaultV2(
   publicClient: PublicClient,
   walletClient: WalletClient,
   plan: ForceWithdrawPlan,
-  onProgress?: TransactionProgressCallback
+  onProgress?: TransactionProgressCallback,
+  /** Decimals the form parsed the amount with; checked against the vault asset before sending. */
+  formAssetDecimals?: number
 ): Promise<string> {
   if (!walletClient.account) {
     throw new Error('Wallet not connected');
+  }
+  if (formAssetDecimals !== undefined) {
+    await assertAssetDecimals(publicClient, getAddress(plan.vaultAddress), formAssetDecimals);
   }
 
   const userAddress = getAddress(walletClient.account.address);

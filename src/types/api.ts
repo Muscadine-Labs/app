@@ -45,6 +45,7 @@ export interface GraphQLV2TransactionItem {
   type: string;
   blockNumber?: number;
   txIndex?: number;
+  logIndex?: number | null;
   vault?: {
     address: string;
   };
