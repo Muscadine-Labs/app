@@ -20,26 +20,11 @@ export function getMorphoChainSlug(chainId: number): string {
 
 export const BASE_WETH_ADDRESS = '0x4200000000000000000000000000000000000006' as const;
 
-/** Major token addresses on Base. */
-export const TOKEN_ADDRESSES = {
-  USDC: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
-  cbBTC: '0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf',
-  WETH: BASE_WETH_ADDRESS,
-} as const;
-
-export const TOKEN_ADDRESSES_LOWER = {
-  USDC: TOKEN_ADDRESSES.USDC.toLowerCase(),
-  cbBTC: TOKEN_ADDRESSES.cbBTC.toLowerCase(),
-  WETH: TOKEN_ADDRESSES.WETH.toLowerCase(),
-} as const;
 /** Morpho Vault V2 `forceDeallocate` (cash force-withdraw; not in-kind). */
 export const MORPHO_FORCE_DEALLOCATE_DOCS_URL =
   'https://docs.morpho.org/learn/concepts/vault-v2/#1-in-kind-redemptions-with-forcedeallocate' as const;
 /** Morpho protocol disclaimer (integrator UX requirement). */
 export const MORPHO_DISCLAIMER_URL = 'https://morpho.org/disclaimers' as const;
-
-// Cache durations (in milliseconds)
-export const CACHE_DURATION_PRICES = 10 * 60 * 1000; // 10 minutes
 
 // Transaction configuration
 /** Delay before follow-up balance refresh after tx (Morpho indexer lag). */
@@ -60,7 +45,7 @@ export const MORPHO_PRELOAD_BATCH_SIZE = 4;
 /** Back off failed Morpho fetches (rate limits, 5xx) before retrying the same vault. */
 export const MORPHO_FETCH_ERROR_COOLDOWN_MS = 60_000;
 
-// Price API configuration
+// Asset fallbacks (Morpho activity amounts)
 export const STABLECOIN_SYMBOLS = ['USDC', 'USDT'] as const;
 export const DEFAULT_ASSET_PRICE = 1;
 export const DEFAULT_ASSET_DECIMALS = 18;

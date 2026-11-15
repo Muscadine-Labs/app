@@ -9,6 +9,7 @@ import { useAppKitTheme } from '@reown/appkit/react'
 import { ensureAppKitInit } from '@/lib/appkit-init'
 import { VaultDataProvider } from '../contexts/VaultDataContext'
 import { WalletProvider } from '../contexts/WalletContext'
+import { PriceProvider } from '../contexts/PriceContext'
 import { ExplorerVaultsProvider } from '../contexts/ExplorerVaultsContext'
 import { TransactionProvider } from '../contexts/TransactionContext'
 import { ToastProvider } from '../contexts/ToastContext'
@@ -95,6 +96,7 @@ export function Providers({ children, initialState }: Props) {
             <AppKitThemeSync />
             <AdvisoryAgreementProvider>
                 <ToastProvider>
+                  <PriceProvider>
                   <WalletProvider>
                     <ExplorerVaultsProvider>
                       <VaultDataProvider>
@@ -105,6 +107,7 @@ export function Providers({ children, initialState }: Props) {
                       </VaultDataProvider>
                     </ExplorerVaultsProvider>
                   </WalletProvider>
+                  </PriceProvider>
                 </ToastProvider>
               </AdvisoryAgreementProvider>
           </ThemeProvider>

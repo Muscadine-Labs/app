@@ -88,6 +88,11 @@ const nextConfig: NextConfig = {
         protocol: "https",
         hostname: "static.alchemyapi.io",
       },
+      {
+        // Token logos Morpho returns with prices (any vault asset without a bundled logo).
+        protocol: "https",
+        hostname: "cdn.morpho.org",
+      },
     ],
   },
 };

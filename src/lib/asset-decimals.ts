@@ -1,4 +1,5 @@
 import { formatUnits } from 'viem';
+import { tokenMetadataForSymbol } from '@/lib/token-metadata';
 
 /**
  * Canonical asset-decimal helpers for underlying vault/wallet tokens.
@@ -64,6 +65,9 @@ export function resolveMorphoAssetSymbol(options: {
 
 export function getAssetDecimalsForSymbol(symbol: string): number {
   if (isUnknownAssetSymbol(symbol)) return DEFAULT_MORPHO_ASSET_DECIMALS;
+  // A registry vault asset read on chain wins over the built-in defaults below.
+  const known = tokenMetadataForSymbol(symbol);
+  if (known) return known.decimals;
   const upper = symbol.toUpperCase();
   if (upper === 'USDC') return 6;
   if (upper === 'CBBTC' || upper === 'CBTC' || upper === 'BTC') return 8;

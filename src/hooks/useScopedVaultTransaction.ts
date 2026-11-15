@@ -6,7 +6,8 @@ import { formatUnits } from 'viem';
 import { useTransactionState } from '@/contexts/TransactionContext';
 import { useWallet } from '@/contexts/WalletContext';
 import { useVaultData } from '@/contexts/VaultDataContext';
-import { BASE_CHAIN_ID, TOKEN_ADDRESSES } from '@/lib/constants';
+import { BASE_CHAIN_ID } from '@/lib/constants';
+import { usePrices } from '@/contexts/PriceContext';
 import { formatBigIntForInput } from '@/lib/formatter';
 import { ERC20_BALANCE_ABI, ERC4626_ABI } from '@/lib/abis';
 import { getAssetDecimalsForSymbol } from '@/lib/asset-decimals';
@@ -117,12 +118,9 @@ export function useScopedVaultTransaction({
     query: { enabled: !!walletAddress },
   });
   // The wallet's balance of the vault asset, read on chain: deposits never size off an API.
-  const assetTokenAddress = useMemo(() => {
-    const key = Object.keys(TOKEN_ADDRESSES).find(
-      (symbol) => symbol.toLowerCase() === vaultSymbol.toLowerCase()
-    ) as keyof typeof TOKEN_ADDRESSES | undefined;
-    return key ? TOKEN_ADDRESSES[key] : undefined;
-  }, [vaultSymbol]);
+  // The vault's own `asset()`, read on chain, so any token the registry uses works here.
+  const { assetForVault } = usePrices();
+  const assetTokenAddress = assetForVault(vaultAddress)?.address;
   const { data: onChainAssetBalance, refetch: refetchOnChainAssetBalance } = useReadContract({
     address: walletAddress && assetTokenAddress ? (assetTokenAddress as `0x${string}`) : undefined,
     chainId: BASE_CHAIN_ID,

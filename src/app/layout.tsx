@@ -6,7 +6,6 @@ import { headers } from 'next/headers'
 import { cookieToInitialState } from 'wagmi'
 import { Providers } from './Providers'
 import { config } from '@/config/wagmi'
-import { PriceProvider } from '@/contexts/PriceContext'
 import { getAppUrl } from '@/lib/app-url'
 import { APP_NAME, BASE_APP_ID } from '@/lib/base-app'
 
@@ -75,9 +74,7 @@ export default async function RootLayout({
       </head>
       <body className={figtree.className}>
           <Providers initialState={initialState}>
-              <PriceProvider>
-                <AppLayout>{children}</AppLayout>
-              </PriceProvider>
+              <AppLayout>{children}</AppLayout>
           </Providers>
       </body>
     </html>

@@ -1,3 +1,4 @@
+import { tokenLogoForSymbol } from '@/lib/token-metadata';
 import type { VaultStrategy } from '@/lib/vaults';
 
 /** Morpho v2 liquidity breakdown (instant, idle, adapter, deallocatable, total). */
@@ -134,8 +135,13 @@ export const VAULT_LOGO_MAP: Record<string, string> = {
 
 // Function to get vault logo
 export const getVaultLogo = (symbol: string): string => {
-    // Try exact match first, then uppercase
-    return VAULT_LOGO_MAP[symbol] || VAULT_LOGO_MAP[symbol.toUpperCase()] || '/usdc-logo.svg';
+    // Bundled logo first, then the Morpho logo loaded with prices, then the app icon.
+    return (
+        VAULT_LOGO_MAP[symbol] ||
+        VAULT_LOGO_MAP[symbol.toUpperCase()] ||
+        tokenLogoForSymbol(symbol) ||
+        '/favicon.png'
+    );
 };
 
 // Account types for transaction flow
