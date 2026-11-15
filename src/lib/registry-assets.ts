@@ -87,6 +87,22 @@ export function fallbackRegistryAssets(
   return { byVault, assets, complete: false };
 }
 
+/**
+ * A read that missed some vaults keeps what it got and fills the rest from the known Base
+ * tokens, so a vault never drops out of balances or prices because one call failed.
+ */
+export function withFallbackAssets(
+  read: RegistryAssets | null | undefined,
+  fallback: RegistryAssets = fallbackRegistryAssets()
+): RegistryAssets {
+  if (!read) return fallback;
+  if (read.complete) return read;
+  const byVault = { ...fallback.byVault, ...read.byVault };
+  const seen = new Set(read.assets.map((a) => a.address.toLowerCase()));
+  const assets = [...read.assets, ...fallback.assets.filter((a) => !seen.has(a.address.toLowerCase()))];
+  return { byVault, assets, complete: false };
+}
+
 function decodeSymbol(result: { status: string; result?: unknown } | undefined): string | null {
   if (result?.status !== 'success') return null;
   const value = result.result;

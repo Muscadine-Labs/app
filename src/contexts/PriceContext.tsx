@@ -4,7 +4,13 @@ import { createContext, useCallback, useContext, useMemo, type ReactNode } from 
 import { useQuery } from '@tanstack/react-query';
 import { usePublicClient } from 'wagmi';
 import { BASE_CHAIN_ID, BASE_WETH_ADDRESS, STABLECOIN_SYMBOLS } from '@/lib/constants';
-import { fallbackRegistryAssets, readRegistryAssets, type RegistryAsset, type RegistryAssets } from '@/lib/registry-assets';
+import {
+  fallbackRegistryAssets,
+  readRegistryAssets,
+  withFallbackAssets,
+  type RegistryAsset,
+  type RegistryAssets,
+} from '@/lib/registry-assets';
 import { registerTokenLogo } from '@/lib/token-metadata';
 import type { TokenPriceResponse } from '@/lib/token-prices';
 import { getVaultLogo } from '@/types/vault';
@@ -56,16 +62,10 @@ export function PriceProvider({ children }: { children: ReactNode }) {
 
   // Known Base tokens for the vaults whose label names one, until the on-chain read lands.
   const fallback = useMemo<RegistryAssets>(() => fallbackRegistryAssets(), []);
-  const registry = useMemo<RegistryAssets>(() => {
-    const read = registryQuery.data;
-    if (!read) return fallback;
-    if (read.complete) return read;
-    // Partial read: fill vaults it missed from the fallback.
-    const byVault = { ...fallback.byVault, ...read.byVault };
-    const seen = new Set(read.assets.map((a) => a.address.toLowerCase()));
-    const assets = [...read.assets, ...fallback.assets.filter((a) => !seen.has(a.address.toLowerCase()))];
-    return { byVault, assets, complete: false };
-  }, [registryQuery.data, fallback]);
+  const registry = useMemo<RegistryAssets>(
+    () => withFallbackAssets(registryQuery.data, fallback),
+    [registryQuery.data, fallback]
+  );
 
   const assets = registry.assets;
   // WETH is always priced: native ETH balances use it.

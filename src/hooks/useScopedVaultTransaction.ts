@@ -96,6 +96,7 @@ export function useScopedVaultTransaction({
     setAmount,
     setStatus,
     reset,
+    pendingTx,
   } = useTransactionState();
 
   const [activeTab, setActiveTab] = useState<VaultTransactionTab>(initialTab);
@@ -512,8 +513,10 @@ export function useScopedVaultTransaction({
     return [{ ...baseSteps[0], active: true }, baseSteps[1], baseSteps[2]];
   }, [status]);
 
+  // A transaction still pending on chain keeps the review open: closing it would reset the
+  // form and allow sending the same deposit or withdraw again.
   const canClose =
-    status === 'idle' || status === 'success' || status === 'error';
+    !pendingTx && (status === 'idle' || status === 'success' || status === 'error');
 
   return {
     isConnected,

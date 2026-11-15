@@ -13,7 +13,7 @@ import {
 import { BASE_CHAIN_ID, POST_TX_BALANCE_REFRESH_DELAY_MS } from '@/lib/constants';
 import { ERC20_BALANCE_ABI } from '@/lib/abis';
 import { usePrices } from '@/contexts/PriceContext';
-import { fallbackRegistryAssets, readRegistryAssets } from '@/lib/registry-assets';
+import { fallbackRegistryAssets, readRegistryAssets, withFallbackAssets } from '@/lib/registry-assets';
 import { findVaultByAddress } from '@/lib/vault-utils';
 import { getRegistryVaultList, type VaultStrategy } from '@/lib/vaults';
 import { readRegistryVaultBalances, type OnChainVaultBalance } from '@/lib/onchain-positions';
@@ -178,7 +178,18 @@ async function readOnChainBalances(
 export function WalletProvider({ children }: { children: React.ReactNode }) {
   const { address, isConnected } = useAccount();
   const publicClient = usePublicClient({ chainId: BASE_CHAIN_ID });
-  const { priceOf, priceForVault, assetForVault, refresh: refreshPrices } = usePrices();
+  const {
+    priceOf,
+    priceForVault,
+    assetForVault,
+    refresh: refreshPrices,
+    assets: knownAssets,
+  } = usePrices();
+  /** Changes when the registry asset read lands or fills in a vault it missed. */
+  const knownAssetsKey = knownAssets
+    .map((a) => a.address.toLowerCase())
+    .sort()
+    .join(',');
   // Tagged with the wallet they belong to, so a failed read after a wallet switch never shows
   // the previous wallet's tokens.
   const [assetTokenState, setAssetTokenState] = useState<{ address: string | null; tokens: TokenBalance[] }>({
@@ -222,7 +233,9 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     if (!publicClient) return { tokens: [], ok: false };
     try {
       // A failed asset read falls back to the known Base tokens rather than an empty wallet.
-      const { assets } = await readRegistryAssets(publicClient).catch(() => fallbackRegistryAssets());
+      const { assets } = await readRegistryAssets(publicClient)
+        .then((read) => withFallbackAssets(read))
+        .catch(() => fallbackRegistryAssets());
       if (assets.length === 0) return { tokens: [], ok: true };
       const wallet = getAddress(walletAddress);
       const results = await publicClient.multicall({
@@ -533,6 +546,27 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       });
     }
   }, [stableIsConnected, stableAddress, performRefresh]);
+
+  // The asset list can grow after the first refresh (a retried read fills in a vault). Re-read
+  // just the token balances then, so that token's balance and deposit MAX show up.
+  const lastAssetsKeyRef = useRef(knownAssetsKey);
+  useEffect(() => {
+    if (lastAssetsKeyRef.current === knownAssetsKey) return;
+    lastAssetsKeyRef.current = knownAssetsKey;
+    if (!stableIsConnected || !stableAddress) return;
+    const wallet = stableAddress;
+    // A wallet switch or a full refresh started after this read supersedes it.
+    const requestId = walletDataFetchIdRef.current;
+    void fetchAllTokenBalances(wallet).then(({ tokens, ok }) => {
+      if (!ok && tokens.length === 0) return;
+      if (requestId !== walletDataFetchIdRef.current) return;
+      setAssetTokenState((prev) =>
+        prev.address === null || prev.address === wallet.toLowerCase()
+          ? { address: wallet.toLowerCase(), tokens }
+          : prev
+      );
+    });
+  }, [knownAssetsKey, stableIsConnected, stableAddress, fetchAllTokenBalances]);
 
   const refreshBalances = useCallback(async () => {
     // Charts read position history through a short client cache; drop it so they see this refresh.
