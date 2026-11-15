@@ -4,7 +4,8 @@
  * Force exits use vault.multicall.
  */
 
-import { type Address, type PublicClient, type WalletClient, type TransactionReceipt, parseUnits, formatUnits, getAddress } from 'viem';
+import { type Address, type PublicClient, type WalletClient, type TransactionReceipt, parseUnits, formatUnits, getAddress, WaitForTransactionReceiptTimeoutError } from 'viem';
+import { base } from 'viem/chains';
 import { builderWriteOpts } from './builder-code';
 import { VaultDepositBlockedError, isWalletDepositBlocked } from './vault-gates';
 import { assertDepositWithinCapacity } from './deposit-capacity';
@@ -129,6 +130,23 @@ async function readVaultAssetDecimals(
   return Number(decimals);
 }
 
+/**
+ * The form scales the typed amount with decimals derived from the registry symbol. Check them
+ * against the vault asset's own `decimals()` before anything is signed, so a wrong symbol can
+ * never send an amount off by powers of ten.
+ */
+async function assertAssetDecimals(
+  publicClient: PublicClient,
+  vaultAddress: Address,
+  assetDecimals: number
+): Promise<void> {
+  const onChain = await readVaultAssetDecimals(publicClient, vaultAddress);
+  if (onChain !== assetDecimals) {
+    // Kept under 100 characters so formatTransactionError shows it as written.
+    throw new Error(`This vault's asset uses ${onChain} decimals, not ${assetDecimals}. Nothing was sent.`);
+  }
+}
+
 function emitTransactionPlan(
   onProgress: TransactionProgressCallback | undefined,
   stepLabels: string[]
@@ -141,12 +159,38 @@ function emitTransactionPlan(
   });
 }
 
+/** How long to wait for a sent transaction to be mined before telling the user it is still pending. */
+const RECEIPT_TIMEOUT_MS = 10 * 60 * 1000;
+
+/**
+ * A sent transaction was not mined in time. It may still land, so the UI must not offer to
+ * send it again (that could make a second deposit or withdrawal).
+ */
+export class TransactionStillPendingError extends Error {
+  readonly hash: `0x${string}`;
+  constructor(hash: `0x${string}`, label: string) {
+    super(
+      `Your ${label.toLowerCase()} transaction is still pending. Check it on Basescan before trying again; sending again could make a second transaction.`
+    );
+    this.name = 'TransactionStillPendingError';
+    this.hash = hash;
+  }
+}
+
 async function waitForSuccessfulReceipt(
   publicClient: PublicClient,
   hash: `0x${string}`,
   label: string
 ): Promise<TransactionReceipt> {
-  const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  let receipt: TransactionReceipt;
+  try {
+    receipt = await publicClient.waitForTransactionReceipt({ hash, timeout: RECEIPT_TIMEOUT_MS });
+  } catch (error) {
+    if (error instanceof WaitForTransactionReceiptTimeoutError) {
+      throw new TransactionStillPendingError(hash, label);
+    }
+    throw error;
+  }
   if (receipt.status !== 'success') {
     throw new Error(`${label} transaction failed.`);
   }
@@ -236,7 +280,8 @@ async function ensureApproval(
       functionName: 'approve',
       args: [spenderAddress, BigInt(0)],
       account: walletClient.account,
-      chain: undefined,
+      // viem refuses to send if the wallet moved off Base after the earlier check.
+      chain: base,
       ...builderWriteOpts(),
     });
 
@@ -268,7 +313,8 @@ async function ensureApproval(
     functionName: 'approve',
     args: [spenderAddress, amount],
     account: walletClient.account,
-    chain: undefined,
+    // viem refuses to send if the wallet moved off Base after the earlier check.
+    chain: base,
     ...builderWriteOpts(),
   });
 
@@ -304,6 +350,7 @@ export async function depositToVaultV2(
   const normalizedVault = getAddress(vaultAddress);
 
   const amountBigInt = parseAmount(amount, assetDecimals);
+  await assertAssetDecimals(publicClient, normalizedVault, assetDecimals);
 
   // Independent reads in one round: gate, caps, and the vault asset for the balance check.
   const [depositBlocked, capError, assetAddress] = await Promise.all([
@@ -387,7 +434,8 @@ export async function depositToVaultV2(
     functionName: 'deposit',
     args: [amountBigInt, userAddress],
     account: walletClient.account,
-    chain: undefined,
+    // viem refuses to send if the wallet moved off Base after the earlier check.
+    chain: base,
     ...builderWriteOpts(),
   });
 
@@ -422,6 +470,7 @@ export async function withdrawFromVaultV2(
   const normalizedVault = getAddress(vaultAddress);
 
   const amountBigInt = parseAmount(amount, assetDecimals);
+  await assertAssetDecimals(publicClient, normalizedVault, assetDecimals);
 
   // Share balance and the shares this amount needs (previewWithdraw rounds up), in one round.
   const [userShares, sharesNeeded] = await publicClient.multicall({
@@ -478,7 +527,8 @@ export async function withdrawFromVaultV2(
     functionName: 'withdraw',
     args: [amountBigInt, userAddress, userAddress],
     account: walletClient.account,
-    chain: undefined,
+    // viem refuses to send if the wallet moved off Base after the earlier check.
+    chain: base,
     ...builderWriteOpts(),
   });
 
@@ -542,7 +592,8 @@ export async function redeemFromVaultV2(
     functionName: 'redeem',
     args: [userShares, userAddress, userAddress],
     account: walletClient.account,
-    chain: undefined,
+    // viem refuses to send if the wallet moved off Base after the earlier check.
+    chain: base,
     ...builderWriteOpts(),
   });
 
@@ -621,7 +672,8 @@ export async function forceWithdrawFromVaultV2(
     functionName: 'multicall',
     args: [plan.multicallArgs],
     account: walletClient.account,
-    chain: undefined,
+    // viem refuses to send if the wallet moved off Base after the earlier check.
+    chain: base,
     ...builderWriteOpts(),
   });
 

@@ -227,6 +227,8 @@ This is **not** in-kind redemption. In-kind (`vault.inKindRedeem` → VaultExitB
 - Direct deposit: spender is the **vault**.
 - USDC-style reset-to-zero runs before a new ERC-20 asset approval when a smaller allowance is already set. `depositToVaultV2` reads balance + allowance in one multicall and throws a readable error when the amount exceeds the wallet balance.
 
+**Safety checks:** every write passes `chain: base`, so a wallet on another chain is refused instead of signing there. Deposit and withdraw compare the vault asset's on-chain `decimals()` with the registry and throw before sending if they differ. A receipt wait that times out (10 minutes) throws `TransactionStillPendingError` with the hash: `TransactionFlow` shows the Basescan link and no Retry, so a slow transaction is never sent twice. The backup receipt handler only reports success for `status === 'success'`. A force plan whose penalty would burn the whole position is refused.
+
 **Progress:** `TransactionProgressCallback` — `approving` for approvals, `confirming` for the vault tx (do not treat approval hash as final success).
 
 **Routing:** `TransactionFlow.tsx` calls v2 helpers only.
@@ -302,7 +304,7 @@ If `complete` routes return **HTTP 400**, validate queries against `https://api.
 
 `next: { revalidate: MORPHO_GRAPHQL_REVALIDATE_SECONDS }` (60 seconds by default in `constants.ts`) + cache tags like `vault-{address}-{chainId}`.
 
-Per-wallet routes (`morpho-positions`, `position-history`, `earned-interest`) are `force-dynamic`, read Morpho with `revalidate: 0`, and send `private, no-store`, so charts catch up right after a transaction. `earned-interest` returns 503 (`retryable`) when the Morpho position read fails or a holder's activity fallback fails, so the UI shows a dash instead of 0 earned. `/api/prices` aborts CoinGecko after 8s (504).
+Per-wallet routes (`morpho-positions`, `position-history`, `earned-interest`, and `activity` with `userAddress`) are `force-dynamic`, read Morpho with `revalidate: 0`, and send `private, no-store`, so charts catch up right after a transaction. Per-wallet activity pages through up to 10 pages so an old deposit is not cut off; the vault-wide feed stays one cached page. `earned-interest` returns 503 (`retryable`) when the Morpho position read fails or a holder's activity fallback fails, so the UI shows a dash instead of 0 earned. `/api/prices` aborts CoinGecko after 8s (504).
 
 `fetchMorphoGraphQL` also keeps a 60s in-memory cache. An expired entry is kept 10 more minutes and served only when Morpho rate-limits. Retries honor `Retry-After` up to 3s; a longer wait returns the error right away so a route handler never hangs. Routes whose body changes every call (the vault `history` route's `endTimestamp`) pass a stable `cacheKey` (vault, chain, period).
 

@@ -92,7 +92,10 @@ export async function GET(
       },
       {
         headers: {
-          'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=120',
+          // A wallet's activity is per user and must be fresh after a transaction.
+          'Cache-Control': userAddress
+            ? 'private, no-store'
+            : 'public, s-maxage=60, stale-while-revalidate=120',
         },
       }
     );

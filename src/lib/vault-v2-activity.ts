@@ -164,7 +164,7 @@ export async function fetchVaultV2ActivityData(
   const transactionLimit = userAddress ? 1000 : 100;
 
   const query = `
-    query VaultV2Activity($vaultAddress: String!, $userAddressIn: [String!], $first: Int!, $chainId: Int!) {
+    query VaultV2Activity($vaultAddress: String!, $userAddressIn: [String!], $first: Int!, $skip: Int!, $chainId: Int!) {
       vaultV2ByAddress(address: $vaultAddress, chainId: $chainId) {
         totalAssets
         totalSupply
@@ -178,7 +178,7 @@ export async function fetchVaultV2ActivityData(
       }
       vaultV2transactions(
         first: $first
-        skip: 0
+        skip: $skip
         orderBy: Time
         orderDirection: Desc
         where: {
@@ -219,7 +219,7 @@ export async function fetchVaultV2ActivityData(
     }
   `;
 
-  let data: GraphQLResponse<GraphQLTransactionsData & {
+  type ActivityResponse = GraphQLResponse<GraphQLTransactionsData & {
     vaultV2ByAddress?: {
       totalAssets?: string | number;
       totalSupply?: string | number;
@@ -231,59 +231,79 @@ export async function fetchVaultV2ActivityData(
     };
   }>;
 
-  try {
-    const response = await fetchMorphoGraphQL(
-      {
-        query,
-        variables: {
-          vaultAddress,
-          userAddressIn: userAddress ? [userAddress] : null,
-          first: transactionLimit,
-          chainId,
-        },
-      },
-      { revalidate: MORPHO_GRAPHQL_REVALIDATE_SECONDS, tags: [`vault-${vaultAddress}-${chainId}`] }
-    );
-
-    const responseText = await response.text();
-
+  // A wallet's activity feeds earned interest against a fresh on-chain balance, so it is read
+  // uncached and paged in full; the vault-wide feed keeps the shared cache and one page.
+  const perWallet = Boolean(userAddress);
+  const maxPages = perWallet ? 10 : 1;
+  let data: ActivityResponse | null = null;
+  const allItems: NonNullable<
+    NonNullable<ActivityResponse['data']>['vaultV2transactions']
+  >['items'] = [];
+  for (let page = 0; page < maxPages; page++) {
+    let pageData: ActivityResponse;
     try {
-      data = JSON.parse(responseText) as typeof data;
-    } catch (parseError) {
-      logger.error(
-        'Failed to parse GraphQL response',
-        parseError instanceof Error ? parseError : new Error(String(parseError)),
-        { vaultAddress, chainId, responseStatus: response.status }
+      const response = await fetchMorphoGraphQL(
+        {
+          query,
+          variables: {
+            vaultAddress,
+            userAddressIn: userAddress ? [userAddress] : null,
+            first: transactionLimit,
+            skip: page * transactionLimit,
+            chainId,
+          },
+        },
+        perWallet
+          ? { revalidate: 0, skipMemoryCache: true }
+          : { revalidate: MORPHO_GRAPHQL_REVALIDATE_SECONDS, tags: [`vault-${vaultAddress}-${chainId}`] }
       );
-      return { ...empty, error: 'Invalid response from Morpho API' };
-    }
 
-    if (data.errors && data.errors.length > 0) {
-      logger.warn('GraphQL errors in V2 activity query', {
-        vaultAddress,
-        chainId,
-        errors: data.errors.map((e) => e.message),
-      });
-      return {
-        ...empty,
-        error: data.errors[0]?.message || 'GraphQL query failed',
-      };
-    }
+      const responseText = await response.text();
 
-    if (!response.ok && !data.errors) {
-      return {
-        ...empty,
-        error: `Morpho API error: ${response.status} ${response.statusText}`,
-      };
+      try {
+        pageData = JSON.parse(responseText) as ActivityResponse;
+      } catch (parseError) {
+        logger.error(
+          'Failed to parse GraphQL response',
+          parseError instanceof Error ? parseError : new Error(String(parseError)),
+          { vaultAddress, chainId, responseStatus: response.status }
+        );
+        return { ...empty, error: 'Invalid response from Morpho API' };
+      }
+
+      if (pageData.errors && pageData.errors.length > 0) {
+        logger.warn('GraphQL errors in V2 activity query', {
+          vaultAddress,
+          chainId,
+          errors: pageData.errors.map((e) => e.message),
+        });
+        return {
+          ...empty,
+          error: pageData.errors[0]?.message || 'GraphQL query failed',
+        };
+      }
+
+      if (!response.ok && !pageData.errors) {
+        return {
+          ...empty,
+          error: `Morpho API error: ${response.status} ${response.statusText}`,
+        };
+      }
+    } catch (fetchError) {
+      logger.error(
+        'Failed to fetch from Morpho GraphQL API',
+        fetchError instanceof Error ? fetchError : new Error(String(fetchError)),
+        { vaultAddress, chainId }
+      );
+      return { ...empty, error: 'Failed to connect to Morpho API' };
     }
-  } catch (fetchError) {
-    logger.error(
-      'Failed to fetch from Morpho GraphQL API',
-      fetchError instanceof Error ? fetchError : new Error(String(fetchError)),
-      { vaultAddress, chainId }
-    );
-    return { ...empty, error: 'Failed to connect to Morpho API' };
+    const items = pageData.data?.vaultV2transactions?.items ?? [];
+    if (!data) data = pageData;
+    allItems.push(...items);
+    if (items.length < transactionLimit) break;
   }
+  if (!data) return { ...empty, error: 'Failed to connect to Morpho API' };
+  if (data.data?.vaultV2transactions) data.data.vaultV2transactions.items = allItems;
 
   const vaultInfo = data.data?.vaultV2ByAddress;
   const vaultTxs = data.data?.vaultV2transactions?.items || [];

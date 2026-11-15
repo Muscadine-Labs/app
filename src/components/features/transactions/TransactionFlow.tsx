@@ -30,6 +30,7 @@ import {
   withdrawFromVaultV2,
   redeemFromVaultV2,
   forceWithdrawFromVaultV2,
+  TransactionStillPendingError,
 } from '@/lib/transactionUtilsV2';
 import { TransactionConfirmation } from './TransactionConfirmation';
 import { WithdrawLiquidityWarningModal } from './WithdrawLiquidityWarningModal';
@@ -154,6 +155,8 @@ export function TransactionFlow({
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [isExecuting, setIsExecuting] = useState(false);
   const [partialFailure, setPartialFailure] = useState(false);
+  /** A sent transaction that was not mined in time; resending is blocked while it is shown. */
+  const [pendingTxHash, setPendingTxHash] = useState<`0x${string}` | null>(null);
   const [liquidityWarningOpen, setLiquidityWarningOpen] = useState(false);
   const [liquidityWarningContext, setLiquidityWarningContext] =
     useState<LiquidityWarningContext | null>(null);
@@ -341,6 +344,7 @@ export function TransactionFlow({
 
     if (
       receipt &&
+      receipt.status === 'success' &&
       status === 'confirming' &&
       hashToUse &&
       !isExecuting
@@ -352,6 +356,15 @@ export function TransactionFlow({
         timestamp: new Date().toISOString(),
       });
       completeSuccessfulTransaction(hashToUse);
+    } else if (
+      receipt &&
+      receipt.status !== 'success' &&
+      status === 'confirming' &&
+      hashToUse &&
+      !isExecuting
+    ) {
+      // A mined but reverted transaction is a failure, never a success.
+      setStatus('error', 'The transaction reverted on chain. Nothing was deposited or withdrawn.');
     } else if (receiptError && status === 'confirming' && hashToUse && !isExecuting) {
       logger.error('Transaction receipt error', receiptError, {
         txHash: hashToUse,
@@ -423,6 +436,7 @@ export function TransactionFlow({
     try {
       setLiquidityWarningOpen(false);
       setLiquidityWarningContext(null);
+      setPendingTxHash(null);
       setIsExecuting(true);
       const baseWalletClient = await resolveBaseWalletClient();
       const isResuming = partialFailure;
@@ -597,6 +611,15 @@ export function TransactionFlow({
           })
         );
         setLiquidityWarningOpen(true);
+        return;
+      }
+
+      if (err instanceof TransactionStillPendingError) {
+        // It may still land: show the hash and do not offer to send again.
+        setPendingTxHash(err.hash);
+        setPartialFailure(false);
+        setStatus('error', err.message);
+        showErrorToast(err.message, 8000);
         return;
       }
 
@@ -925,7 +948,8 @@ export function TransactionFlow({
         <TransactionStatusComponent
           type="error"
           message={error || 'Transaction failed'}
-          onRetry={() => setStatus('preview')}
+          txHash={pendingTxHash ?? undefined}
+          onRetry={pendingTxHash ? undefined : () => setStatus('preview')}
         />
       )}
       {liquidityWarningContext && (

@@ -701,15 +701,9 @@ export async function planForceWithdrawV2(
   if (redeemExit) {
 
     if (penaltyShares >= userShares) {
-      logger.warn('Force redeem exit would burn all shares as penalty; falling back to withdraw', {
-        vaultAddress: normalizedVault,
-        userShares: userShares.toString(),
-        penaltyShares: penaltyShares.toString(),
-      });
-      multicallArgs = buildMulticallArgs(deallocations, user, {
-        mode: 'withdraw',
-        assets: expectedAssetsOut,
-      });
+      // Any exit would revert: the penalty alone needs every share. Say so instead of
+      // building a plan that always fails.
+      throw new Error('A force withdraw would burn the whole position as penalty.');
     } else {
       const redeemShares = userShares - penaltyShares;
       // What the remaining shares are worth after the penalty burn (rounds down, so a withdraw of
@@ -720,9 +714,8 @@ export async function planForceWithdrawV2(
         functionName: 'convertToAssets',
         args: [redeemShares],
       })) as bigint;
-      if (!useRedeemExit) {
-        expectedAssetsOut = remainingAssets;
-      }
+      // The redeem pays what the shares left after the penalty are worth, MAX included.
+      expectedAssetsOut = remainingAssets;
       const redeemArgs = buildMulticallArgs(deallocations, user, {
         mode: 'redeem',
         shares: redeemShares,
