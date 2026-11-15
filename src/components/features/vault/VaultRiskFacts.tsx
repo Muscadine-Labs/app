@@ -60,6 +60,9 @@ async function fetchPendingChanges(address: string, chainId: number): Promise<Va
   return Array.isArray(data.pending) ? data.pending : [];
 }
 
+/** More pending changes than this are shown in a closed dropdown. */
+const PENDING_COLLAPSE_AFTER = 5;
+
 /**
  * Curator changes waiting out their timelock. Hidden when there are none (or the read
  * fails): it is a heads-up, not a status.
@@ -73,35 +76,64 @@ function PendingChanges({ vaultData }: { vaultData: MorphoVaultData }) {
   });
   const now = useUnixTimestamp();
   if (!pending || pending.length === 0) return null;
+  const collapsed = pending.length > PENDING_COLLAPSE_AFTER;
+
+  const heading = (
+    <>
+      Pending change{pending.length === 1 ? '' : 's'}
+      {collapsed && <span className="ml-1">({pending.length})</span>}
+      <span className="ml-1.5 font-normal text-[var(--foreground-secondary)]">
+        Proposed by the curator, public until the timelock ends
+      </span>
+    </>
+  );
+  const list = (
+    <ul className="space-y-1.5">
+      {pending.map((change) => {
+        const mark = DIRECTION_MARK[change.direction];
+        return (
+          <li key={change.id} className="flex items-start gap-2 text-xs sm:text-sm">
+            <span
+              className={`mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[11px] font-bold leading-none ${mark.className}`}
+              aria-label={mark.label}
+              title={mark.label}
+            >
+              {mark.symbol}
+            </span>
+            <span className="min-w-0 text-[var(--foreground)]">
+              {change.title}
+              <span className="text-[var(--foreground-secondary)]"> · {formatTimeUntil(change.validAt, now)}</span>
+            </span>
+          </li>
+        );
+      })}
+    </ul>
+  );
+  const boxClass =
+    'rounded-lg border border-[var(--border-subtle)] bg-[var(--warning-subtle)] px-3 py-2.5 sm:px-4';
+
+  // A long list starts closed so it does not push the rest of Risk down.
+  if (collapsed) {
+    return (
+      <details className={`group ${boxClass}`}>
+        <summary className="flex cursor-pointer list-none items-start justify-between gap-2 text-xs sm:text-sm font-semibold text-[var(--foreground)] [&::-webkit-details-marker]:hidden">
+          <span>{heading}</span>
+          <span
+            aria-hidden="true"
+            className="shrink-0 text-[var(--foreground-secondary)] transition-transform group-open:rotate-180"
+          >
+            ▾
+          </span>
+        </summary>
+        <div className="mt-2">{list}</div>
+      </details>
+    );
+  }
 
   return (
-    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--warning-subtle)] px-3 py-2.5 sm:px-4 space-y-2">
-      <p className="text-xs sm:text-sm font-semibold text-[var(--foreground)]">
-        Pending change{pending.length === 1 ? '' : 's'}
-        <span className="ml-1.5 font-normal text-[var(--foreground-secondary)]">
-          Proposed by the curator, public until the timelock ends
-        </span>
-      </p>
-      <ul className="space-y-1.5">
-        {pending.map((change) => {
-          const mark = DIRECTION_MARK[change.direction];
-          return (
-            <li key={change.id} className="flex items-start gap-2 text-xs sm:text-sm">
-              <span
-                className={`mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[11px] font-bold leading-none ${mark.className}`}
-                aria-label={mark.label}
-                title={mark.label}
-              >
-                {mark.symbol}
-              </span>
-              <span className="min-w-0 text-[var(--foreground)]">
-                {change.title}
-                <span className="text-[var(--foreground-secondary)]"> · {formatTimeUntil(change.validAt, now)}</span>
-              </span>
-            </li>
-          );
-        })}
-      </ul>
+    <div className={`${boxClass} space-y-2`}>
+      <p className="text-xs sm:text-sm font-semibold text-[var(--foreground)]">{heading}</p>
+      {list}
     </div>
   );
 }

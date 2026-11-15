@@ -175,6 +175,30 @@ async function readOnChainBalances(
   }
 }
 
+interface TokenRead {
+  tokens: TokenBalance[];
+  ok: boolean;
+  /** Lowercase addresses whose balance read failed; null when the whole read failed. */
+  failed: string[] | null;
+}
+
+/**
+ * Apply a wallet token read: a token whose read failed keeps this wallet's last value instead of
+ * vanishing; a different wallet's list is replaced outright.
+ */
+export function mergeTokenRead(
+  prev: { address: string | null; tokens: TokenBalance[] },
+  owner: string,
+  read: TokenRead
+): { address: string | null; tokens: TokenBalance[] } {
+  if (prev.address !== owner) return { address: owner, tokens: read.tokens };
+  if (read.failed === null) return prev;
+  if (read.failed.length === 0) return { address: owner, tokens: read.tokens };
+  const failed = new Set(read.failed);
+  const kept = prev.tokens.filter((t) => failed.has(t.address.toLowerCase()));
+  return { address: owner, tokens: [...read.tokens, ...kept] };
+}
+
 export function WalletProvider({ children }: { children: React.ReactNode }) {
   const { address, isConnected } = useAccount();
   const publicClient = usePublicClient({ chainId: BASE_CHAIN_ID });
@@ -228,15 +252,15 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   // the vaults themselves (`asset()`), so a vault in a new token needs no change here.
   const fetchAllTokenBalances = useCallback(async (
     walletAddress: string | undefined
-  ): Promise<{ tokens: TokenBalance[]; ok: boolean }> => {
-    if (!walletAddress) return { tokens: [], ok: true };
-    if (!publicClient) return { tokens: [], ok: false };
+  ): Promise<TokenRead> => {
+    if (!walletAddress) return { tokens: [], ok: true, failed: [] };
+    if (!publicClient) return { tokens: [], ok: false, failed: null };
     try {
       // A failed asset read falls back to the known Base tokens rather than an empty wallet.
       const { assets } = await readRegistryAssets(publicClient)
         .then((read) => withFallbackAssets(read))
         .catch(() => fallbackRegistryAssets());
-      if (assets.length === 0) return { tokens: [], ok: true };
+      if (assets.length === 0) return { tokens: [], ok: true, failed: [] };
       const wallet = getAddress(walletAddress);
       const results = await publicClient.multicall({
         allowFailure: true,
@@ -254,9 +278,12 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
           return toTokenBalance(asset.address, String(result.result), asset.decimals, asset.symbol);
         })
         .filter((balance): balance is TokenBalance => balance !== null);
-      return { tokens, ok: results.every((r) => r.status === 'success') };
+      const failed = assets
+        .filter((_, i) => results[i].status !== 'success')
+        .map((asset) => asset.address.toLowerCase());
+      return { tokens, ok: failed.length === 0, failed };
     } catch {
-      return { tokens: [], ok: false };
+      return { tokens: [], ok: false, failed: null };
     }
   }, [publicClient]);
 
@@ -497,11 +524,9 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     };
 
     const { tokens, ok } = tokenResult;
-    // A failed read keeps this wallet's last good list; another wallet's list is never kept.
+    // Tokens whose read failed keep this wallet's last value; another wallet's list is never kept.
     const owner = walletAddress.toLowerCase();
-    setAssetTokenState((prev) =>
-      ok || tokens.length > 0 || prev.address !== owner ? { address: owner, tokens } : prev
-    );
+    setAssetTokenState((prev) => mergeTokenRead(prev, owner, tokenResult));
 
     logger.debug('Token balances updated', { ok, tokenCount: tokens.length });
 
@@ -557,13 +582,11 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     const wallet = stableAddress;
     // A wallet switch or a full refresh started after this read supersedes it.
     const requestId = walletDataFetchIdRef.current;
-    void fetchAllTokenBalances(wallet).then(({ tokens, ok }) => {
-      if (!ok && tokens.length === 0) return;
+    void fetchAllTokenBalances(wallet).then((read) => {
       if (requestId !== walletDataFetchIdRef.current) return;
+      const owner = wallet.toLowerCase();
       setAssetTokenState((prev) =>
-        prev.address === null || prev.address === wallet.toLowerCase()
-          ? { address: wallet.toLowerCase(), tokens }
-          : prev
+        prev.address === null || prev.address === owner ? mergeTokenRead(prev, owner, read) : prev
       );
     });
   }, [knownAssetsKey, stableIsConnected, stableAddress, fetchAllTokenBalances]);
