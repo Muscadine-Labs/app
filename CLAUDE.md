@@ -253,6 +253,7 @@ v2-only: `depositToVaultV2` / `withdrawFromVaultV2` / `redeemFromVaultV2` / `for
 ## Morpho GraphQL & API routes
 
 **Endpoint:** `https://api.morpho.org/graphql`  
+**Deprecation:** Morpho shuts down this GraphQL endpoint on **January 29, 2027**. The REST migration plan (endpoint map, file-by-file, gaps) is in `docs/morpho-rest-migration.md`.  
 **Docs:** https://docs.morpho.org/tools/offchain/api/morpho-vaults/
 
 ### V2 complete route (`src/app/api/vault/v2/[address]/complete/route.ts`)

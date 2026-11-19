@@ -50,6 +50,7 @@ Instructions for AI agents working in this repo. Full architecture docs live in 
 ## Known gotchas
 
 - Morpho GraphQL invalid fields fail the whole request (HTTP 400).
+- Morpho GraphQL shuts down **Jan 29, 2027**. REST migration plan: `docs/morpho-rest-migration.md`.
 - New vaults often have TVL before `avgNetApy` or position history is indexed. `stripIncompleteVaultHistoryBuckets` keeps TVL points; `finalizePositionHistory` seeds a short live-position line when history is empty. On an open position, only the current interval's zero buckets are dropped — earlier zeros stay so the portfolio chart does not forward-fill an old balance. Overview hides the APY chart until a positive rate exists.
 - Morpho public API rate limit (429) / blips (502): `fetchMorphoGraphQL()` retries transient statuses. Positions route returns **503** + `retryable` for rate-limit/transient; other failures **502** without retryable spam.
 - Morpho asset USD price: query `price { usd }`; parse via `resolveMorphoAssetPriceUsd()` in `api-utils.ts`.
