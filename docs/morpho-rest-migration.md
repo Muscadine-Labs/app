@@ -107,8 +107,18 @@ registry vault in the same multicall, in dependent rounds:
 | Round | Reads |
 | --- | --- |
 | 1 | `totalAssets`, `totalSupply`, `asset`, fees, `maxRate`, owner, curator, `liquidityAdapter` / `liquidityData`, adapter list, idle (`asset.balanceOf(vault)`) |
-| 2 | Each adapter's markets; `absoluteCap` / `relativeCap` / `allocation` per cap id; live adapter position (`expectedSupplyAssets`) |
+| 2 | Each adapter's funded markets (`marketIds(i)`); `absoluteCap` / `relativeCap` / `allocation` per cap id (ids from REST `/allocations`, see below); live adapter position (`realAssets` / `expectedSupplyAssets`) |
 | 3 | `Morpho.market(id)` (totals, fee) + IRM `borrowRateView` per market; Chainlink USD feeds for the vault assets |
+
+
+Verified on chain (mpUSDC, 2026-11-19): `adaptersLength` / `adapters(i)`,
+`liquidityAdapter`, `timelock(selector)`, `abdicated(selector)` and the
+adapter's `realAssets` all read fine. The Blue market adapter lists markets
+with `marketIds(i)` / `marketIdsLength()`, but **only markets that hold funds**
+(2 of the vault's 5 market caps). Capped-but-empty markets and collateral caps
+cannot be enumerated on chain, so the **cap id list comes from REST
+`/allocations`** (cached about 1h). Values are then read on chain, and market
+params from `Morpho.idToMarketParams(id)`.
 
 What it computes:
 - TVL and liquidity (+ USD).
@@ -122,7 +132,7 @@ Call efficiency:
 - **Split cache by how often data changes.** Static data (market params, adapter lists, decimals, timelocks, roles) is cached for about an hour, or cleared after a governance change. Most refreshes are then only the totals rounds (1–2 `eth_call`s).
 - **One snapshot per 60s TTL**, with concurrent requests sharing the in-flight read.
 - An `eth_call` is billed per request, not per inner call, so batching every vault into one multicall is the cheap path.
-- Needs a **server-side** Alchemy key (today the app reads RPC with `NEXT_PUBLIC_ALCHEMY_API_KEY`).
+- RPC key: server routes already read Base through `NEXT_PUBLIC_ALCHEMY_API_KEY` (e.g. the pending recheck in `vault-v2-pending.ts`). Consider a server-only `ALCHEMY_API_KEY` (curator's name for it) so the snapshot's load can use a separate, unexposed key.
 
 ### 5.2 Morpho REST only for what the chain cannot give
 
