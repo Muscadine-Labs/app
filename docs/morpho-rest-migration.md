@@ -84,3 +84,76 @@ withdraw); those already use RPC.
 
 For each step, compare old and new responses on all four registry vaults and a
 real wallet before switching. Run `npm run lint`, `npm test` and `npm run build`.
+
+---
+
+## 5. Proposed approach: hybrid on-chain + REST (under consideration)
+
+> **Not decided.** This is the direction we are leaning toward. Morpho is
+> still adding fields to the REST API (instant APY, USD values or vault-wide
+> activity may arrive before the shutdown), so re-check the OpenAPI spec before
+> building and move anything REST starts covering back to REST if that is simpler.
+
+Idea: read **current state on chain** in a few batched multicalls, cache it on
+the server, and share it across routes. Use **Morpho REST only for history and
+per-wallet history**, which the chain cannot give cheaply. Goal: as few calls as
+possible.
+
+### 5.1 On-chain vault snapshot (all registry vaults, about 3 `eth_call`s)
+
+One server module (e.g. `src/lib/onchain/vault-snapshot.ts`) reads every
+registry vault in the same multicall, in dependent rounds:
+
+| Round | Reads |
+| --- | --- |
+| 1 | `totalAssets`, `totalSupply`, `asset`, fees, `maxRate`, owner, curator, `liquidityAdapter` / `liquidityData`, adapter list, idle (`asset.balanceOf(vault)`) |
+| 2 | Each adapter's markets; `absoluteCap` / `relativeCap` / `allocation` per cap id; live adapter position (`expectedSupplyAssets`) |
+| 3 | `Morpho.market(id)` (totals, fee) + IRM `borrowRateView` per market; Chainlink USD feeds for the vault assets |
+
+What it computes:
+- TVL and liquidity (+ USD).
+- Instant market supply APY: borrow rate × utilization × (1 − fee).
+- Vault net APY: allocation-weighted supply APY after fees. This excludes Merkl rewards; no registry vault has rewards today.
+- Caps and allocations.
+
+The `complete`, `caps`, `allocations` and `prices` routes all read this one object.
+
+Call efficiency:
+- **Split cache by how often data changes.** Static data (market params, adapter lists, decimals, timelocks, roles) is cached for about an hour, or cleared after a governance change. Most refreshes are then only the totals rounds (1–2 `eth_call`s).
+- **One snapshot per 60s TTL**, with concurrent requests sharing the in-flight read.
+- An `eth_call` is billed per request, not per inner call, so batching every vault into one multicall is the cheap path.
+- Needs a **server-side** Alchemy key (today the app reads RPC with `NEXT_PUBLIC_ALCHEMY_API_KEY`).
+
+### 5.2 Morpho REST only for what the chain cannot give
+
+| Data | Endpoint | Cache |
+| --- | --- | --- |
+| Vault charts | `state/history`, `apy/history` | `inception` / `one_year` (daily): about 1h. Short lookbacks: 5 min |
+| Position chart | `position/history` | Per wallet, 60s (the existing `position-history-cache`) |
+| Earned interest | `position/performance` | Per wallet, 60s, only on the vault page |
+| Wallet activity | `position/activity` | Only when the History tab opens |
+| External / emptied vaults | `vaults-v2/users/{u}/positions?active_only=false` | Once per wallet (registry balances stay on chain) |
+| Pending changes, roles | `pending-governance-actions`, `sentinels`, `allocators` | 5 min, plus the on-chain recheck of each pending item |
+
+Use a server-only Morpho API key.
+
+### 5.3 Rough call budget
+
+| Page | On chain | REST |
+| --- | --- | --- |
+| Dashboard / explorer | 0–3 (shared snapshot) | 1 positions list + 1 history per held vault |
+| Vault page | 0 (snapshot already warm) | 2 charts + 2 per wallet |
+
+Vault-level data costs about one `eth_call` per 60s regardless of traffic.
+Today each page view triggers its own GraphQL request (deduped only per server
+instance).
+
+### 5.4 Order if adopted
+
+1. Snapshot module + REST helper. Switch `complete`, `prices`, `caps` and `allocations` (the largest drop in Morpho calls).
+2. History and wallet routes to REST.
+3. Remove the GraphQL helper.
+
+Open questions:
+- Historical USD for cbBTC / WETH needs a price source (DefiLlama daily, or spot × tokens).
+- Whether our own APY figure should be labelled differently from Morpho's (rewards excluded).
