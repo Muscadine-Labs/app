@@ -66,9 +66,9 @@ npm run lint
 
 Never commit real keys. `.env.example` documents placeholders.
 
-`package.json` **`allowScripts`** allowlists native/postinstall scripts for `bufferutil`, `keccak`, `unrs-resolver`, `utf-8-validate`, `@reown/appkit`, and `fsevents` (transitive; WalletConnect `ws` + eslint-next resolver + AppKit version check + Vite file watching on macOS, dev only). Keep versions pinned to `package-lock.json`. Local npm 11.4 does not have `npm approve-scripts`; Vercel’s newer npm emits the pending-scripts warning without this field.
+`package.json` **`allowScripts`** allowlists native/postinstall scripts for `bufferutil`, `keccak`, `utf-8-validate`, `@reown/appkit`, and `fsevents` (transitive; WalletConnect `ws` + AppKit version check + Vite file watching on macOS, dev only). Keep versions pinned to `package-lock.json`. Local npm 11.4 does not have `npm approve-scripts`; Vercel’s newer npm emits the pending-scripts warning without this field.
 
-`package.json` **`overrides`** also pins patched transitive packages GitHub Dependabot flags (`axios`, `hono`, `js-yaml` 4.x, `socket.io-parser`, `brace-expansion` 1.x/5.x, `browserslist` 4.29.3, `decode-uri-component` 0.5.0). Do not drop those pins without checking [Dependabot alerts](https://github.com/Muscadine-Labs/app/security).
+`package.json` **`overrides`** also pins patched transitive packages GitHub Dependabot flags (`axios`, `hono`, `js-yaml` 4.x, `socket.io-parser`, `brace-expansion` 1.x/5.x, `browserslist` 4.29.5, `decode-uri-component` 0.5.0). Do not drop those pins without checking [Dependabot alerts](https://github.com/Muscadine-Labs/app/security).
 
 ---
 

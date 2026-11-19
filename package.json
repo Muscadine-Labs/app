@@ -70,10 +70,9 @@
   },
   "allowScripts": {
     "@reown/appkit@1.8.24": true,
-    "bufferutil@4.1.0": true,
+    "bufferutil@4.2.0": true,
     "fsevents@2.3.3": true,
     "keccak@3.0.4": true,
-    "unrs-resolver@1.12.2": true,
     "utf-8-validate@5.0.10": true
   }
 }

@@ -25,13 +25,13 @@ Status: **plan only. No code has changed yet.**
 | Versioning | Most routes are `/v0/...`. Only `/v1/vaults-v2/{v}/state` and `/v1/vaults-v2/{v}/apy-averages` are `/v1`. |
 | Selectors | A vault or token is `8453:0xAddress`. A Blue market is `8453:0xMarketId`. |
 | Envelope | The result is under `data`. Lists add a top-level `cursor` (`null` on the last page). Send it back unchanged and never build or parse one. |
-| Limits | Public host: 750 req/min **per IP**. Going over returns 429 with `Retry-After: 600`. Above 3,334 req / 10 min the IP is blocked for 7 days. An API key raises the limits. |
+| Limits | Public host: 750 req/min **per IP**. Going over returns 429 with `Retry-After: 600`. Above 3,334 req / 10 min the IP is blocked for 7 days, so the **sustained** ceiling is about 333 req/min, not 750. An API key raises the limits. |
 | Unknown params | Silently ignored, so check every query param name against the spec. |
 | Amounts | Integer strings in base units. Parse them with `BigInt`. |
 | Fees / LLTV | `*_wad` strings (1e18 = 100%). `management_fee_wad` is **per second**: multiply by 31,536,000 for a yearly rate. `null` = no fee. |
 | Share price | `share_price_ray` (divide by 1e27). |
 | APY | Decimal fraction (0.0463 = 4.63%), nullable. Rewards are **not** included (Merkl has its own API). |
-| Timestamps | Unix seconds. Most are integers, but token price `timestamp` and every `*_block_number` are **strings**. |
+| Timestamps | Unix seconds. Most are integers, but token price `timestamp`, `last_indexed_block`, activity `block_number` and every `*_block_number` are **strings**. |
 | USD | **Gone.** There are no `*Usd` fields. Compute USD from `/v0/tokens/{t}/price`, one token per call, no batch. There is no historical price route. |
 
 **Rate limit risk:** Vercel serverless IPs are shared, and REST needs more calls
@@ -51,11 +51,11 @@ production and read it server-side only (e.g. `MORPHO_API_KEY`, never `NEXT_PUBL
 | `api/vault/v2/[address]/earned-interest` (`vaultV2PositionByAddress` → `pnl`) | `pnl` | `GET /v0/vaults-v2/{v}/users/{u}/position/performance` → `net_earnings_assets` (average-cost method) | Keep the activity fallback, built from `/position/activity`. Retired wrapper profit (`retiredWrapperEarnedPnl`) is the same call on the wrapper address. |
 | `api/vault/v2/[address]/position-history` (`vaultV2PositionByAddress.history`) | `assets`, `assetsUsd`, `shares` | `GET /v0/vaults-v2/{v}/users/{u}/position/history?lookback=` → `{timestamp, shares, assets}` | No `assetsUsd`: multiply by the current price (good enough for USDC; cbBTC / WETH history becomes spot-priced). `finalizePositionHistory` stays. Map our periods to `lookback` (`seven_days`, `thirty_days`, `ninety_days`, `one_year`, `inception`). |
 | `api/vault/v2/[address]/complete` (`vaultV2ByAddress`) | Name, asset, totals, liquidity, APY, owner/curator/sentinels, timelocks, maxRate, liquidityAdapter, fees, rewards, warnings | `GET /v0/vaults-v2/{v}`: `name`, `symbol`, `asset`, `owner`, `curator`, `governance.timelocks[]{function_name, timelock_seconds, is_abdicated}`, `max_rate_per_second_wad`, `liquidity_adapter`, `liquidity_data`, fees, `gates`.<br>`GET /v1/vaults-v2/{v}/state`: `total_assets`, `total_supply`, `withdrawable_assets` (= GraphQL `liquidity`), `idle_assets`, `share_price_ray`.<br>`GET /v1/vaults-v2/{v}/apy-averages?lookback=one_day` → `apy`.<br>`GET /v0/vaults-v2/{v}/sentinels`, `/allocators` → `role_address[]`.<br>Token price for `totalAssetsUsd` / `liquidityUsd`. | 5–6 calls instead of 1. Run them in parallel and cache the result as one unit. **There is no instant `netApy`.** Pick a lookback (`one_day` or `six_hours`) and say "24h avg" in the UI if needed. `rewards` → Merkl or drop it (no registry vault has rewards today). `warnings` is not shown to users, so drop it. `maxRate`: per-second WAD × 31,536,000. |
-| `api/vault/v2/[address]/history` (`historicalState` TVL / APY / share price) | `totalAssets(Usd)`, `avgNetApy` | `GET /v0/vaults-v2/{v}/state/history?lookback=` → `total_assets`, `share_price_ray`, `withdrawable_assets`, `idle_assets`.<br>`GET /v0/vaults-v2/{v}/apy/history?lookback=` → `{timestamp, apy}` | `inception` is daily (mpUSDC: 374 state points / 342 APY points). Short lookbacks are hourly. Historical USD TVL needs a price source: spot × tokens, or DefiLlama. The `hasApy: false` gap handling stays (`apy` is nullable). Check `stripIncompleteVaultHistoryBuckets` still applies. |
+| `api/vault/v2/[address]/history` (`historicalState` TVL / APY / share price) | `totalAssets(Usd)`, `avgNetApy` | `GET /v0/vaults-v2/{v}/state/history?lookback=` → `total_assets`, `share_price_ray`, `withdrawable_assets`, `idle_assets`.<br>`GET /v0/vaults-v2/{v}/apy/history?lookback=` → `{timestamp, apy}` | Sampling depends on `lookback` (live mpUSDC, 2026-11-19): `one_day` / `seven_days` hourly, `thirty_days` / `ninety_days` daily, `one_year` **weekly**, `inception` picked by age (daily today; can become monthly). **`apy/history` points are trailing averages, not per-bucket APY:** `seven_days` returns 1-day averages, `thirty_days` 7-day averages, `ninety_days` / `inception` 30-day averages. So the Overview APY chart and its "Avg" line would show smoothed values: pick lookbacks and labels deliberately. Today's hourly 30d fallback has no REST equivalent (`thirty_days` is daily). Historical USD TVL needs a price source: spot × tokens, or DefiLlama. The `hasApy: false` gap handling stays (`apy` is nullable). Check `stripIncompleteVaultHistoryBuckets` still applies. |
 | `src/lib/vault-v2-historical-ratio.ts` | `historicalState` | `state/history` (share price / totals) | |
 | `src/lib/vault-v2-caps.ts` + `api/.../caps` | `adapters`, `caps` | `GET /v0/vaults-v2/{v}/allocations` → `allocations[]{adapter_address, adapter_kind, caps[]{cap_type, absolute_cap, relative_cap_wad, allocated_assets, market_id?}}` + `unscoped_caps[]` (collateral caps) | `absolute_cap` = 2^256−1 means "No limit" (we test uint128 max today, so handle both). Market names need `/v0/blue/markets/{m}` (no symbols, only token addresses → `/v0/tokens/{t}`). |
 | `src/lib/vault-v2-allocations.ts` + `useVaultAllocations` + `api/.../allocations` | Positions per market with `supplyApy`, `liquidityUsd`, market size | `/allocations` (`allocated_assets` / `expected_supply_assets` per market cap), plus per market `GET /v0/blue/markets/{m}/state` (size = `total_supply_assets`), `/liquidity` (`market_liquidity`), `/apy-averages` (`supply_apy_averages['24h']`) | About 3 calls per market. Cache hard (60s) and only fetch the top rows plus "Other markets" on open, if needed. |
-| `src/lib/vault-v2-pending.ts` + `api/.../pending` (`pendingConfigs`) | `functionName`, `data`, `validAt` | `GET /v0/vaults-v2/{v}/pending-governance-actions` → `action_type`, `parameters`, `executable_at_timestamp`, `submitted_transaction_hash` | `action_type` maps straight to the +/−/• marks (`add_adapter`, `increase_absolute_cap`, `set_performance_fee`, …). **There is no raw calldata**, so `dropResolvedOnChain` (`executableAt(data)`) has to re-encode calldata from `parameters` (they include the `selector`) or be dropped. Cap decreases are not timelocked and never appear. |
+| `src/lib/vault-v2-pending.ts` + `api/.../pending` (`pendingConfigs`) | `functionName`, `data`, `validAt` | `GET /v0/vaults-v2/{v}/pending-governance-actions` → `action_type`, `parameters`, `executable_at_timestamp`, `submitted_transaction_hash` | `action_type` gives most +/−/• marks (`add_adapter`, `increase_absolute_cap`, …), but `set_performance_fee` / `set_management_fee` carry no direction: compare with the current fee. **There is no raw calldata**, so `dropResolvedOnChain` (`executableAt(data)`) has to re-encode calldata through an `action_type` → function map plus `parameters` (`id_data` for cap increases), or be dropped. `parameters.selector` exists only on timelock / abdicate actions and is the function being changed, not the submitted call. `unknown` actions have `parameters: null` and cannot be re-encoded. Cap decreases are not timelocked and never appear. |
 | `src/lib/vault-v2-activity.ts` + `api/.../activity` (`vaultV2transactions`) | Per-wallet history **and** a vault-wide feed | Per wallet: `GET /v0/vaults-v2/{v}/users/{u}/position/activity?limit=1000` (`type` = deposit / withdraw / shares_transfer_in / shares_transfer_out, `data.assets` / `data.shares`) | **Gap: there is no vault-wide activity route.** Drop the vault-wide feed or read vault events on chain. Transfer rows carry shares only (no assets). USD per row = current price. |
 
 Nothing changes for on-chain reads (balances, deposit gates, caps, force
@@ -138,7 +138,7 @@ Call efficiency:
 
 | Data | Endpoint | Cache |
 | --- | --- | --- |
-| Vault charts | `state/history`, `apy/history` | `inception` / `one_year` (daily): about 1h. Short lookbacks: 5 min |
+| Vault charts | `state/history`, `apy/history` | Daily / weekly lookbacks (`thirty_days` and up): about 1h. Hourly (`one_day`, `seven_days`): 5 min |
 | Position chart | `position/history` | Per wallet, 60s (the existing `position-history-cache`) |
 | Earned interest | `position/performance` | Per wallet, 60s, only on the vault page |
 | Wallet activity | `position/activity` | Only when the History tab opens |
@@ -154,9 +154,10 @@ Use a server-only Morpho API key.
 | Dashboard / explorer | 0–3 (shared snapshot) | 1 positions list + 1 history per held vault |
 | Vault page | 0 (snapshot already warm) | 2 charts + 2 per wallet |
 
-Vault-level data costs about one `eth_call` per 60s regardless of traffic.
-Today each page view triggers its own GraphQL request (deduped only per server
-instance).
+Vault-level data costs about one `eth_call` per 60s **per server instance**
+(in-memory caches are not shared between Vercel instances). For comparison,
+today's GraphQL reads already share Vercel's Data Cache (`next: { revalidate }`),
+so the gain is mainly independence from Morpho, not fewer requests per view.
 
 ### 5.4 Order if adopted
 
