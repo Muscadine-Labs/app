@@ -216,8 +216,16 @@ export function VaultTransactPanel({
     !tx.hasValidAmount ||
     tx.blockContinueForBalance;
 
-  const ctaLabel =
-    depositsDisabled && isDepositTab
+  // While the review popup is open the form behind it is frozen, but balances and
+  // deposit caps refresh as soon as the transaction lands. The amount still in
+  // the input then reads as "over balance" / "over cap" behind the popup even
+  // though nothing is wrong, so amount warnings only show while the form is in use.
+  // The send path re-checks balance and caps itself.
+  const showAmountWarnings = !reviewOpen;
+
+  const ctaLabel = reviewOpen
+    ? actionLabel
+    : depositsDisabled && isDepositTab
       ? gateBlocked && !vaultClosed
         ? 'Not whitelisted to deposit'
         : 'Deposits are disabled'
@@ -305,7 +313,7 @@ export function VaultTransactPanel({
               </div>
             </div>
 
-            {tx.exceedsBalance && (
+            {showAmountWarnings && tx.exceedsBalance && (
               <p className="mt-2 text-xs text-[var(--warning)]">
                 Amount exceeds available balance.
               </p>
@@ -322,19 +330,19 @@ export function VaultTransactPanel({
                 {GATE_MESSAGE_AFTER_EMAIL}
               </p>
             )}
-            {tx.depositCapFull && !depositsDisabled && (
+            {showAmountWarnings && tx.depositCapFull && !depositsDisabled && (
               <p className="mt-2 text-xs text-[var(--warning)]">
                 This vault is at its deposit cap right now. Try again later, or contact {ACCESS_REQUEST_EMAIL}.
               </p>
             )}
-            {tx.exceedsDepositCap && tx.depositCapRaw !== null && !tx.depositCapFull && (
+            {showAmountWarnings && tx.exceedsDepositCap && tx.depositCapRaw !== null && !tx.depositCapFull && (
               <p className="mt-2 text-xs text-[var(--warning)]">
                 This is above the vault&apos;s current deposit cap. The most it can accept right
                 now is {formatDepositCap(tx.depositCapRaw)}. Pressing Deposit lowers your amount to
                 that.
               </p>
             )}
-            {tx.depositCapAppliedRaw !== null && (
+            {showAmountWarnings && tx.depositCapAppliedRaw !== null && (
               <p className="mt-2 text-xs text-[var(--warning)]">
                 Lowered to {formatDepositCap(tx.depositCapAppliedRaw)}, the most this vault can
                 accept right now because of its deposit caps. Contact {ACCESS_REQUEST_EMAIL} for more information.
