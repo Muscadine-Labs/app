@@ -590,7 +590,7 @@ There is no allowlist in the app. `useVaultDepositGates` reads every registry va
 | Hook (vault + wallet queries, 30s stale) | `src/hooks/useVaultDepositGates.ts` |
 | Explorer list | `src/contexts/ExplorerVaultsContext.tsx` |
 
-Curator still manages who is whitelisted on `WhitelistSendAssetsGate` (`npm run gates:verify`, `curator/docs/brain/deposit-gates.md`). The app picks up changes on its next read.
+Curator still manages who is whitelisted on `WhitelistSendAssetsGate` (`npm run gates:verify`, `curator/docs/deposit-gates.md`). The app picks up changes on its next read.
 
 ### Deposit caps (read from each vault)
 
