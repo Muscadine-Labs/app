@@ -123,7 +123,7 @@ params from `Morpho.idToMarketParams(id)`.
 
 What it computes:
 - TVL and liquidity (+ USD).
-- Instant market supply APY: borrow rate × utilization × (1 − fee).
+- Instant market APY: borrow APY = e^(`borrowRateView` × 31,536,000) − 1 (`borrowRateView` is a per-second WAD rate); supply APY = borrow APY × utilization × (1 − fee).
 - Vault net APY: allocation-weighted supply APY after fees. This excludes Merkl rewards; no registry vault has rewards today.
 - Caps and allocations.
 
@@ -141,7 +141,7 @@ Call efficiency:
 | --- | --- | --- |
 | Vault charts | `state/history`, `apy/history` | Daily / weekly lookbacks (`thirty_days` and up): about 1h. Hourly (`one_day`, `seven_days`): 5 min |
 | Position chart | `position/history` | Per wallet, 60s (the existing `position-history-cache`) |
-| Earned interest | `position/performance` | Per wallet, 60s, only on the vault page |
+| Earned interest | `position/performance`, one call per held vault plus its retired wrapper when the positions list shows one | Per wallet, 60s. The vault page and the dashboard / explorer Earned Interest column all need it (the positions list carries no profit), so cache per wallet + vault and share it between them |
 | Wallet activity | `position/activity` | Only when the History tab opens |
 | External / emptied vaults | `vaults-v2/users/{u}/positions?active_only=false` | Once per wallet (registry balances stay on chain) |
 | Pending changes, roles | `pending-governance-actions`, `sentinels`, `allocators` | 5 min, plus the on-chain recheck of each pending item |
