@@ -17,16 +17,17 @@
     "@floating-ui/react": "0.27.20",
     "@reown/appkit": "1.8.24",
     "@reown/appkit-adapter-wagmi": "1.8.24",
-    "@tanstack/react-query": "5.107.1",
+    "@tanstack/react-query": "5.108.1",
+    "@wagmi/core": "2.22.1",
     "next": "16.4.6",
-    "ox": "0.14.65",
+    "ox": "0.14.67",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "react-server-dom-turbopack": "19.3.1",
     "react-server-dom-webpack": "19.3.1",
-    "recharts": "3.10.1",
+    "recharts": "3.11.0",
     "valtio": "2.3.2",
-    "viem": "2.57.19",
+    "viem": "2.58.1",
     "wagmi": "2.19.5"
   },
   "devDependencies": {
@@ -40,7 +41,7 @@
     "tailwindcss": "4.3.5",
     "typescript": "6.0.3",
     "vite": "8.3.8",
-    "vitest": "5.1.0"
+    "vitest": "5.1.1"
   },
   "overrides": {
     "wagmi": "$wagmi",
@@ -70,10 +71,9 @@
   },
   "allowScripts": {
     "@reown/appkit@1.8.24": true,
-    "bufferutil@4.1.0": true,
+    "bufferutil@4.2.0": true,
     "fsevents@2.3.3": true,
     "keccak@3.0.4": true,
-    "unrs-resolver@1.12.2": true,
     "utf-8-validate@5.0.10": true
   }
 }

@@ -66,9 +66,9 @@ npm run lint
 
 Never commit real keys. `.env.example` documents placeholders.
 
-`package.json` **`allowScripts`** allowlists native/postinstall scripts for `bufferutil`, `keccak`, `unrs-resolver`, `utf-8-validate`, `@reown/appkit`, and `fsevents` (transitive; WalletConnect `ws` + eslint-next resolver + AppKit version check + Vite file watching on macOS, dev only). Keep versions pinned to `package-lock.json`. Local npm 11.4 does not have `npm approve-scripts`; Vercel’s newer npm emits the pending-scripts warning without this field.
+`package.json` **`allowScripts`** allowlists native/postinstall scripts for `bufferutil`, `keccak`, `utf-8-validate`, `@reown/appkit`, and `fsevents` (transitive; WalletConnect `ws` + AppKit version check + Vite file watching on macOS, dev only). Keep versions pinned to `package-lock.json`. Local npm 11.4 does not have `npm approve-scripts`; Vercel’s newer npm emits the pending-scripts warning without this field.
 
-`package.json` **`overrides`** also pins patched transitive packages GitHub Dependabot flags (`axios`, `hono`, `js-yaml` 4.x, `socket.io-parser`, `brace-expansion` 1.x/5.x, `browserslist` 4.29.3, `decode-uri-component` 0.5.0). Do not drop those pins without checking [Dependabot alerts](https://github.com/Muscadine-Labs/app/security).
+`package.json` **`overrides`** also pins patched transitive packages GitHub Dependabot flags (`axios`, `hono`, `js-yaml` 4.x, `socket.io-parser`, `brace-expansion` 1.x/5.x, `browserslist` 4.29.5, `decode-uri-component` 0.5.0). Do not drop those pins without checking [Dependabot alerts](https://github.com/Muscadine-Labs/app/security).
 
 ---
 
@@ -253,6 +253,7 @@ v2-only: `depositToVaultV2` / `withdrawFromVaultV2` / `redeemFromVaultV2` / `for
 ## Morpho GraphQL & API routes
 
 **Endpoint:** `https://api.morpho.org/graphql`  
+**Deprecation:** Morpho shuts down this GraphQL endpoint on **January 29, 2027**. The REST migration plan (endpoint map, file-by-file, gaps) is in `docs/morpho-rest-migration.md`.  
 **Docs:** https://docs.morpho.org/tools/offchain/api/morpho-vaults/
 
 ### V2 complete route (`src/app/api/vault/v2/[address]/complete/route.ts`)
@@ -519,7 +520,7 @@ src/
 - Approval txs use `approving`; only the main vault op should set `confirming` with the hash users care about.
 - After success, balances refresh via `refreshBalancesWithPolling` in `TransactionFlow`.
 
-**Vault transact panel** (`VaultTransactPanel.tsx` + `useScopedVaultTransaction`): amount entry stays inline on My Position. After Deposit/Withdraw, review/confirm is the same popup (`Modal` + `TransactionFlow`) as before so addresses and steps are readable. Amounts over balance block the CTA. `/transact` redirects to `/vaults`. Opening the panel calls `refreshBalancesIfStale(60s)` (skips when a refresh is running or finished cleanly in the last minute) and a non-forced `fetchVaultData`; form amounts are read on chain regardless.
+**Vault transact panel** (`VaultTransactPanel.tsx` + `useScopedVaultTransaction`): amount entry stays inline on My Position. After Deposit/Withdraw, review/confirm is the same popup (`Modal` + `TransactionFlow`) as before so addresses and steps are readable. Amounts over balance block the CTA. While the review popup is open (`status !== 'idle'`) the panel hides its amount warnings (over balance, cap reached, over cap, lowered to cap) and the CTA keeps its Deposit / Withdraw label: balances and caps refresh as soon as the transaction lands, so the amount still in the input would otherwise read as "Amount exceeds available balance" behind a successful transaction. Closing the popup clears the amount; the send path re-checks balance and caps. `/transact` redirects to `/vaults`. Opening the panel calls `refreshBalancesIfStale(60s)` (skips when a refresh is running or finished cleanly in the last minute) and a non-forced `fetchVaultData`; form amounts are read on chain regardless.
 
 **Transact tabs:** Tab highlight uses `activeTab` (user selection). `effectiveActiveTab` infers deposit vs withdraw from From/To when both accounts are set (WETH prefs, max amount). `handleTabChange` resets accounts per tab; do not no-op on `tab === activeTab` alone — use `accountsMatchTransactionTab()` so mismatched From/To does not block clicks.
 
@@ -589,7 +590,7 @@ There is no allowlist in the app. `useVaultDepositGates` reads every registry va
 | Hook (vault + wallet queries, 30s stale) | `src/hooks/useVaultDepositGates.ts` |
 | Explorer list | `src/contexts/ExplorerVaultsContext.tsx` |
 
-Curator still manages who is whitelisted on `WhitelistSendAssetsGate` (`npm run gates:verify`, `curator/docs/brain/deposit-gates.md`). The app picks up changes on its next read.
+Curator still manages who is whitelisted on `WhitelistSendAssetsGate` (`npm run gates:verify`, `curator/docs/deposit-gates.md`). The app picks up changes on its next read.
 
 ### Deposit caps (read from each vault)
 
