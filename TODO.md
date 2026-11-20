@@ -1,5 +1,5 @@
 **To Work on Today:**
-- **Migrate Morpho GraphQL → REST before Jan 29, 2027** (GraphQL shuts down then). Plan, endpoint map and gaps: `docs/morpho-rest-migration.md`.
+- **Migrate Morpho GraphQL → REST before Jan 29, 2027** (GraphQL shuts down then). Plan (work in progress), endpoint map and gaps: `docs/morpho-rest-migration.md`.
 - See if we can optimize the repo, such as rpc / api calls
 - Fix when a wallet is not on the sendassets gate, to have a pop up saying this wallet connect deposit into x vaults, you may continue to view positions, withdraw or to view vaults. Than on the vault pages dont have the deposit model, just withdraw. 
 
