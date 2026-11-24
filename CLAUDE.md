@@ -62,7 +62,7 @@ npm run lint
 |----------|-----------|---------|
 | `NEXT_PUBLIC_ALCHEMY_API_KEY` | **Yes** | Base RPC (Alchemy) |
 | `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | **Yes** | Reown AppKit / WalletConnect |
-| `NEXT_PUBLIC_URL` or `NEXT_PUBLIC_APP_URL` | No (default `https://app.muscadine.xyz`) | Canonical URL + Base Account `appUrl` |
+| `NEXT_PUBLIC_URL` or `NEXT_PUBLIC_APP_URL` | No (if unset: the Vercel production domain, `VERCEL_PROJECT_PRODUCTION_URL`, on Vercel; `http://localhost:3000` elsewhere) | Canonical URL + Base Account `appUrl` |
 
 Never commit real keys. `.env.example` documents placeholders.
 
