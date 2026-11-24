@@ -9,6 +9,7 @@ import { useIsClient } from '@/hooks/useClientOnly';
 import { BASE_CHAIN_ID } from '@/lib/constants';
 import { ensureAppKitInit } from '@/lib/appkit-init';
 import { logger } from '@/lib/logger';
+import { preloadWalletSdks } from '@/lib/lazy-connectors';
 
 const buttonClassName =
   'inline-flex items-center justify-center px-3 py-1.5 text-sm gap-1.5 text-[var(--foreground)] transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--border)] rounded-md hover:bg-[var(--surface-hover)] active:bg-[var(--surface-active)] cursor-pointer';
@@ -76,6 +77,7 @@ function ConnectButtonReady() {
   ]);
 
   const handleConnectClick = () => {
+    preloadWalletSdks();
     if (!isAccepted) {
       openModal();
     } else {
