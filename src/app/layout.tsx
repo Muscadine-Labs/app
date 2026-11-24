@@ -33,9 +33,9 @@ export const metadata: Metadata = {
   description: 'Deposit into curated Morpho vaults on Base. Track portfolio, APY, and allocations.',
   applicationName: APP_NAME,
   icons: {
-    icon: '/favicon.png',
-    shortcut: '/favicon.png',
-    apple: '/favicon.png',
+    icon: [{ url: '/favicon.png', type: 'image/png', sizes: '512x512' }],
+    shortcut: [{ url: '/favicon.png', type: 'image/png', sizes: '512x512' }],
+    apple: [{ url: '/favicon.png', type: 'image/png', sizes: '512x512' }],
   },
   alternates: {
     canonical: appUrl,
