@@ -68,7 +68,7 @@ Copy `.env.example` → `.env.local`.
 | `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | **Yes** | Reown AppKit / WalletConnect |
 | `NEXT_PUBLIC_URL` | No | Canonical URL (default `https://app.muscadine.xyz`; set on Vercel in production) |
 
-**Wallets:** Reown AppKit with injected (EIP-6963) wallets, WalletConnect, and Base Account through the app's own lazy connector (`src/lib/lazy-base-account.ts`, telemetry off). Plain web app: no Base App / mini-app integration.
+**Wallets:** Reown AppKit with injected (EIP-6963) wallets, WalletConnect, Coinbase Wallet and Base Account (smart wallet) through the app's own lazy connectors (`src/lib/lazy-connectors.ts`; Base Account telemetry off). Plain web app: no Base App / mini-app integration.
 
 GitHub Actions (`.github/workflows/ci.yml`) runs **lint only**. Production `npm run build` is local (before push) and on Vercel with env vars there — not on GitHub.
 
