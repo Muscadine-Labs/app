@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, type CSSProperties, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
-import { useAccount } from 'wagmi';
+import { useConnection } from 'wagmi';
 import { WalletOverview } from '@/components/features/wallet';
 import { DashboardVaultTable } from '@/components/features/vault/VaultExplorerTable';
 import { useVaultListPreloader } from '@/hooks/useVaultDataFetch';
@@ -70,7 +70,7 @@ function DashboardPanel({
 }
 
 export default function Home() {
-  const { address, isConnected } = useAccount();
+  const { address, isConnected } = useConnection();
   const {
     morphoHoldings,
     loading,

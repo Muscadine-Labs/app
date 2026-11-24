@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { useAccount } from 'wagmi';
+import { useConnection } from 'wagmi';
 import { logger } from '@/lib/logger';
 import { BASE_CHAIN_ID } from '@/lib/constants';
 
@@ -30,7 +30,7 @@ export function useVaultEarnedInterest(
   assetSymbol?: string,
   currentAssetsRaw?: string
 ): VaultEarnedInterest {
-  const { address } = useAccount();
+  const { address } = useConnection();
   const enabled = Boolean(address && vaultAddress);
   const queryKey = `${address ?? ''}:${vaultAddress ?? ''}:${assetSymbol ?? ''}:${currentAssetsRaw ?? ''}`;
 

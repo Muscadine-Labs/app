@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter, useParams } from 'next/navigation';
-import { useAccount, useReadContract } from 'wagmi';
+import { useConnection, useReadContract } from 'wagmi';
 import {
   getDepositedVaultAddressSet,
   isCuratedVaultAddress,
@@ -116,7 +116,7 @@ export default function VaultV2Page() {
   };
 
   const vault = useMemo(() => resolveVaultForPage(address), [address]);
-  const { status: walletStatus, address: walletAddress } = useAccount();
+  const { status: walletStatus, address: walletAddress } = useConnection();
   const { morphoHoldings } = useWallet();
   const {
     eligibleVaultAddresses,

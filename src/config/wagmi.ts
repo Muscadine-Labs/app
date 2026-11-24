@@ -1,5 +1,6 @@
 import { cookieStorage, createStorage, http, fallback } from 'wagmi'
 import { WagmiAdapter } from '@reown/appkit-adapter-wagmi'
+import { baseAccount } from '@wagmi/connectors/baseAccount'
 import { base } from '@reown/appkit/networks'
 import type { AppKitNetwork } from '@reown/appkit/networks'
 import { getAppUrl } from '@/lib/app-url'
@@ -43,6 +44,16 @@ export const wagmiAdapter = new WagmiAdapter({
   ssr: true,
   projectId,
   networks,
+  // Registered here so AppKit skips its default Base Account connector, whose SDK sends
+  // telemetry to Coinbase unless told not to. Same id (`baseAccount`), so the Base App
+  // connector pick in lib/base-app.ts is unchanged.
+  connectors: [
+    baseAccount({
+      appName: APP_NAME,
+      appLogoUrl: `${appUrl}/favicon.png`,
+      preference: { telemetry: false },
+    }),
+  ],
   transports: {
     // JSON-RPC batching: parallel reads made in the same tick (force-withdraw planner, deposit
     // caps, position reads) go out as one HTTP request to Alchemy instead of one each.

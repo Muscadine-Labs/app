@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { useAccount } from 'wagmi';
+import { useConnection } from 'wagmi';
 import { BASE_CHAIN_ID } from '@/lib/constants';
 import { calculateYAxisDomain } from '@/lib/vault-utils';
 import { axisWidthForLabels, withLeadingChartTick } from '@/lib/chart-utils';
@@ -91,7 +91,7 @@ function groupProductVaults(vaults: readonly PortfolioVault[]): PortfolioVault[]
 }
 
 export default function PortfolioPositionChart() {
-  const { address, isConnected } = useAccount();
+  const { address, isConnected } = useConnection();
   const { morphoHoldings } = useWallet();
   const now = useUnixTimestamp();
   const [loading, setLoading] = useState(true);

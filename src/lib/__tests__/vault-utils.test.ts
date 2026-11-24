@@ -5,8 +5,10 @@ import {
   retiredWrapperEarnedPnl,
   type WalletMorphoPosition,
   preferredVaultName,
+  sortVaultsForDisplay,
   vaultAddressPlaceholderName,
 } from '@/lib/vault-utils';
+import type { Vault } from '@/types/vault';
 import { getProductVaultAddresses, getRetiredWrapperUnderlying } from '@/lib/vaults';
 
 const MP_USDC = '0x89712980cb434ef5ae4ab29349419eb976b0b496';
@@ -69,5 +71,22 @@ describe('preferredVaultName', () => {
   });
   it('uses the placeholder only when nothing else has a name', () => {
     expect(preferredVaultName(undefined, '', address)).toBe(vaultAddressPlaceholderName(address));
+  });
+});
+
+describe('sortVaultsForDisplay', () => {
+  // Morpho has no name for some external vaults; one in the list used to crash the dashboard.
+  it('does not throw when a vault has no name', () => {
+    const named = { address: MP_USDC, name: 'USDC Prime', symbol: 'USDC', chainId: 8453 } as Vault;
+    const nameless = { address: MF_USDC, symbol: 'USDC', chainId: 8453 } as unknown as Vault;
+    const sorted = sortVaultsForDisplay([named, nameless], [], () => 0);
+    expect(sorted.map((v) => v.address)).toEqual([MF_USDC, MP_USDC]);
+  });
+});
+
+describe('preferredVaultName for an unnamed external vault', () => {
+  it('falls back to the address placeholder', () => {
+    const address = '0x6694eAE513FEb17b2483b2f73FA9eA826CF1f5dF';
+    expect(preferredVaultName('', undefined, address)).toBe(vaultAddressPlaceholderName(address));
   });
 });

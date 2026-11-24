@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, type Ref } from 'react';
-import { useAccount } from 'wagmi';
+import { useConnection } from 'wagmi';
 import { useWallet } from '@/contexts/WalletContext';
 import { useIsClient } from '@/hooks/useClientOnly';
 import { useWalletDisplayName } from '@/hooks/useWalletDisplayName';
@@ -15,7 +15,7 @@ type WalletOverviewProps = {
 };
 
 export default function WalletOverview({ measureRef }: WalletOverviewProps) {
-  const { address, isConnected } = useAccount();
+  const { address, isConnected } = useConnection();
   const {
     totalUsdValue,
     liquidUsdValue,

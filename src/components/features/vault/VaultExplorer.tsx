@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { useAccount } from 'wagmi';
+import { useConnection } from 'wagmi';
 import { BASE_CHAIN_ID } from '@/lib/constants';
 import { buildExplorerVaultCandidates, sortVaultsForDisplay } from '@/lib/vault-utils';
 import { useExplorerVaults } from '@/contexts/ExplorerVaultsContext';
@@ -29,7 +29,7 @@ function VaultExplorerContent({
     ...getDefaultExplorerFilters(),
     ...initialFilters,
   }));
-  const { isConnected } = useAccount();
+  const { isConnected } = useConnection();
   const { explorerRegistryVaults, isResolving } = useExplorerVaults();
   const { morphoHoldings } = useWallet();
   const { getVaultData } = useVaultData();
