@@ -68,13 +68,12 @@ Copy `.env.example` → `.env.local`.
 | `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | **Yes** | Reown AppKit / WalletConnect |
 | `NEXT_PUBLIC_URL` | No | Canonical URL (default `https://app.muscadine.xyz`; set on Vercel in production) |
 
-**Base App (in source, no env):** `base:app_id`, builder code `bc_mwkqu9rd`, Base Account via Reown AppKit. Register app metadata on [base.dev](https://base.dev) at **`https://app.muscadine.xyz`**.
+**Wallets:** Reown AppKit with injected (EIP-6963) wallets, WalletConnect, Coinbase Wallet and Base Account (smart wallet) through the app's own lazy connectors (`src/lib/lazy-connectors.ts`; Base Account telemetry off). Plain web app: no Base App / mini-app integration.
 
 GitHub Actions (`.github/workflows/ci.yml`) runs **lint only**. Production `npm run build` is local (before push) and on Vercel with env vars there — not on GitHub.
 
 ## Deployment checklist
 
 1. **Vercel** — set `NEXT_PUBLIC_ALCHEMY_API_KEY`, `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID`, and `NEXT_PUBLIC_URL=https://app.muscadine.xyz`.
-2. **base.dev** — register primary app URL as `https://app.muscadine.xyz` with listing name **Muscadine Vaults** (app id in `src/lib/base-app.ts`).
-3. **DNS** — point `app.muscadine.xyz` to Vercel.
-4. **Verify** — navbar logo/favicon load (`/favicon.png`), connect wallet works, chart Y-axes show readable ticks (zoomed to data range, not 8-decimal tails).
+2. **DNS** — point `app.muscadine.xyz` to Vercel.
+3. **Verify** — navbar logo/favicon load (`/favicon.png`), connect wallet works, chart Y-axes show readable ticks (zoomed to data range, not 8-decimal tails).

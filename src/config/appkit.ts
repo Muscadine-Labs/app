@@ -30,6 +30,8 @@ const appKit = createAppKit({
   defaultAccountTypes: { eip155: 'eoa' },
   enableEIP6963: true,
   enableInjected: true,
+  // On: our lazy Coinbase connector (wagmi config) has id `coinbaseWallet`, so AppKit
+  // lists it and does not add its own eager one.
   enableCoinbase: true,
   enableBaseAccount: true,
   enableWallets: true,
@@ -58,13 +60,15 @@ const appKit = createAppKit({
     '--apkt-accent': 'var(--primary)',
     '--apkt-border-radius-master': '4px',
     '--apkt-z-index': 100000,
-    // Our self-hosted font. Any custom font family also stops AppKit preloading its own
-    // fonts from fonts.reown.com on every page load (an IP-visible third-party request).
-    '--apkt-font-family': 'var(--font-figtree), system-ui, sans-serif',
+    // `inherit`: the modal is mounted under <body>, so it uses our self-hosted Figtree. A
+    // var(--font-…) value would not work here (AppKit declares it on :root, where next/font's
+    // variable is undefined). Any custom value also stops AppKit preloading its own fonts
+    // from fonts.reown.com on every page load (an IP-visible third-party request).
+    '--apkt-font-family': 'inherit',
     '--w3m-accent': 'var(--primary)',
     '--w3m-border-radius-master': '4px',
     '--w3m-z-index': 100000,
-    '--w3m-font-family': 'var(--font-figtree), system-ui, sans-serif',
+    '--w3m-font-family': 'inherit',
   },
 })
 

@@ -7,7 +7,7 @@ import { cookieToInitialState } from 'wagmi'
 import { Providers } from './Providers'
 import { config } from '@/config/wagmi'
 import { getAppUrl } from '@/lib/app-url'
-import { APP_NAME, BASE_APP_ID } from '@/lib/base-app'
+import { APP_NAME } from '@/lib/constants'
 
 const appUrl = getAppUrl()
 
@@ -54,9 +54,6 @@ export const metadata: Metadata = {
     description: 'Curated Morpho vaults on Base.',
     images: ['/favicon.png'],
   },
-  other: {
-    'base:app_id': BASE_APP_ID,
-  },
 }
 
 export default async function RootLayout({
@@ -69,10 +66,7 @@ export default async function RootLayout({
 
   return (
     <html lang="en">
-      <head>
-        <meta name="base:app_id" content={BASE_APP_ID} />
-      </head>
-      <body className={`${figtree.className} ${figtree.variable}`}>
+      <body className={figtree.className}>
           <Providers initialState={initialState}>
               <AppLayout>{children}</AppLayout>
           </Providers>

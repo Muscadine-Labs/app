@@ -6,7 +6,6 @@
 
 import { type Address, type PublicClient, type WalletClient, type TransactionReceipt, parseUnits, formatUnits, getAddress, WaitForTransactionReceiptTimeoutError } from 'viem';
 import { base } from 'viem/chains';
-import { builderWriteOpts } from './builder-code';
 import { VaultDepositBlockedError, isWalletDepositBlocked } from './vault-gates';
 import { assertDepositWithinCapacity } from './deposit-capacity';
 import type { ForceWithdrawPlan } from './force-withdraw-v2';
@@ -286,7 +285,6 @@ async function ensureApproval(
       account: walletClient.account,
       // viem refuses to send if the wallet moved off Base after the earlier check.
       chain: base,
-      ...builderWriteOpts(),
     });
 
     onProgress?.({
@@ -319,7 +317,6 @@ async function ensureApproval(
     account: walletClient.account,
     // viem refuses to send if the wallet moved off Base after the earlier check.
     chain: base,
-    ...builderWriteOpts(),
   });
 
   onProgress?.({
@@ -440,7 +437,6 @@ export async function depositToVaultV2(
     account: walletClient.account,
     // viem refuses to send if the wallet moved off Base after the earlier check.
     chain: base,
-    ...builderWriteOpts(),
   });
 
   onProgress?.({
@@ -533,7 +529,6 @@ export async function withdrawFromVaultV2(
     account: walletClient.account,
     // viem refuses to send if the wallet moved off Base after the earlier check.
     chain: base,
-    ...builderWriteOpts(),
   });
 
   onProgress?.({
@@ -598,7 +593,6 @@ export async function redeemFromVaultV2(
     account: walletClient.account,
     // viem refuses to send if the wallet moved off Base after the earlier check.
     chain: base,
-    ...builderWriteOpts(),
   });
 
   onProgress?.({
@@ -683,7 +677,6 @@ export async function forceWithdrawFromVaultV2(
     account: walletClient.account,
     // viem refuses to send if the wallet moved off Base after the earlier check.
     chain: base,
-    ...builderWriteOpts(),
   });
 
   onProgress?.({
