@@ -67,3 +67,5 @@ npm run build    # Production build (local / Vercel; not GitHub Actions)
 npm run lint     # ESLint (local before push; GitHub CI)
 npm test         # Vitest unit tests (src/**/*.test.ts)
 ```
+
+- **Privacy:** no optional analytics or telemetry. AppKit `features.analytics: false`; our own Base Account connector sets `telemetry: false` (AppKit's default would send it); `@coinbase/wallet-sdk` 4.4.0 (no telemetry); npm scripts set `NEXT_TELEMETRY_DISABLED=1`. AppKit's font variables use our self-hosted Figtree, so no `fonts.reown.com` requests. Reown's mandatory connection events are the only remaining usage data. Do not add analytics.

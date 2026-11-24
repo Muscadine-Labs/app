@@ -6,18 +6,20 @@
     "node": "26.x"
   },
   "scripts": {
-    "dev": "next dev --turbopack",
-    "build": "next build --turbopack",
-    "start": "next start",
+    "dev": "NEXT_TELEMETRY_DISABLED=1 next dev --turbopack",
+    "build": "NEXT_TELEMETRY_DISABLED=1 next build --turbopack",
+    "start": "NEXT_TELEMETRY_DISABLED=1 next start",
     "lint": "eslint",
     "test": "vitest run"
   },
   "dependencies": {
     "@base-org/account": "2.6.0",
+    "@coinbase/wallet-sdk": "4.4.0",
     "@floating-ui/react": "0.27.20",
     "@reown/appkit": "2.0.0",
     "@reown/appkit-adapter-wagmi": "2.0.0",
     "@tanstack/react-query": "5.108.4",
+    "@wagmi/connectors": "8.2.4",
     "@wagmi/core": "3.6.9",
     "next": "16.4.6",
     "ox": "0.14.67",
@@ -45,7 +47,7 @@
   },
   "overrides": {
     "wagmi": "$wagmi",
-    "@wagmi/connectors": "8.2.4",
+    "@wagmi/connectors": "$@wagmi/connectors",
     "@wagmi/core": "3.6.9",
     "ox": "$ox",
     "valtio": "$valtio",
@@ -63,6 +65,10 @@
     "sharp": "0.35.5",
     "@typescript-eslint/typescript-estree": {
       "minimatch": "11.0.9"
+    },
+    "@reown/appkit-utils": {
+      "@base-org/account": "$@base-org/account",
+      "@coinbase/wallet-sdk": "$@coinbase/wallet-sdk"
     }
   },
   "allowScripts": {

@@ -72,7 +72,7 @@ export default async function RootLayout({
       <head>
         <meta name="base:app_id" content={BASE_APP_ID} />
       </head>
-      <body className={figtree.className}>
+      <body className={`${figtree.className} ${figtree.variable}`}>
           <Providers initialState={initialState}>
               <AppLayout>{children}</AppLayout>
           </Providers>
