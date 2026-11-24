@@ -68,7 +68,7 @@ Never commit real keys. `.env.example` documents placeholders.
 
 `package.json` **`allowScripts`** allowlists native/postinstall scripts for `bufferutil`, `keccak`, `utf-8-validate`, `@reown/appkit`, and `fsevents` (transitive; WalletConnect `ws` + AppKit version check + Vite file watching on macOS, dev only). Keep versions pinned to `package-lock.json`. Local npm 11.4 does not have `npm approve-scripts`; Vercel’s newer npm emits the pending-scripts warning without this field.
 
-`package.json` **`overrides`** also pins patched transitive packages GitHub Dependabot flags (`axios`, `hono`, `js-yaml` 4.x, `socket.io-parser`, `brace-expansion` 1.x/5.x, `browserslist` 4.29.5, `decode-uri-component` 0.5.0). Do not drop those pins without checking [Dependabot alerts](https://github.com/Muscadine-Labs/app/security).
+`package.json` **`overrides`** also pins patched transitive packages GitHub Dependabot flags (`axios`, `hono`, `js-yaml` 4.x, `socket.io-parser`, `brace-expansion` 1.x/5.x, `browserslist` 4.29.6, `decode-uri-component` 0.5.1). Do not drop those pins without checking [Dependabot alerts](https://github.com/Muscadine-Labs/app/security).
 
 ---
 
@@ -551,7 +551,7 @@ Standard web app on Base — no Farcaster manifest or mini-app SDK. Register on 
 |-------|----------|
 | `APP_NAME` / `BASE_APP_ID` | `src/lib/base-app.ts` |
 | `base:app_id` meta tag | `layout.tsx` `metadata.other` **and** explicit `<meta name="base:app_id">` (id `6925cdc1547fca5d08131407`) |
-| `appUrl` / `appIcon` for Base Account UI | `getAppUrl()` + `/favicon.png` in wagmi config |
+| App URL / icon for wallet UIs | AppKit `metadata` in `src/config/wagmi.ts`: `url: getAppUrl()`, `icons: [appUrl + '/favicon.png']` |
 | Builder code (ERC-8021) | `src/lib/builder-code.ts` → `transactionUtilsV2.ts` |
 | Base App WebView | `isBaseAppWebView()` — Connect uses injected/Coinbase, not WalletConnect. Layout `dvh`. Do not CSS-elevate leftover AppKit dialog siblings. |
 
@@ -621,7 +621,7 @@ npm test         # Vitest unit tests (src/**/*.test.ts)
 npm start        # Production server
 ```
 
-**CI** (`.github/workflows/ci.yml`, Node 24): `npm run lint` only. Do not run `npm run build` on GitHub — `wagmi.ts` requires `NEXT_PUBLIC_ALCHEMY_API_KEY` and `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` at module load, and those keys stay in local `.env` / Vercel, never in the repo or GitHub Actions. Production build is Vercel. Confirm Vercel Node is 24 (`package.json` `engines`).
+**CI** (`.github/workflows/ci.yml`, Node 26): `npm run lint` only. Do not run `npm run build` on GitHub — `wagmi.ts` requires `NEXT_PUBLIC_ALCHEMY_API_KEY` and `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` at module load, and those keys stay in local `.env` / Vercel, never in the repo or GitHub Actions. Production build is Vercel. Vercel runs Node 26 (`package.json` `engines` `26.x`).
 
 ### Turbopack chunk error
 
@@ -651,6 +651,9 @@ Do not bump without checking compatibility:
 | Package | Constraint |
 |---------|------------|
 | `wagmi` | Stay on **2.x** — Reown AppKit requirement |
+| `@reown/appkit` / `@reown/appkit-adapter-wagmi` | Stay on **1.8.x** — AppKit 2.x peers `wagmi` / `@wagmi/core` 3 and `@wagmi/connectors` 8; move AppKit, wagmi and the `@wagmi/*` overrides together as one migration |
+| `typescript` | Stay on **6.x** — `typescript-eslint` (via `eslint-config-next`) peers `typescript <6.1.0` |
+| `@types/node` | Match the Node major in `engines` (**26.x**) |
 | `eslint` | Stay on **9.x** until `eslint-plugin-react` / `jsx-a11y` / `import` (bundled by `eslint-config-next` 16) accept ESLint 10 — their peer ranges stop at 9 and `npm ls` reports the tree invalid on 10 |
 | `ox` | Stay on **0.14.x** — `ox@1` is a breaking rewrite; used for ERC-8021 builder codes. It is pinned in `overrides` (`$ox`), so a `viem` bump can need the matching `ox` patch: check `npm view viem@<version> dependencies.ox` and bump `ox` with it, or the Turbopack build fails with missing ox exports (`AccountConfig`). |
 | `valtio` | Keep a **root** `valtio` (2.x) — Reown AppKit / WalletConnect must resolve `valtio/vanilla` under Turbopack |
