@@ -33,7 +33,11 @@ export function isBaseAppWebView(): boolean {
   return /CoinbaseWallet|CoinbaseBrowser|BaseApp/i.test(ua);
 }
 
-/** Prefer the injected Base/Coinbase wallet over WalletConnect in Base App. */
+/**
+ * Prefer the injected Base/Coinbase wallet over WalletConnect in Base App. Base Account
+ * comes last: inside Base App its SDK wraps the same injected provider, but without the
+ * injected connector's remembered disconnect.
+ */
 export function pickBaseAppConnector<
   T extends { id: string; type?: string; name?: string },
 >(connectors: readonly T[]): T | undefined {
@@ -42,12 +46,12 @@ export function pickBaseAppConnector<
 
   return (
     id('coinbasewalletsdk') ||
-    id('baseaccount') ||
     connectors.find((connector) =>
       /coinbase/i.test(`${connector.id} ${connector.name ?? ''}`)
     ) ||
     connectors.find(
       (connector) => connector.id === 'injected' || connector.type === 'injected'
-    )
+    ) ||
+    id('baseaccount')
   );
 }

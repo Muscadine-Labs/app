@@ -12,10 +12,18 @@ import { isPageScrollLocked } from '@/hooks/useLockPageScroll';
 export function useClearStuckWalletUi() {
   useEffect(() => {
     const restore = () => {
+      // AppKit 2 marks an open modal with the `open` class (its `open` is Lit state, not an
+      // attribute); the attribute selectors cover older WalletConnect modals.
       const dialogOpen = Boolean(
-        document.querySelector('w3m-modal[open], appkit-modal[open], wcm-modal[open]')
+        document.querySelector(
+          'w3m-modal.open, appkit-modal.open, w3m-modal[open], appkit-modal[open], wcm-modal[open]'
+        )
       );
       if (dialogOpen || isPageScrollLocked()) return;
+
+      // AppKit's scroll lock is a <style> tag (body touch-action/overflow); a modal torn down
+      // while the WebView was in the background can leave it behind.
+      document.head.querySelectorAll('style[data-w3m="scroll-lock"]').forEach((tag) => tag.remove());
 
       document.body.style.removeProperty('overflow');
       document.body.style.removeProperty('pointer-events');
