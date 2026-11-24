@@ -17,7 +17,7 @@ import {
   normalizeMorphoShares,
   resolveMorphoAssetSymbol,
 } from '@/lib/asset-decimals';
-import { isValidEthereumAddress, findVaultByAddress } from '@/lib/vault-utils';
+import { isValidEthereumAddress, findVaultByAddress, preferredVaultName } from '@/lib/vault-utils';
 import { logger } from '@/lib/logger';
 
 interface MorphoV2PositionItem {
@@ -57,7 +57,8 @@ function mapPosition(
   return {
     vault: {
       address: vaultAddress,
-      name: vaultName || registryVault?.name,
+      // Morpho has no name for some external vaults; never send an undefined name.
+      name: preferredVaultName(vaultName, registryVault?.name, vaultAddress),
       symbol: assetSymbol,
       vaultSymbol: registryVault?.vaultSymbol,
       strategy: registryVault?.strategy,

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useCallback, useState } from 'react';
-import { useConnection, useConnect, useConnectors, useChainId } from 'wagmi';
+import { useConnection, useConnect, useConnectors } from 'wagmi';
 import { useAppKit } from '@reown/appkit/react';
 import { useAdvisoryAgreement } from '@/contexts/AdvisoryAgreementContext';
 import { useWalletDisplayName } from '@/hooks/useWalletDisplayName';
@@ -43,8 +43,9 @@ function ConnectButtonReady() {
   const { mutateAsync: connectAsync } = useConnect();
   const connectors = useConnectors();
   const { open } = useAppKit();
-  const { address, isConnected } = useConnection();
-  const chainId = useChainId();
+  // The wallet's real chain. useChainId() only reports configured chains, so with a
+  // Base-only config it stays 8453 and the Wrong network button would never show.
+  const { address, isConnected, chainId } = useConnection();
   const isClient = useIsClient();
   const { displayName } = useWalletDisplayName(address);
 

@@ -32,7 +32,6 @@ const appKit = createAppKit({
   enableInjected: true,
   enableCoinbase: true,
   enableBaseAccount: true,
-  enableWalletConnect: true,
   enableWallets: true,
   allWallets: 'SHOW',
   featuredWalletIds: [
@@ -42,7 +41,8 @@ const appKit = createAppKit({
     WALLET_IDS.phantom,
   ],
   features: {
-    // Off: the privacy pages promise no analytics, and this would send usage data to Reown.
+    // Off: optional usage analytics. AppKit still sends its mandatory INITIALIZE and
+    // CONNECT_SUCCESS events and wallet-list impressions to Reown whatever this says.
     analytics: false,
     email: false,
     socials: false,

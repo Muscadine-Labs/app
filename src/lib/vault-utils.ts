@@ -121,7 +121,11 @@ export function compareVaultsForDisplay(
   const tvlB = getTvlUsd(b.address);
   if (tvlA !== tvlB) return tvlB - tvlA;
 
-  return a.name.localeCompare(b.name) || (a.vaultSymbol ?? '').localeCompare(b.vaultSymbol ?? '');
+  // `name` can be missing at runtime for an external vault Morpho has not named.
+  return (
+    (a.name ?? '').localeCompare(b.name ?? '') ||
+    (a.vaultSymbol ?? '').localeCompare(b.vaultSymbol ?? '')
+  );
 }
 
 export function sortVaultsForDisplay(
