@@ -3,6 +3,9 @@
  */
 
 // Chain configuration
+/** Product name: page title, wallet metadata (Reown AppKit / WalletConnect). */
+export const APP_NAME = 'Muscadine Vaults';
+
 export const BASE_CHAIN_ID = 8453 as const;
 export const BASE_CHAIN_NAME = 'Base';
 export function getChainDisplayName(chainId: number): string {

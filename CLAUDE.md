@@ -34,7 +34,7 @@ Comprehensive context for AI assistants and developers. This is the canonical �
 13. [Directory map](#directory-map)
 14. [UI / transaction UX](#ui--transaction-ux)
 15. [Wallet & balances](#wallet--balances)
-16. [Base App](#base-app)
+16. [Wallet UIs and app identity](#wallet-uis-and-app-identity)
 17. [Configuration & constants](#configuration--constants)
 18. [Development](#development)
 19. [Dependency constraints](#dependency-constraints)
@@ -339,7 +339,7 @@ Morpho GraphQL is **server-only** (`fetchMorphoGraphQL()` in route handlers). Th
 
 **NavBar:** Dashboard → `/`, Vaults → `/vaults`. Settings: theme (light/dark/auto). Right sidebar (`LearnContent`) is Q&A links to Morpho docs (protocol, Vault V2, curator, Blue, Midnight) and [self-custody](https://muscadine.xyz/self-custody).
 
-**App title:** metadata in `layout.tsx` uses **Muscadine Vaults** (`APP_NAME` in `src/lib/base-app.ts`) so Base.dev / Reown AppKit / WalletConnect match.
+**App title:** metadata in `layout.tsx` uses **Muscadine Vaults** (`APP_NAME` in `src/lib/constants.ts`) so the page title and Reown AppKit / WalletConnect match.
 
 ---
 
@@ -456,7 +456,6 @@ Same Risk Framework / Morpho’s Disclaimer links appear in the **NavBar** Musca
 | Hook | File | Purpose |
 |------|------|---------|
 | `useVaultEarnedInterest` | `hooks/useVaultEarnedInterest.ts` | All-time earned interest for curated vaults |
-| `useClearStuckWalletUi` | `hooks/useClearStuckWalletUi.ts` | Clear leftover wallet overlays in Base App WebView |
 | `useVaultDataFetch` | `hooks/useVaultDataFetch.ts` | Fetch/cache vault API data, list preloader |
 | `useClientOnly` | `hooks/useClientOnly.ts` | `useIsClient()`, `useUnixTimestamp()` — SSR-safe patterns |
 
@@ -485,7 +484,6 @@ src/
   contexts/               # See table above
   hooks/
   lib/
-    base-app.ts           # APP_NAME, BASE_APP_ID, Base App WebView detect
     portfolio-utils.ts    # ★ aggregatePortfolioHistory (dashboard)
     api-utils.ts          # Period/interval helpers; strip incomplete Morpho timeseries tails
     transactionUtilsV2.ts # ★ V2 on-chain (ERC-4626 + vault multicall force withdraw)
@@ -541,23 +539,13 @@ src/
 - **Morpho positions:** `/api/user/morpho-positions` (v2); metadata from `/api/vault/v2/.../complete`
 - `refreshBalances`, `refreshBalancesWithPolling` after transactions
 
-**Privacy (no optional analytics or telemetry):** AppKit `features.analytics: false` (Reown still receives its mandatory `INITIALIZE` / `CONNECT_SUCCESS` events and wallet-list impressions, which cannot be turned off). `src/config/wagmi.ts` registers its own Base Account connector with `preference: { telemetry: false }` so AppKit skips its default one, whose SDK sends telemetry to Coinbase by default. It is wrapped in `lazyBaseAccount` (`src/lib/lazy-base-account.ts`): wagmi's mount-time `reconnect()` calls `getProvider()` on every configured connector, which would load the Base Account SDK (and its COOP `HEAD` request) on every page load and could take the Base App session from the injected wallet. Until the user connects with it, or it was the last connector used and not disconnected, its `getProvider()` returns nothing and `isAuthorized()` is false; `disconnect()` is remembered (`baseAccount.disconnected`) and tolerates a provider without `disconnect`. Tests: `__tests__/lazy-base-account.test.ts`. AppKit's own default Coinbase Wallet connector still initializes its SDK on load (2 `HEAD` requests per page); it was like that before and removing it would change the wallet list. `@coinbase/wallet-sdk` is pinned to 4.4.0, which has no telemetry (4.3.x did); an `overrides` entry makes AppKit's `@reown/appkit-utils` use the same single copies of both SDKs. The `dev` / `build` / `start` scripts set `NEXT_TELEMETRY_DISABLED=1`, so Next.js build telemetry is off locally and on Vercel. AppKit's `--apkt-font-family` / `--w3m-font-family` are `inherit`: the modal is mounted under `<body>` and uses our self-hosted Figtree. Do not use `var(--font-…)` there (AppKit declares it on `:root`, where next/font's variable is undefined). Any custom value also stops AppKit preloading its fonts from `fonts.reown.com` on every page load. No analytics packages. Keep it that way: do not add an SDK or option that sends usage data unless it is required for the feature.
+**Privacy (no optional analytics or telemetry):** AppKit `features.analytics: false` (Reown still receives its mandatory `INITIALIZE` / `CONNECT_SUCCESS` events and wallet-list impressions, which cannot be turned off). `src/config/wagmi.ts` registers its own Base Account connector with `preference: { telemetry: false }` so AppKit skips its default one, whose SDK sends telemetry to Coinbase by default. It is wrapped in `lazyBaseAccount` (`src/lib/lazy-base-account.ts`): wagmi's mount-time `reconnect()` calls `getProvider()` on every configured connector, which would load the Base Account SDK (and its COOP `HEAD` request) on every page load. Until the user connects with it, or it was the last connector used and not disconnected, its `getProvider()` returns nothing and `isAuthorized()` is false; `disconnect()` and a disconnect from the wallet side (`onDisconnect`) are remembered (`baseAccount.disconnected`); `disconnect()` tolerates a provider without `disconnect`. Tests: `__tests__/lazy-base-account.test.ts`. AppKit's Coinbase Wallet SDK connector is off (`enableCoinbase: false` in `src/config/appkit.ts`): it initialized its SDK and sent 2 `HEAD` requests on every page. The Coinbase Wallet extension still shows through EIP-6963 and the app through WalletConnect. `@coinbase/wallet-sdk` stays pinned to 4.4.0, which has no telemetry (4.3.x did), since AppKit still bundles it; an `overrides` entry makes AppKit's `@reown/appkit-utils` use the same single copies of both SDKs. The `dev` / `build` / `start` scripts set `NEXT_TELEMETRY_DISABLED=1`, so Next.js build telemetry is off locally and on Vercel. AppKit's `--apkt-font-family` / `--w3m-font-family` are `inherit`: the modal is mounted under `<body>` and uses our self-hosted Figtree. Do not use `var(--font-…)` there (AppKit declares it on `:root`, where next/font's variable is undefined). Any custom value also stops AppKit preloading its fonts from `fonts.reown.com` on every page load. No analytics packages. Keep it that way: do not add an SDK or option that sends usage data unless it is required for the feature.
 
 ---
 
-## Base App
+## Wallet UIs and app identity
 
-Standard web app on Base — no Farcaster manifest or mini-app SDK. Register on [base.dev](https://base.dev) with primary URL **`https://app.muscadine.xyz`** (no separate `miniapp.*` subdomain). Listing **name** should be **Muscadine Vaults** so in-app search matches by name, not only the URL.
-
-| Piece | Location |
-|-------|----------|
-| `APP_NAME` / `BASE_APP_ID` | `src/lib/base-app.ts` |
-| `base:app_id` meta tag | `layout.tsx` `metadata.other` **and** explicit `<meta name="base:app_id">` (id `6925cdc1547fca5d08131407`) |
-| App URL / icon for wallet UIs | AppKit `metadata` in `src/config/wagmi.ts`: `url: getAppUrl()`, `icons: [appUrl + '/favicon.png']` |
-| Builder code (ERC-8021) | `src/lib/builder-code.ts` → `transactionUtilsV2.ts` |
-| Base App WebView | `isBaseAppWebView()` — Connect uses injected/Coinbase, not WalletConnect (`pickBaseAppConnector`: Coinbase Wallet SDK, then any Coinbase-named, then injected, Base Account last). `useClearStuckWalletUi` treats AppKit 2's `w3m-modal.open` class as open and removes a leftover `style[data-w3m="scroll-lock"]`. Layout `dvh`. Do not CSS-elevate leftover AppKit dialog siblings. |
-
-Optional later: [Base Notifications API](https://docs.base.org/apps/technical-guides/base-notifications) (wallet-address based; no Farcaster).
+Plain web app on Base, like Fintech-vault-project: no Base App / mini-app integration (no `base:app_id` meta tag, Base App WebView connect path or ERC-8021 builder code), no Farcaster manifest. `APP_NAME` (**Muscadine Vaults**) lives in `src/lib/constants.ts`; AppKit `metadata` in `src/config/wagmi.ts` sets `url: getAppUrl()` and `icons: [appUrl + '/favicon.png']`. Inside the Base App or any wallet browser, Connect opens Reown AppKit like everywhere else; the injected wallet appears through EIP-6963. Layout uses `dvh`. Do not CSS-elevate leftover AppKit dialog siblings.
 
 ---
 
@@ -657,7 +645,6 @@ Do not bump without checking compatibility:
 | `typescript` | Stay on **6.x** — `typescript-eslint` (via `eslint-config-next`) peers `typescript <6.1.0` |
 | `@types/node` | Match the Node major in `engines` (**26.x**) |
 | `eslint` | Stay on **9.x** until `eslint-plugin-react` / `jsx-a11y` / `import` (bundled by `eslint-config-next` 16) accept ESLint 10 — their peer ranges stop at 9 and `npm ls` reports the tree invalid on 10 |
-| `ox` | Stay on **0.14.x** — `ox@1` is a breaking rewrite; used for ERC-8021 builder codes. It is pinned in `overrides` (`$ox`), so a `viem` bump can need the matching `ox` patch: check `npm view viem@<version> dependencies.ox` and bump `ox` with it, or the Turbopack build fails with missing ox exports (`AccountConfig`). |
 | `valtio` | Keep a **root** `valtio` (2.x) — Reown AppKit / WalletConnect must resolve `valtio/vanilla` under Turbopack |
 | `@morpho-org/*-wagmi` 4.x | Not used; check its wagmi peer range before adding |
 

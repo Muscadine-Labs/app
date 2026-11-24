@@ -30,7 +30,9 @@ const appKit = createAppKit({
   defaultAccountTypes: { eip155: 'eoa' },
   enableEIP6963: true,
   enableInjected: true,
-  enableCoinbase: true,
+  // Off: its SDK loaded and sent HEAD requests on every page. The Coinbase Wallet
+  // extension still shows through EIP-6963, the app through WalletConnect.
+  enableCoinbase: false,
   enableBaseAccount: true,
   enableWallets: true,
   allWallets: 'SHOW',

@@ -4,7 +4,7 @@ import { lazyBaseAccount } from '@/lib/lazy-base-account'
 import { base } from '@reown/appkit/networks'
 import type { AppKitNetwork } from '@reown/appkit/networks'
 import { getAppUrl } from '@/lib/app-url'
-import { APP_NAME } from '@/lib/base-app'
+import { APP_NAME } from '@/lib/constants'
 
 const alchemyApiKey = process.env.NEXT_PUBLIC_ALCHEMY_API_KEY
 const walletConnectProjectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID
