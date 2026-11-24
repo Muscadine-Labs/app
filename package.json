@@ -15,10 +15,10 @@
   "dependencies": {
     "@base-org/account": "2.6.0",
     "@floating-ui/react": "0.27.20",
-    "@reown/appkit": "1.8.24",
-    "@reown/appkit-adapter-wagmi": "1.8.24",
+    "@reown/appkit": "2.0.0",
+    "@reown/appkit-adapter-wagmi": "2.0.0",
     "@tanstack/react-query": "5.108.4",
-    "@wagmi/core": "2.22.1",
+    "@wagmi/core": "3.6.9",
     "next": "16.4.6",
     "ox": "0.14.67",
     "react": "19.3.1",
@@ -28,7 +28,7 @@
     "recharts": "3.11.1",
     "valtio": "2.3.2",
     "viem": "2.58.6",
-    "wagmi": "2.19.5"
+    "wagmi": "3.7.11"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "4.3.5",
@@ -45,8 +45,8 @@
   },
   "overrides": {
     "wagmi": "$wagmi",
-    "@wagmi/connectors": "6.2.0",
-    "@wagmi/core": "2.22.1",
+    "@wagmi/connectors": "8.2.4",
+    "@wagmi/core": "3.6.9",
     "ox": "$ox",
     "valtio": "$valtio",
     "uuid": "^14.0.3",
@@ -70,10 +70,7 @@
     }
   },
   "allowScripts": {
-    "@reown/appkit@1.8.24": true,
-    "bufferutil@4.2.0": true,
-    "fsevents@2.3.3": true,
-    "keccak@3.0.4": true,
-    "utf-8-validate@5.0.10": true
+    "@reown/appkit@2.0.0": true,
+    "fsevents@2.3.3": true
   }
 }

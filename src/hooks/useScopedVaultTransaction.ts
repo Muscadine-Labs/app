@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useAccount, useReadContract } from 'wagmi';
+import { useConnection, useReadContract } from 'wagmi';
 import { formatUnits } from 'viem';
 import { useTransactionState } from '@/contexts/TransactionContext';
 import { useWallet } from '@/contexts/WalletContext';
@@ -78,7 +78,7 @@ export function useScopedVaultTransaction({
   isOpen,
   initialTab,
 }: UseScopedVaultTransactionOptions) {
-  const { isConnected, address: walletAddress } = useAccount();
+  const { isConnected, address: walletAddress } = useConnection();
   const { tokenBalances, morphoHoldings, refreshBalancesIfStale } = useWallet();
   const { assetForVault } = usePrices();
   const vaultAsset = assetForVault(vaultAddress);

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useCallback, useState } from 'react';
-import { useAccount, useConnect, useChainId } from 'wagmi';
+import { useConnection, useConnect, useConnectors, useChainId } from 'wagmi';
 import { useAppKit } from '@reown/appkit/react';
 import { useAdvisoryAgreement } from '@/contexts/AdvisoryAgreementContext';
 import { useWalletDisplayName } from '@/hooks/useWalletDisplayName';
@@ -40,9 +40,10 @@ function ConnectButtonShell({
 function ConnectButtonReady() {
   const { isAccepted, openModal, shouldOpenWalletConnect, clearWalletConnectFlag } =
     useAdvisoryAgreement();
-  const { connectAsync, connectors } = useConnect();
+  const { mutateAsync: connectAsync } = useConnect();
+  const connectors = useConnectors();
   const { open } = useAppKit();
-  const { address, isConnected } = useAccount();
+  const { address, isConnected } = useConnection();
   const chainId = useChainId();
   const isClient = useIsClient();
   const { displayName } = useWalletDisplayName(address);

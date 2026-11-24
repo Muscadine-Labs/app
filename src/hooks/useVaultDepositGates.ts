@@ -2,7 +2,7 @@
 
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useAccount, usePublicClient } from 'wagmi';
+import { useConnection, usePublicClient } from 'wagmi';
 import { BASE_CHAIN_ID } from '@/lib/constants';
 import {
   VAULT_DEPOSIT_GATES_QUERY_KEY,
@@ -25,7 +25,7 @@ const REGISTRY_VAULTS = getRegistryVaultList();
  * or the wallet passes it).
  */
 export function useVaultDepositGates() {
-  const { address } = useAccount();
+  const { address } = useConnection();
   const publicClient = usePublicClient({ chainId: BASE_CHAIN_ID });
   const walletKey = address?.toLowerCase() ?? null;
 

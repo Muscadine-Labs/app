@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { MorphoVaultData } from '@/types/vault';
 import { formatVaultDetailTokenAmount, formatDate, formatCurrency } from '@/lib/formatter';
-import { useAccount } from 'wagmi';
+import { useConnection } from 'wagmi';
 import CopiableAddress from '@/components/common/CopiableAddress';
 import { Skeleton } from '@/components/ui/Skeleton';
 import type { Transaction } from '@/types/api';
@@ -32,7 +32,7 @@ interface VaultHistoryProps {
 }
 
 export default function VaultHistory({ vaultData }: VaultHistoryProps) {
-  const { address } = useAccount();
+  const { address } = useConnection();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [userTransactions, setUserTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);

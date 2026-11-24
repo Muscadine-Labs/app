@@ -11,7 +11,7 @@ import {
 } from '@/lib/constants';
 import { findVaultByAddress } from '@/lib/vault-utils';
 import { Button } from '@/components/ui';
-import { useAccount } from 'wagmi';
+import { useConnection } from 'wagmi';
 import { useRouter } from 'next/navigation';
 import { TransactionProgressBar } from './TransactionProgressBar';
 import { useToast } from '@/contexts/ToastContext';
@@ -179,7 +179,7 @@ export function TransactionConfirmation({
   onSuccessComplete,
   embedded = false,
 }: TransactionConfirmationProps) {
-  const { address } = useAccount();
+  const { address } = useConnection();
   const router = useRouter();
   const { reset } = useTransactionState();
   const { priceForVault } = usePrices();

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { useAccount, usePublicClient } from 'wagmi';
+import { useConnection, usePublicClient } from 'wagmi';
 import { useBalance } from 'wagmi';
 import { formatUnits, getAddress, type PublicClient } from 'viem';
 import { formatCurrency } from '@/lib/formatter';
@@ -200,7 +200,7 @@ export function mergeTokenRead(
 }
 
 export function WalletProvider({ children }: { children: React.ReactNode }) {
-  const { address, isConnected } = useAccount();
+  const { address, isConnected } = useConnection();
   const publicClient = usePublicClient({ chainId: BASE_CHAIN_ID });
   const {
     priceOf,
@@ -689,8 +689,11 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     await options?.onComplete?.();
   }, [performRefresh, address]);
 
+  // wagmi 3's useBalance returns { value, decimals, symbol } with no `formatted` string.
+  const ethFormatted = ethBalance ? formatUnits(ethBalance.value, ethBalance.decimals) : '0';
+
   // USD values from Morpho prices by address (native ETH uses WETH).
-  const ethUsdValue = ethBalance ? parseFloat(ethBalance.formatted) * (priceOf('ETH') ?? 0) : 0;
+  const ethUsdValue = ethBalance ? parseFloat(ethFormatted) * (priceOf('ETH') ?? 0) : 0;
 
   const allTokenBalances: TokenBalance[] = [
     {
@@ -698,7 +701,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       symbol: 'ETH',
       decimals: 18,
       balance: ethBalance?.value || BigInt(0),
-      formatted: ethBalance?.formatted || '0',
+      formatted: ethFormatted,
       usdValue: ethUsdValue,
     },
     ...(assetTokenState.address === address?.toLowerCase() ? assetTokenState.tokens : []).map((token) => ({
@@ -757,7 +760,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
 
   const value = useMemo<WalletContextType>(
     () => ({
-      ethBalance: ethBalance?.formatted || '0',
+      ethBalance: ethFormatted,
       ethUsdValue: formatCurrency(ethUsdValue),
       totalUsdValue: formatCurrency(totalUsdValue),
       liquidUsdValue: formatCurrency(liquidUsdValue),
@@ -772,7 +775,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       refreshBalancesWithPolling,
     }),
     [
-      ethBalance?.formatted,
+      ethFormatted,
       ethUsdValue,
       totalUsdValue,
       liquidUsdValue,

@@ -66,7 +66,7 @@ npm run lint
 
 Never commit real keys. `.env.example` documents placeholders.
 
-`package.json` **`allowScripts`** allowlists native/postinstall scripts for `bufferutil`, `keccak`, `utf-8-validate`, `@reown/appkit`, and `fsevents` (transitive; WalletConnect `ws` + AppKit version check + Vite file watching on macOS, dev only). Keep versions pinned to `package-lock.json`. Local npm 11.4 does not have `npm approve-scripts`; Vercel’s newer npm emits the pending-scripts warning without this field.
+`package.json` **`allowScripts`** allowlists the install scripts of `@reown/appkit` (AppKit version check) and `fsevents` (Vite file watching on macOS, dev only). `bufferutil`, `keccak` and `utf-8-validate` left with the WalletConnect ethereum-provider in the wagmi 3 / AppKit 2 upgrade. Keep versions pinned to `package-lock.json`. Local npm 11.4 does not have `npm approve-scripts`; Vercel’s newer npm emits the pending-scripts warning without this field.
 
 `package.json` **`overrides`** also pins patched transitive packages GitHub Dependabot flags (`axios`, `hono`, `js-yaml` 4.x, `socket.io-parser`, `brace-expansion` 1.x/5.x, `browserslist` 4.29.6, `decode-uri-component` 0.5.1). Do not drop those pins without checking [Dependabot alerts](https://github.com/Muscadine-Labs/app/security).
 
@@ -79,7 +79,7 @@ Never commit real keys. `.env.example` documents placeholders.
 | Framework | Next.js 16 (App Router) |
 | Bundler (dev/build) | Turbopack (`next dev --turbopack`, `next build --turbopack`) |
 | UI | React 19, Tailwind CSS 4 |
-| Wallet | wagmi **2.x**, Reown AppKit, viem 2 |
+| Wallet | wagmi **3.x**, Reown AppKit **2.x**, viem 2 |
 | Chain | Base only (`8453`) |
 | Server data | Next.js Route Handlers → Morpho GraphQL |
 | Client GraphQL | None — Morpho GraphQL is server-only via `fetchMorphoGraphQL()` |
@@ -650,14 +650,14 @@ Do not bump without checking compatibility:
 
 | Package | Constraint |
 |---------|------------|
-| `wagmi` | Stay on **2.x** — Reown AppKit requirement |
-| `@reown/appkit` / `@reown/appkit-adapter-wagmi` | Stay on **1.8.x** — AppKit 2.x peers `wagmi` / `@wagmi/core` 3 and `@wagmi/connectors` 8; move AppKit, wagmi and the `@wagmi/*` overrides together as one migration |
+| `wagmi` / `@wagmi/core` / `@wagmi/connectors` | **3.x / 3.x / 8.x**, pinned exact and matched in `overrides`. Bump together with Reown AppKit: AppKit 2.x peers `wagmi` / `@wagmi/core` ≥3 and `@wagmi/connectors` ≥8. wagmi 3 API names: `useConnection` (not `useAccount`), `useConnectors` (not `useConnect().connectors`), and `mutate` / `mutateAsync` on mutation hooks (`useConnect`, `useSwitchChain`, `useWriteContract`, `useSendTransaction`) instead of `connectAsync` / `switchChainAsync` / `writeContractAsync` / `sendTransactionAsync`; the old names are deprecated aliases. `useBalance` has no `formatted` field (use viem `formatUnits(value, decimals)`). |
+| `@reown/appkit` / `@reown/appkit-adapter-wagmi` | **2.x**, same version for both. Its Base Account, Coinbase Wallet and Safe connectors load SDKs that are optional peers of `@wagmi/connectors` 8; they resolve through AppKit's own dependencies plus the direct `@base-org/account`. |
 | `typescript` | Stay on **6.x** — `typescript-eslint` (via `eslint-config-next`) peers `typescript <6.1.0` |
 | `@types/node` | Match the Node major in `engines` (**26.x**) |
 | `eslint` | Stay on **9.x** until `eslint-plugin-react` / `jsx-a11y` / `import` (bundled by `eslint-config-next` 16) accept ESLint 10 — their peer ranges stop at 9 and `npm ls` reports the tree invalid on 10 |
 | `ox` | Stay on **0.14.x** — `ox@1` is a breaking rewrite; used for ERC-8021 builder codes. It is pinned in `overrides` (`$ox`), so a `viem` bump can need the matching `ox` patch: check `npm view viem@<version> dependencies.ox` and bump `ox` with it, or the Turbopack build fails with missing ox exports (`AccountConfig`). |
 | `valtio` | Keep a **root** `valtio` (2.x) — Reown AppKit / WalletConnect must resolve `valtio/vanilla` under Turbopack |
-| `@morpho-org/*-wagmi` 4.x | Often requires wagmi 3 |
+| `@morpho-org/*-wagmi` 4.x | Not used; check its wagmi peer range before adding |
 
 ---
 
@@ -688,7 +688,7 @@ Do not bump without checking compatibility:
 1. **Multi-chain vaults** — Extend beyond Base to **Ethereum** and **Hyperliquid**: multi-chain `VAULTS` entries, RPC/wagmi chains, Morpho GraphQL `chainId` on API routes, explorer Network filter (today only Base is real; “All” is forward-compatible).
 ### Technical (optional)
 
-3. **`@morpho-org/morpho-sdk` for v2** — optional for Permit/Permit2 and **in-kind redemption** (`inKindRedeem`). Peer dep is viem only; does not require wagmi 3.
+3. **`@morpho-org/morpho-sdk` for v2** — optional for Permit/Permit2 and **in-kind redemption** (`inKindRedeem`). Peer dep is viem only.
 4. **`supportSignature: true`** — Permit/Permit2 to skip extra approval txs.
 5. **V2 vault-to-vault transfers** — Not implemented; would need withdraw + deposit coordination.
 6. **In-kind redemption UI** — When force withdraw cannot cover (no free market cash), preview and transfer Blue supply positions via SDK `inKindRedeem`. Do not replace force withdraw with `vaultExitBundlesV1ForceWithdrawVaultV2`.

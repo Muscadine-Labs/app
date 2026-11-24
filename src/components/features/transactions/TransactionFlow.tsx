@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { useAccount, useConfig, useSwitchChain, useWaitForTransactionReceipt, useReadContract, useWalletClient, usePublicClient } from 'wagmi';
+import { useConnection, useConfig, useSwitchChain, useWaitForTransactionReceipt, useReadContract, useWalletClient, usePublicClient } from 'wagmi';
 import { getWalletClient } from 'wagmi/actions';
 import { parseUnits, type Address, type PublicClient, type WalletClient } from 'viem';
 import { VaultAccount } from '@/types/vault';
@@ -127,8 +127,8 @@ export function TransactionFlow({
   const router = useRouter();
   const { data: walletClient } = useWalletClient();
   const wagmiConfig = useConfig();
-  const { chainId: walletChainId } = useAccount();
-  const { switchChainAsync } = useSwitchChain();
+  const { chainId: walletChainId } = useConnection();
+  const { mutateAsync: switchChainAsync } = useSwitchChain();
 
   /**
    * Wallet client on Base for sending. If the wallet is on another network, ask it to switch
@@ -186,7 +186,7 @@ export function TransactionFlow({
   }, [fromAccount, morphoHoldings.positions, transactionType]);
 
   // Share balance read on chain for the MAX (redeem) check; wallet state only while it loads.
-  const { address: connectedAddress } = useAccount();
+  const { address: connectedAddress } = useConnection();
   const withdrawVaultAddress =
     transactionType === 'withdraw' && fromAccount?.type === 'vault'
       ? ((fromAccount as VaultAccount).address as `0x${string}`)

@@ -55,7 +55,7 @@ function WagmiBoundary({
 }) {
   // Apply the cookie snapshot once, before any subscriber mounts. Passing it to
   // WagmiProvider instead repeats config.setState on every render until persist
-  // finishes, which updates useAccount subscribers (VaultV2Page) during Hydrate's render.
+  // finishes, which updates useConnection subscribers (VaultV2Page) during Hydrate's render.
   useState(() => {
     if (initialState) hydrate(config, { initialState, reconnectOnMount: true })
     return null
