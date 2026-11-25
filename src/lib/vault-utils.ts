@@ -1,7 +1,6 @@
 import {
   VaultDefinition,
   VaultStrategy,
-  getRetiredWrapper,
   getRegistryVaultList,
 } from '@/lib/vaults';
 import { Vault } from '@/types/vault';
@@ -222,34 +221,6 @@ export function getDepositedVaultAddressSet(
       .filter(hasOnChainVaultShares)
       .map((position) => position.vault.address.toLowerCase())
   );
-}
-
-/**
- * Profit earned in this vault's retired fee wrapper, once the wrapper has no shares, so the
- * vault's row carries all interest earned across both contracts.
- */
-export function retiredWrapperEarnedPnl(
-  positions: readonly WalletMorphoPosition[],
-  vaultAddress: string
-): { pnlRaw: string; pnlUsd: number } | null {
-  const wrapperAddress = getRetiredWrapper(vaultAddress)?.address.toLowerCase();
-  if (!wrapperAddress) return null;
-  const wrapper = positions.find(
-    (position) => position.vault.address.toLowerCase() === wrapperAddress
-  );
-  if (!wrapper || hasOnChainVaultShares(wrapper) || !wrapper.pnlRaw) return null;
-  let pnlRaw: bigint;
-  try {
-    pnlRaw = BigInt(wrapper.pnlRaw);
-  } catch {
-    return null;
-  }
-  // A loss on the wrapper must not shrink the vault's row. The vault page floors each
-  // side at zero. Skip the wrapper when the dollar figure is missing.
-  if (pnlRaw <= BigInt(0) || wrapper.pnlUsd === undefined || !(wrapper.pnlUsd > 0)) {
-    return null;
-  }
-  return { pnlRaw: pnlRaw.toString(), pnlUsd: wrapper.pnlUsd };
 }
 
 export function dedupeVaultsByAddress(vaults: Vault[]): Vault[] {
