@@ -2,9 +2,9 @@
 
 import { useQuery } from '@tanstack/react-query';
 import type { VaultMarketAllocation } from '@/lib/vault-v2-allocations';
-import { BASE_CHAIN_ID, MORPHO_GRAPHQL_REVALIDATE_SECONDS } from '@/lib/constants';
+import { BASE_CHAIN_ID, MORPHO_REST_REVALIDATE_SECONDS } from '@/lib/constants';
 
-const ALLOCATIONS_STALE_MS = MORPHO_GRAPHQL_REVALIDATE_SECONDS * 1000;
+const ALLOCATIONS_STALE_MS = MORPHO_REST_REVALIDATE_SECONDS * 1000;
 
 async function fetchVaultAllocations(
   address: string,

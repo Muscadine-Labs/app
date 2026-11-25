@@ -456,7 +456,7 @@ export default function VaultPosition({
     return frames;
   }, [fullUserDepositHistory, hourly30dPositionHistory, chartEndTimestamp, mapPositionHistoryToChartData]);
 
-  // Use GraphQL position history data directly - no calculation needed
+  // Use the position history data directly - no calculation needed
   // This is used for displaying the chart, and switches between hourly/daily based on selectedTimeFrame
   // Reuses fullUserDepositHistory when not using hourly data to avoid redundant mapping
   const userDepositHistory = useMemo(() => {

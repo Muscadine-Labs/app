@@ -11,7 +11,8 @@ import {
   type Hex,
 } from 'viem';
 import { base } from 'viem/chains';
-import { MORPHO_GRAPHQL_REVALIDATE_SECONDS } from '@/lib/constants';
+import { morphoRestList, morphoSelector } from '@/lib/morpho-rest';
+import { SECONDS_PER_YEAR } from '@/lib/morpho-rest-data';
 
 /** Vault V2 functions a curator can submit through the timelock, plus `Submit` / `executableAt`. */
 const VAULT_V2_TIMELOCK_ABI = parseAbi([
@@ -51,7 +52,7 @@ const FUNCTION_BY_SELECTOR = new Map<string, string>(
   ])
 );
 
-/** Same shape Morpho GraphQL `pendingConfigs.items` had, so `mapVaultV2Pending` is unchanged. */
+/** A pending change in the shape `mapVaultV2Pending` reads. */
 export type PendingConfigItem = {
   functionName: string;
   data: string;
@@ -106,7 +107,11 @@ export function decodeSubmittedCall(
     case 'setPerformanceFee':
       return { functionName: call.functionName, decodedData: { performanceFee: str(0) } };
     case 'setManagementFee':
-      return { functionName: call.functionName, decodedData: { managementFee: str(0) } };
+      // The call takes a per-second WAD rate; the label and direction use a yearly rate.
+      return {
+        functionName: call.functionName,
+        decodedData: { managementFee: args[0] == null ? null : (BigInt(String(args[0])) * BigInt(SECONDS_PER_YEAR)).toString() },
+      };
     case 'setIsAllocator':
       return { functionName: call.functionName, decodedData: { isAllocator: Boolean(args[1]) } };
     case 'setForceDeallocatePenalty':
@@ -141,25 +146,16 @@ function baseClient() {
 type RestPendingAction = { submitted_transaction_hash?: string | null };
 
 async function fetchPendingTxHashes(vault: string, chainId: number): Promise<string[]> {
-  const hashes = new Set<string>();
-  let cursor: string | null = null;
-  for (let page = 0; page < 20; page++) {
-    const url = new URL(`https://api.morpho.org/v0/vaults-v2/${chainId}:${vault}/pending-governance-actions`);
-    if (cursor) url.searchParams.set('cursor', cursor);
-    const res = await fetch(url.toString(), {
-      headers: { accept: 'application/json' },
-      next: { revalidate: MORPHO_GRAPHQL_REVALIDATE_SECONDS, tags: [`vault-pending-${vault}-${chainId}`] },
-      signal: AbortSignal.timeout(15_000),
-    });
-    if (!res.ok) throw new Error(`Morpho REST pending HTTP ${res.status}`);
-    const body = (await res.json()) as { data?: RestPendingAction[]; cursor?: string | null };
-    for (const action of body.data ?? []) {
-      if (action.submitted_transaction_hash) hashes.add(action.submitted_transaction_hash.toLowerCase());
-    }
-    if (!body.cursor) return [...hashes];
-    cursor = body.cursor;
-  }
-  throw new Error('Morpho REST pending list exceeded 20 pages');
+  const actions = await morphoRestList<RestPendingAction>(
+    `/v0/vaults-v2/${morphoSelector(chainId, vault)}/pending-governance-actions`
+  );
+  return [
+    ...new Set(
+      actions
+        .map((action) => action.submitted_transaction_hash?.toLowerCase())
+        .filter((hash): hash is string => Boolean(hash))
+    ),
+  ];
 }
 
 /**

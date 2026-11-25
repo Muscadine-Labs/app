@@ -1,7 +1,8 @@
-import { fetchMorphoGraphQL, readMorphoGraphQLResponse } from '@/lib/api-utils';
+import { isMorphoRestNotFound, isMorphoRestRateLimited } from '@/lib/morpho-rest';
+import { adapterTypeName, allRestCaps, getRestToken, getRestVault, getRestVaultAllocations, toBigInt } from '@/lib/morpho-rest-data';
+import { loadMarketDetails } from '@/lib/vault-v2-markets';
 import { getMorphoMarketUrl, type MorphoMarketRateType } from '@/lib/morpho-market-url';
 import { BASE_CHAIN_ID } from '@/lib/constants';
-import { MORPHO_GRAPHQL_REVALIDATE_SECONDS } from '@/lib/constants';
 import { logger } from '@/lib/logger';
 
 /** Vault V2 caps: per Morpho market, per collateral token, and per adapter. */
@@ -30,43 +31,10 @@ export interface VaultCapData {
   assetDecimals: number;
 }
 
-const VAULT_CAPS_QUERY = `
-  query VaultV2Caps($address: String!, $chainId: Int!) {
-    vaultV2ByAddress(address: $address, chainId: $chainId) {
-      asset { symbol decimals }
-      adapters(first: 20) {
-        items {
-          __typename
-          address
-        }
-      }
-      caps(first: 100) {
-        items {
-          type
-          absoluteCap
-          relativeCap
-          allocation
-          data {
-            __typename
-            ... on AdapterCapData { adapterAddress }
-            ... on MarketV1CapData {
-              market {
-                marketId
-                lltv
-                loanAsset { symbol }
-                collateralAsset { address symbol }
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-`;
-
 type NumericLike = string | number | null | undefined;
 
-export interface VaultCapsGraphQL {
+/** Cap input shape, built from Morpho REST `/allocations`. */
+export interface VaultCapsInput {
   asset?: { symbol?: string | null; decimals?: number | null } | null;
   adapters?: {
     items?: Array<{
@@ -127,8 +95,13 @@ function compareRaw(a: string, b: string): number {
  * Readable cap rows. A cap whose absolute cap is 0 and holds nothing is a
  * removed market or token, so it is left out.
  */
-export function mapVaultV2Caps(vault: VaultCapsGraphQL, chainId: number = BASE_CHAIN_ID): VaultCapData {
-  const collateralSymbols = new Map<string, string>();
+export function mapVaultV2Caps(
+  vault: VaultCapsInput,
+  chainId: number = BASE_CHAIN_ID,
+  /** Lowercase token address → symbol, for token caps on collateral no listed market uses. */
+  tokenSymbols: ReadonlyMap<string, string> = new Map()
+): VaultCapData {
+  const collateralSymbols = new Map<string, string>(tokenSymbols);
   for (const cap of vault.caps?.items ?? []) {
     const collateral = cap?.data?.market?.collateralAsset;
     if (collateral?.address && collateral.symbol) {
@@ -213,49 +186,83 @@ export function mapVaultV2Caps(vault: VaultCapsGraphQL, chainId: number = BASE_C
   };
 }
 
-type RestCap = {
-  cap_id?: string | null;
-  cap_type?: string | null;
-  absolute_cap?: string | null;
-  relative_cap_wad?: string | null;
-  allocated_assets?: string | null;
-  collateral_address?: string | null;
+const CAP_TYPE_NAME: Record<string, string> = {
+  market_v1: 'MarketV1',
+  collateral: 'Collateral',
+  adapter: 'Adapter',
 };
 
-/** Collateral caps from Morpho REST `/allocations`, shaped like the GraphQL cap items. */
-async function fetchCollateralCapItems(
-  vaultAddress: string,
-  chainId: number
-): Promise<NonNullable<NonNullable<VaultCapsGraphQL['caps']>['items']>> {
-  const res = await fetch(`https://api.morpho.org/v0/vaults-v2/${chainId}:${vaultAddress}/allocations`, {
-    headers: { accept: 'application/json' },
-    next: { revalidate: MORPHO_GRAPHQL_REVALIDATE_SECONDS, tags: [`vault-caps-${vaultAddress}-${chainId}`] },
-    signal: AbortSignal.timeout(15_000),
+/**
+ * Every cap of a vault from Morpho REST `/allocations` (market, token and adapter caps in one
+ * read), with market params and token symbols from REST. Throws on a failed read, so the caps
+ * section shows an error instead of a list missing rows.
+ */
+async function loadVaultCaps(vaultAddress: string, chainId: number): Promise<VaultCapData> {
+  const [vault, allocations] = await Promise.all([
+    getRestVault(chainId, vaultAddress),
+    getRestVaultAllocations(chainId, vaultAddress),
+  ]);
+  const caps = allRestCaps(allocations).filter(
+    (cap) => toBigInt(cap.absolute_cap) > BigInt(0) || toBigInt(cap.allocated_assets) > BigInt(0)
+  );
+  const marketIds = [...new Set(caps.filter((c) => c.cap_type === 'market_v1' && c.market_id).map((c) => c.market_id!.toLowerCase()))];
+  const collateralTokens = [...new Set(caps.filter((c) => c.cap_type === 'collateral' && c.collateral_address).map((c) => c.collateral_address!.toLowerCase()))];
+  const [markets, tokens] = await Promise.all([
+    loadMarketDetails(chainId, marketIds),
+    Promise.all(collateralTokens.map((t) => getRestToken(chainId, t).catch(() => null))),
+  ]);
+  const marketById = new Map(markets.map((m) => [m.marketId, m]));
+  const tokenSymbols = new Map<string, string>();
+  tokens.forEach((token, i) => {
+    if (token?.symbol) tokenSymbols.set(collateralTokens[i]!, token.symbol);
   });
-  if (!res.ok) throw new Error(`Morpho REST allocations HTTP ${res.status}`);
-  const body = (await res.json()) as {
-    data?: { allocations?: Array<{ caps?: RestCap[] | null } | null> | null; unscoped_caps?: RestCap[] | null };
-  };
-  const all = [
-    ...(body.data?.unscoped_caps ?? []),
-    ...(body.data?.allocations ?? []).flatMap((a) => a?.caps ?? []),
-  ];
+
   const seen = new Set<string>();
-  return all
-    .filter((cap) => cap?.cap_type === 'collateral' && cap.collateral_address)
-    .filter((cap) => {
-      const key = (cap.cap_id ?? cap.collateral_address!).toLowerCase();
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    })
-    .map((cap) => ({
-      type: 'Collateral',
+  const items: NonNullable<NonNullable<VaultCapsInput['caps']>['items']> = [];
+  for (const cap of caps) {
+    const key = `${cap.cap_type}:${(cap.cap_id ?? cap.market_id ?? cap.collateral_address ?? cap.adapter_address ?? '').toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const base = {
+      type: CAP_TYPE_NAME[cap.cap_type ?? ''] ?? cap.cap_type ?? null,
       absoluteCap: cap.absolute_cap ?? '0',
       relativeCap: cap.relative_cap_wad ?? '0',
       allocation: cap.allocated_assets ?? '0',
-      data: { collateralAddress: cap.collateral_address },
-    }));
+    };
+    if (cap.cap_type === 'market_v1' && cap.market_id) {
+      const m = marketById.get(cap.market_id.toLowerCase());
+      items.push({
+        ...base,
+        data: {
+          market: {
+            marketId: cap.market_id,
+            lltv: m?.market.lltv_wad ?? null,
+            loanAsset: { symbol: m?.loanToken.symbol ?? null },
+            collateralAsset: { address: m?.market.collateral_token ?? null, symbol: m?.collateralToken?.symbol ?? null },
+          },
+        },
+      });
+    } else if (cap.cap_type === 'collateral' && cap.collateral_address) {
+      items.push({ ...base, data: { collateralAddress: cap.collateral_address } });
+    } else if (cap.cap_type === 'adapter' && cap.adapter_address) {
+      items.push({ ...base, data: { adapterAddress: cap.adapter_address } });
+    }
+  }
+
+  return mapVaultV2Caps(
+    {
+      asset: { symbol: vault.asset.symbol, decimals: vault.asset.decimals },
+      adapters: {
+        items: (allocations.allocations ?? []).map((a) => ({
+          __typename: adapterTypeName(a?.adapter_kind),
+          address: a?.adapter_address ?? null,
+        })),
+      },
+      caps: { items },
+    },
+    chainId,
+    tokenSymbols
+  );
 }
 
 export async function fetchVaultV2Caps(
@@ -263,46 +270,12 @@ export async function fetchVaultV2Caps(
   chainId: number
 ): Promise<{ data: VaultCapData | null; error?: string; rateLimited?: boolean }> {
   try {
-    const [response, collateralCaps] = await Promise.all([
-      fetchMorphoGraphQL(
-        { query: VAULT_CAPS_QUERY, variables: { address: vaultAddress, chainId } },
-        {
-          revalidate: MORPHO_GRAPHQL_REVALIDATE_SECONDS,
-          tags: [`vault-caps-${vaultAddress}-${chainId}`],
-        }
-      ),
-      fetchCollateralCapItems(vaultAddress, chainId).catch((error: unknown) => {
-        logger.warn('Morpho REST collateral caps failed; token caps omitted', {
-          vaultAddress,
-          error: error instanceof Error ? error.message : String(error),
-        });
-        return [];
-      }),
-    ]);
-    const { responseText, rateLimited } = await readMorphoGraphQLResponse(response);
-    if (!response.ok) {
-      return rateLimited
-        ? { data: null, error: 'Morpho API rate limit exceeded', rateLimited: true }
-        : { data: null, error: `Morpho API error: ${response.status}` };
-    }
-    const json = JSON.parse(responseText) as {
-      errors?: unknown[];
-      data?: { vaultV2ByAddress?: VaultCapsGraphQL | null };
-    };
-    if (json.errors?.length) {
-      logger.warn('Vault caps GraphQL errors', { vaultAddress, chainId, errors: json.errors });
-      return { data: null, error: 'Failed to load caps' };
-    }
-    const vault = json.data?.vaultV2ByAddress;
-    if (!vault) return { data: null, error: 'Vault not found' };
-    // Token (collateral) caps come from REST: GraphQL drops their address on 2026-12-02.
-    const graphCaps = (vault.caps?.items ?? []).filter(
-      (cap) => cap?.data?.market || cap?.data?.adapterAddress
-    );
-    return {
-      data: mapVaultV2Caps({ ...vault, caps: { items: [...graphCaps, ...collateralCaps] } }, chainId),
-    };
+    return { data: await loadVaultCaps(vaultAddress, chainId) };
   } catch (error) {
+    if (isMorphoRestNotFound(error)) return { data: null, error: 'Vault not found' };
+    if (isMorphoRestRateLimited(error)) {
+      return { data: null, error: 'Morpho API rate limit exceeded', rateLimited: true };
+    }
     logger.error(
       'Vault caps fetch failed',
       error instanceof Error ? error : new Error(String(error)),

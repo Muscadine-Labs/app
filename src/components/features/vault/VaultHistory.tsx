@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react';
 import { MorphoVaultData } from '@/types/vault';
 import { formatVaultDetailTokenAmount, formatDate, formatCurrency } from '@/lib/formatter';
 import { useConnection } from 'wagmi';
-import CopiableAddress from '@/components/common/CopiableAddress';
 import { Skeleton } from '@/components/ui/Skeleton';
 import type { Transaction } from '@/types/api';
 import {
@@ -31,90 +30,59 @@ interface VaultHistoryProps {
   vaultData: MorphoVaultData;
 }
 
+/**
+ * The connected wallet's own deposits, withdrawals and transfers in this vault. Morpho REST has
+ * no vault-wide activity route, so there is no "all activity" view (see
+ * docs/morpho-rest-migration.md, "Dropped until Morpho adds them").
+ */
 export default function VaultHistory({ vaultData }: VaultHistoryProps) {
   const { address } = useConnection();
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [userTransactions, setUserTransactions] = useState<Transaction[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [showUserOnly, setShowUserOnly] = useState(true);
-  const [allActivityLoaded, setAllActivityLoaded] = useState(false);
+  // Keyed by wallet + vault, so a switch never shows another wallet's rows while it loads.
+  const requestKey = address ? `${vaultData.address}:${address}` : null;
+  const [result, setResult] = useState<{ key: string; rows: Transaction[]; failed: boolean } | null>(null);
+  const current = result && result.key === requestKey ? result : null;
+  const loading = requestKey !== null && current === null;
+  const failed = current?.failed ?? false;
+  const userTransactions = current?.rows ?? [];
 
   useEffect(() => {
+    if (!address || !requestKey) return;
     const abortController = new AbortController();
 
     const fetchActivity = async () => {
-      setLoading(true);
       try {
-        if (address && showUserOnly) {
-          const version = vaultData.version ?? 'v2';
-          const response = await fetch(
-            `/api/vault/${version}/${vaultData.address}/activity?chainId=${vaultData.chainId}&userAddress=${address}`,
-            { signal: abortController.signal }
-          );
-          if (!response.ok) throw new Error('Failed to fetch vault activity');
-          const payload = await response.json();
-          if (payload?.error) throw new Error('Failed to fetch vault activity');
-          if (abortController.signal.aborted) return;
-          const rows = Array.isArray(payload.transactions)
-            ? (payload.transactions as Transaction[])
-            : [];
-          setUserTransactions(
-            dedupeTransactions([...rows].sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0)))
-          );
-          return;
-        }
-
-        const requests = [
-          fetch(
-            `/api/vault/${vaultData.version}/${vaultData.address}/activity?chainId=${vaultData.chainId}`,
-            { signal: abortController.signal }
-          ),
-        ];
-
-        if (address) {
-          requests.push(
-            fetch(
-              `/api/vault/${vaultData.version}/${vaultData.address}/activity?chainId=${vaultData.chainId}&userAddress=${address}`,
-              { signal: abortController.signal }
-            )
-          );
-        }
-
-        const responses = await Promise.all(requests);
-        const allData = await responses[0].json();
+        const response = await fetch(
+          `/api/vault/v2/${vaultData.address}/activity?chainId=${vaultData.chainId}&userAddress=${address}`,
+          { signal: abortController.signal }
+        );
+        if (!response.ok) throw new Error('Failed to fetch vault activity');
+        const payload = await response.json();
+        if (payload?.error) throw new Error('Failed to fetch vault activity');
         if (abortController.signal.aborted) return;
-        setTransactions(dedupeTransactions(allData.transactions || []));
-        setAllActivityLoaded(true);
-
-        if (responses[1]) {
-          const userResponseData = await responses[1].json();
-          if (abortController.signal.aborted) return;
-          setUserTransactions(dedupeTransactions(userResponseData.transactions || []));
-        } else {
-          setUserTransactions([]);
-        }
+        const rows = Array.isArray(payload.transactions) ? (payload.transactions as Transaction[]) : [];
+        setResult({
+          key: requestKey,
+          rows: dedupeTransactions([...rows].sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0))),
+          failed: false,
+        });
       } catch (error) {
         if (error instanceof Error && error.name === 'AbortError') return;
-        setTransactions([]);
-        setUserTransactions([]);
-      } finally {
-        if (!abortController.signal.aborted) {
-          setLoading(false);
-        }
+        if (abortController.signal.aborted) return;
+        // A failed read is not "no transactions".
+        setResult({ key: requestKey, rows: [], failed: true });
       }
     };
 
     void fetchActivity();
 
     return () => abortController.abort();
-  }, [vaultData.address, vaultData.chainId, vaultData.version, address, showUserOnly]);
+  }, [vaultData.address, vaultData.chainId, address, requestKey]);
 
   const getExplorerUrl = (txHash: string) => {
     return `https://basescan.org/tx/${txHash}`;
   };
 
-  const displayTransactions = showUserOnly && address ? userTransactions : transactions;
-  const recentTransactions = displayTransactions.slice(0, 50);
+  const recentTransactions = userTransactions.slice(0, 50);
 
   return (
     <div className="flex flex-col h-full">
@@ -124,7 +92,7 @@ export default function VaultHistory({ vaultData }: VaultHistoryProps) {
           <div>
             <h2 className="text-lg font-semibold text-[var(--foreground)] mb-1">Transaction History</h2>
             <p className="text-sm text-[var(--foreground-secondary)]">
-              View all deposits, withdrawals, and transfers for this vault
+              Your deposits, withdrawals, and transfers in this vault
             </p>
           </div>
           {address && userTransactions.length > 0 && (
@@ -166,14 +134,6 @@ export default function VaultHistory({ vaultData }: VaultHistoryProps) {
             </div>
           )}
         </div>
-        {address && (
-          <button
-            onClick={() => setShowUserOnly(!showUserOnly)}
-            className="px-3 py-1.5 text-xs font-medium rounded-lg transition-colors bg-[var(--surface-elevated)] text-[var(--foreground-secondary)] hover:text-[var(--foreground)] border border-[var(--border-subtle)] cursor-pointer"
-          >
-            {showUserOnly ? 'Show All' : 'Show Mine'}
-          </button>
-        )}
       </div>
 
       {/* Transaction List - Scrollable */}
@@ -235,12 +195,6 @@ export default function VaultHistory({ vaultData }: VaultHistoryProps) {
                       <span className="text-xs text-[var(--foreground-secondary)]">
                         {formatDate(tx.timestamp)}
                       </span>
-                      {tx.user && !showUserOnly && (
-                        <>
-                          <span className="text-xs text-[var(--foreground-muted)]">•</span>
-                          <CopiableAddress address={tx.user} truncateLength={4} />
-                        </>
-                      )}
                     </div>
                   </div>
                 </div>
@@ -260,11 +214,11 @@ export default function VaultHistory({ vaultData }: VaultHistoryProps) {
         ) : (
           <div className="text-center py-12">
             <p className="text-sm text-[var(--foreground-muted)]">
-              {showUserOnly && address 
-                ? "You haven't made any transactions yet"
-                : allActivityLoaded
-                  ? 'No recent activity'
-                  : 'No recent activity'}
+              {!address
+                ? 'Connect a wallet to see your transactions in this vault'
+                : failed
+                  ? 'Your transactions could not be loaded right now. Try again in a moment.'
+                  : "You haven't made any transactions yet"}
             </p>
           </div>
         )}

@@ -44,25 +44,22 @@ export async function GET(
       );
     }
 
-    if (userAddress && !isValidEthereumAddress(userAddress)) {
+    // Morpho REST only has a wallet's own activity; there is no vault-wide feed.
+    if (!userAddress || !isValidEthereumAddress(userAddress)) {
       return NextResponse.json(
         {
           transactions: [],
           deposits: [],
           withdrawals: [],
           events: [],
-          error: 'Invalid user address format',
+          error: userAddress ? 'Invalid user address format' : 'userAddress is required',
         },
         { status: 400 }
       );
     }
 
     const chainId = parseInt(chainIdParam, 10);
-    const activity = await fetchVaultV2ActivityData(
-      address,
-      chainId,
-      userAddress ?? undefined
-    );
+    const activity = await fetchVaultV2ActivityData(address, chainId, userAddress);
 
     if (activity.error) {
       return NextResponse.json(
@@ -93,9 +90,7 @@ export async function GET(
       {
         headers: {
           // A wallet's activity is per user and must be fresh after a transaction.
-          'Cache-Control': userAddress
-            ? 'private, no-store'
-            : 'public, s-maxage=60, stale-while-revalidate=120',
+          'Cache-Control': 'private, no-store',
         },
       }
     );

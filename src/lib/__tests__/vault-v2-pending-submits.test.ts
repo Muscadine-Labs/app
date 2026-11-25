@@ -44,3 +44,16 @@ describe('decodeSubmittedCall', () => {
     expect(capTypeFromIdData('0x12')).toBeNull();
   });
 });
+
+describe('decodeSubmittedCall management fee', () => {
+  it('turns the per-second WAD calldata into a yearly WAD (2%/yr reads as 2%)', async () => {
+    const { encodeFunctionData, parseAbi } = await import('viem');
+    const perSecond = BigInt(Math.round((0.02 / 31_536_000) * 1e18));
+    const data = encodeFunctionData({
+      abi: parseAbi(['function setManagementFee(uint256 newManagementFee)']),
+      args: [perSecond],
+    });
+    const decoded = decodeSubmittedCall(data);
+    expect(Number(decoded?.decodedData.managementFee) / 1e18).toBeCloseTo(0.02, 6);
+  });
+});

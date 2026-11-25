@@ -1,10 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
-import type { GraphQLError } from '@/types/api';
 import { logger } from '@/lib/logger';
 import { isValidEthereumAddress, findVaultByAddress } from '@/lib/vault-utils';
 import { getAssetDecimalsForSymbol, morphoAmountToDecimal, morphoAmountToRaw, normalizeMorphoShares, rawAmountToDecimal } from '@/lib/asset-decimals';
-import { isValidChainId, isValidPeriod, MIN_VALID_TIMESTAMP, PERIOD_SECONDS, INTERVAL_MAP, INTERVAL_SECONDS, finalizePositionHistory, fetchMorphoGraphQL, readMorphoGraphQLResponse, MORPHO_RATE_LIMIT_BODY } from '@/lib/api-utils';
-import { BASE_CHAIN_ID } from '@/lib/constants';
+import { isValidChainId, isValidPeriod, MIN_VALID_TIMESTAMP, PERIOD_SECONDS, finalizePositionHistory, MORPHO_RATE_LIMIT_BODY, bucketSeconds, POSITION_LOOKBACK } from '@/lib/api-utils';
+import { BASE_CHAIN_ID, STABLECOIN_SYMBOLS } from '@/lib/constants';
+import { isMorphoRestNotFound, isMorphoRestRateLimited } from '@/lib/morpho-rest';
+import { getRestVault, toBigInt, tryGetRestTokenPriceUsd } from '@/lib/morpho-rest-data';
+import { fetchPosition, fetchPositionHistory } from '@/lib/morpho-rest-wallet';
+
+/** Daily points before the hourly series starts, then the hourly series. */
+function mergeHourlyTail<T extends { timestamp: number }>(daily: T[], hourly: T[]): T[] {
+  if (hourly.length === 0) return daily;
+  const hourlyStart = Math.min(...hourly.map((p) => p.timestamp));
+  return [...daily.filter((p) => p.timestamp < hourlyStart), ...hourly];
+}
 
 /** Per-wallet data: never cache in the CDN or the Next data cache. */
 export const dynamic = 'force-dynamic';
@@ -71,130 +80,64 @@ export async function GET(
     const chainId = parseInt(chainIdParam, 10);
     const now = Math.floor(Date.now() / 1000);
     const startTime = period === 'all' ? 0 : (now - (PERIOD_SECONDS[period] || PERIOD_SECONDS['30d']));
-    const interval = INTERVAL_MAP[period] || 'DAY';
+    // REST samples by lookback: seven_days hourly, thirty/ninety days daily, inception daily
+    // (one_year is weekly, so 1y reads inception and keeps the last year).
+    const lookback = POSITION_LOOKBACK[period];
 
-    // V2 vaults use vaultV2PositionByAddress with direct fields (not nested in state)
-    // and history instead of historicalState
-    const query = `
-      query VaultV2PositionHistory($userAddress: String!, $vaultAddress: String!, $chainId: Int!, $options: TimeseriesOptions) {
-        vaultV2PositionByAddress(userAddress: $userAddress, vaultAddress: $vaultAddress, chainId: $chainId) {
-          shares
-          assets
-          assetsUsd
-          vault {
-            asset {
-              symbol
-              decimals
-            }
-          }
-          history {
-            assets(options: $options) {
-              x
-              y
-            }
-            assetsUsd(options: $options) {
-              x
-              y
-            }
-            shares(options: $options) {
-              x
-              y
-            }
-          }
-        }
-      }
-    `;
-
-    const response = await fetchMorphoGraphQL(
-      {
-        query,
-        variables: {
-          userAddress,
-          vaultAddress: address,
-          chainId,
-          options: {
-            startTimestamp: startTime,
-            endTimestamp: now,
-            interval: interval,
-          },
-        },
-      },
-      // One wallet's balance history: always fresh, so the chart catches up right after a tx.
-      { revalidate: 0, skipMemoryCache: true }
-    );
-
-    const { responseText, rateLimited } = await readMorphoGraphQLResponse(response);
-
-    if (!response.ok) {
-      if (rateLimited) {
+    let points: Awaited<ReturnType<typeof fetchPositionHistory>>;
+    let restPosition: Awaited<ReturnType<typeof fetchPosition>>;
+    let vault: Awaited<ReturnType<typeof getRestVault>> | null;
+    try {
+      let hourly: Awaited<ReturnType<typeof fetchPositionHistory>> = [];
+      [points, hourly, restPosition, vault] = await Promise.all([
+        fetchPositionHistory(chainId, address, userAddress, lookback),
+        // REST's 30-day lookback is daily; the vault page and dashboard cut their 7D chart from
+        // the 30d series, so its last 7 days come from the hourly `seven_days` lookback.
+        period === '30d' ? fetchPositionHistory(chainId, address, userAddress, 'seven_days') : Promise.resolve([]),
+        fetchPosition(chainId, address, userAddress),
+        getRestVault(chainId, address).catch(() => null),
+      ]);
+      points = mergeHourlyTail(points, hourly);
+    } catch (error) {
+      if (isMorphoRestRateLimited(error)) {
         return NextResponse.json(
           { ...MORPHO_RATE_LIMIT_BODY, history: [], period },
           { status: 503 }
         );
       }
-      throw new Error(`Morpho API error: ${response.status}`);
+      if (isMorphoRestNotFound(error)) {
+        return NextResponse.json({
+          history: [],
+          currentPosition: null,
+          period,
+          cached: false,
+          timestamp: Date.now(),
+        });
+      }
+      throw error;
     }
-
-    const data = JSON.parse(responseText);
-
-    const hasNotFoundError = data.errors?.some((err: GraphQLError) => 
-      err.status === 'NOT_FOUND' || err.message?.includes('No results matching')
-    );
-    
-    if (data.errors && !hasNotFoundError) {
-      logger.error(
-        'GraphQL errors in position history query',
-        new Error(data.errors[0]?.message || 'GraphQL query failed'),
-        { address, chainId, userAddress, errors: data.errors }
-      );
-      return NextResponse.json({
-        history: [],
-        period,
-        cached: false,
-        timestamp: Date.now(),
-        error: data.errors[0]?.message || 'GraphQL query failed',
-      });
-    }
-
-    // V2 uses vaultV2PositionByAddress with direct fields
-    const vaultPosition = data.data?.vaultV2PositionByAddress;
-    
-    if (!vaultPosition) {
-      logger.warn(
-        'No vault position data returned from GraphQL',
-        { address, chainId, userAddress, data: data.data }
-      );
-      return NextResponse.json({
-        history: [],
-        currentPosition: null,
-        period,
-        cached: false,
-        timestamp: Date.now(),
-      });
-    }
-    
-    // V2 has direct fields, not nested in state
-    const currentPosition = {
-      assets: vaultPosition.assets || 0,
-      assetsUsd: vaultPosition.assetsUsd || 0,
-      shares: vaultPosition.shares || 0,
-    };
 
     const registryVault = findVaultByAddress(address);
-    const assetSymbol =
-      registryVault?.symbol ??
-      vaultPosition.vault?.asset?.symbol ??
-      'UNKNOWN';
-    const assetDecimals =
-      vaultPosition.vault?.asset?.decimals ??
-      getAssetDecimalsForSymbol(assetSymbol);
+    const assetSymbol = registryVault?.symbol ?? vault?.asset.symbol ?? 'UNKNOWN';
+    const assetDecimals = vault?.asset.decimals ?? getAssetDecimalsForSymbol(assetSymbol);
+    // USD uses today's price for every point: REST has no historical prices.
+    const price =
+      (vault ? await tryGetRestTokenPriceUsd(chainId, vault.asset.address) : null) ??
+      (STABLECOIN_SYMBOLS.includes(assetSymbol.toUpperCase() as (typeof STABLECOIN_SYMBOLS)[number]) ? 1 : 0);
+
+    const toUsd = (raw: string) => rawAmountToDecimal(toBigInt(raw), assetDecimals) * price;
+    const currentPosition = {
+      assets: restPosition.assets || 0,
+      assetsUsd: toUsd(restPosition.assets),
+      shares: restPosition.shares || 0,
+    };
 
     const liveSharesRaw = normalizeMorphoShares(currentPosition.shares);
     const livePoint = {
       timestamp: now,
       date: new Date(now * 1000).toISOString().split('T')[0],
       assets: morphoAmountToDecimal(currentPosition.assets, assetDecimals),
-      assetsUsd: Number(currentPosition.assetsUsd) || 0,
+      assetsUsd: currentPosition.assetsUsd,
       shares: rawAmountToDecimal(
         liveSharesRaw === '0' ? BigInt(0) : BigInt(liveSharesRaw),
         18
@@ -202,50 +145,28 @@ export async function GET(
       assetsRaw: morphoAmountToRaw(currentPosition.assets),
     };
 
-    if (!vaultPosition.history) {
-      logger.warn(
-        'No historical data for vault position',
-        { address, chainId, userAddress, hasPosition: !!vaultPosition }
-      );
-    }
-
-    // V2 uses history instead of historicalState
-    const assetsData = vaultPosition.history?.assets || [];
-    const assetsUsdData = vaultPosition.history?.assetsUsd || [];
-    const sharesData = vaultPosition.history?.shares || [];
-    
-    const assetsMap = new Map(assetsData.map((p: { x: number; y: number | string }) => [p.x, typeof p.y === 'string' ? parseFloat(p.y) : p.y]));
-    const assetsUsdMap = new Map(assetsUsdData.map((p: { x: number; y: number | string }) => [p.x, typeof p.y === 'string' ? parseFloat(p.y) : p.y]));
-    const sharesMap = new Map(sharesData.map((p: { x: number; y: number | string }) => [p.x, typeof p.y === 'string' ? parseFloat(p.y) : p.y]));
-    
-    const timestamps = new Set<number>();
-    assetsData.forEach((point: { x: number }) => timestamps.add(point.x));
-    assetsUsdData.forEach((point: { x: number }) => timestamps.add(point.x));
-    sharesData.forEach((point: { x: number }) => timestamps.add(point.x));
-
-    const rawHistory = Array.from(timestamps)
-      .sort((a, b) => a - b)
-      .map((timestamp) => {
-        const assetsRawValue = (assetsMap.get(timestamp) ?? 0) as number | string;
-        const assetsUsd = (assetsUsdMap.get(timestamp) ?? 0) as number;
-        const sharesRaw = (sharesMap.get(timestamp) ?? 0) as number;
-        const assetsRaw = morphoAmountToRaw(assetsRawValue);
-        const assetsDecimal = rawAmountToDecimal(
-          assetsRaw === '0' ? BigInt(0) : BigInt(assetsRaw),
-          assetDecimals
-        );
-        const sharesDecimal = sharesRaw / 1e18;
-        
+    const sorted = [...(points ?? [])]
+      .filter((p) => Number.isFinite(p.timestamp))
+      .sort((x, y) => x.timestamp - y.timestamp);
+    // REST ends with an off-grid point at "now" (the live balance), not a bucket; the live tip
+    // from `finalizePositionHistory` covers it.
+    const buckets = sorted.length > 1 && sorted[sorted.length - 1]!.timestamp % 3600 !== 0
+      ? sorted.slice(0, -1)
+      : sorted;
+    const rawHistory = buckets
+      .map((point) => {
+        const assetsRaw = toBigInt(point.assets).toString();
         return {
-          timestamp,
-          date: new Date(timestamp * 1000).toISOString().split('T')[0],
-          assets: assetsDecimal,
-          assetsUsd,
-          shares: sharesDecimal,
+          timestamp: point.timestamp,
+          date: new Date(point.timestamp * 1000).toISOString().split('T')[0],
+          assets: rawAmountToDecimal(toBigInt(point.assets), assetDecimals),
+          assetsUsd: toUsd(point.assets),
+          shares: rawAmountToDecimal(toBigInt(point.shares), 18),
           assetsRaw,
         };
       })
-      .filter(item => item.timestamp >= MIN_VALID_TIMESTAMP);
+      .filter((item) => item.timestamp >= MIN_VALID_TIMESTAMP && item.timestamp >= startTime);
+    const interval = bucketSeconds(buckets);
 
     // Keep real empty days on an open position; only the current interval's
     // zero bucket is dropped. A closed position ends at zero (see finalizePositionHistory).
@@ -253,7 +174,7 @@ export async function GET(
       rawHistory,
       currentPosition,
       now,
-      INTERVAL_SECONDS[interval],
+      interval,
       livePoint
     );
 

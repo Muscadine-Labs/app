@@ -44,7 +44,7 @@ export function fetchPositionHistoryJson(
     promise = fetcher(url, { cache: 'no-store' })
       .then((response) => (response.ok ? response.json().catch(() => null) : null))
       .catch(() => null);
-    // The route answers a Morpho GraphQL error with HTTP 200 and `{ error }`: a failure too.
+    // An HTTP-200 `{ error }` body is a failure too.
     const entry: Entry = { at: now, promise };
     if (store) cache.set(url, entry);
     void promise.then((body) => {

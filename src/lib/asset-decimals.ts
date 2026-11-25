@@ -105,7 +105,7 @@ function integerStringFromNumber(amount: number): string {
 }
 
 /**
- * Morpho GraphQL position fields (`assets`, `pnl`, etc.) are already in smallest-token units.
+ * Morpho position fields (`assets`, `pnl`, etc.) are already in smallest-token units.
  */
 export function morphoAmountToRaw(amount: number | string | null | undefined): string {
   if (amount === null || amount === undefined) return '0';
