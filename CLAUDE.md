@@ -134,19 +134,7 @@ The product surface is four curated Morpho Vault V2 contracts in `src/lib/vaults
 
 **Vault registry fields:** `name` (fallback label), `symbol` (underlying asset), `vaultSymbol` (share token label), `strategy` (`prime` | `frontier`). Once Morpho returns a vault, the UI shows Morpho's on-chain `name` (explorer, dashboard, vault page, positions route, review modal); the registry `name` shows only until then or when Morpho has none.
 
-**Retired fee wrappers.** Four fee wrappers once deposited into the vaults above. They are removed from the app: not in `VAULTS`, not listed, no vault page (`/vault/v2/{wrapper}` redirects home), no deposit or withdraw path. Their whole share supply is dead shares (`0x…dEaD`), so no user holds them. They stay in `vaults.ts` as `RETIRED_FEE_WRAPPERS` (`getRetiredWrapper`, `getRetiredWrapperUnderlying`, `getProductVaultAddresses`) only so a wallet that once held one keeps its chart and total interest together with the underlying vault:
-
-| Asset | Prime | Frontier |
-|-------|-------|----------|
-| USDC | `0x036A01eFdDC87F6634FFDE0533EE528b90fc7A45` (wmpUSDC) | `0x54D8417bD21C86A7806b58f5aa2e2E0bB88B856A` (wmfUSDC) |
-| WETH | `0x548653b09b03A69f93B3890c382fE9DcD245cbc4` (wmpWETH) | — |
-| cbBTC | `0x0e0a857d2AF1A2d43c82d1FA54766239CAb70147` (wmpcbBTC) | — |
-
-- **Vault page My Position** (`VaultPosition.tsx`): the chart merges this vault's and its retired wrapper's position history (`mergeVaultPositionSeries` in `portfolio-utils.ts`), with a shaded band and a static note where funds sat in the wrapper. Earned interest is this vault's plus the wrapper's (no per-contract split). The live balance, withdraw max and future rewards are this vault's own on-chain position. The page only fetches the wrapper's history, activity and earned interest when the wallet's positions list (`/api/user/morpho-positions?includeEmpty=true`, which keeps emptied positions) shows it once held the wrapper; until that list has loaded cleanly the wrapper is included, and history waits for the list so it is fetched once. The wrapper's hourly 30-day series is fetched only when its full history has a balance in the last 31 days.
-- **Dashboard chart** (`PortfolioPositionChart`): a wrapper's history merges into its underlying vault before the portfolio sum.
-- **Earned Interest column** (explorer and dashboard): a row adds its retired wrapper's lifetime profit (`retiredWrapperEarnedPnl`, from the positions API with `includeEmpty`).
-- **History tab** shows this vault's own activity only.
-- There is no Settings switch for any of this (the old Vault View / Shared vault data prefs and their cookie are gone).
+**No fee wrappers.** Fee wrappers were deleted from the app: no registry entry, no merged history or earned interest, no special case anywhere. A vault page, the dashboard chart and the Earned Interest column each read one vault's own position, history, activity and profit by its address.
 
 **Vault page access** (`resolveVaultPageAccess` in `vault-access.ts`) allows a vault the wallet can deposit into, holds, or that the explorer lists (`listedVaultAddresses`: every registry vault, so a vault the wallet cannot deposit into opens with deposit disabled). It also reads the wallet's share balance on chain, so a holder reaches the page even when the Morpho positions API fails or lags. Once allowed, the page stays open for that wallet so a full withdraw does not redirect away mid-success.
 
@@ -364,7 +352,7 @@ Adaptive layout (content-sized panels; empty sections omitted):
 - **Portfolio chart** (`PortfolioPositionChart.tsx`):
   1. Discovers vaults via `/api/user/morpho-positions?includeEmpty=true`.
   2. **`aggregatePortfolioHistory()`** in `portfolio-utils.ts` — forward-fill and sum USD.
-  - Histories load once this wallet's positions list has resolved (`positionsReady`), keyed by the list of vaults (not the `positions` array), so a same-wallet balance refresh does not refetch them. Vault page My Position asks for earned interest only once the on-chain balance is known (one request, not one before and one after), and the hourly 30d series depends on the wrapper flag only when a retired wrapper is in play.
+  - Histories load once this wallet's positions list has resolved (`positionsReady`), keyed by the list of vaults (not the `positions` array), so a same-wallet balance refresh does not refetch them. Vault page My Position asks for earned interest only once the on-chain balance is known (one request, not one before and one after).
   - **Current holdings** in `WalletOverview` / Your Vaults from **`WalletContext`** (`/api/user/morpho-positions`).
 - Preloads vault API data for deposited vaults via `useVaultListPreloader`.
 - **Position display:** `formatPositionUsd` / `formatPositionTokenAmount` in `formatter.ts` — USDC **6**, cbBTC/ETH/WETH **8**. Transactions use full chain decimals via `formatBigIntForInput`. Chart axes stay compact (2/6).
