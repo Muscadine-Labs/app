@@ -1,218 +1,103 @@
-import { MORPHO_GRAPHQL_REVALIDATE_SECONDS } from '@/lib/constants';
-import { fetchMorphoGraphQL } from '@/lib/api-utils';
+import { morphoRestGet, morphoSelector } from '@/lib/morpho-rest';
 import { logger } from '@/lib/logger';
 
-type TimeseriesPoint = { x?: number | null; y?: number | string | null };
+/** Vault totals over time (raw units), to value share transfers at the time they happened. */
 
-export type VaultRatioSnapshot = {
-  totalAssets: bigint;
-  totalSupply: bigint;
-};
+const SEVEN_DAYS_SECONDS = 7 * 24 * 60 * 60;
 
-type HistoricalRatioLookup = {
-  assetsSeries: Array<{ timestamp: number; value: bigint }>;
-  supplySeries: Array<{ timestamp: number; value: bigint }>;
-};
+export type VaultRatioPoint = { timestamp: number; totalAssets: bigint; totalSupply: bigint };
 
-const THIRTY_DAYS_SECONDS = 30 * 24 * 60 * 60;
+export type SharePriceLookup = VaultRatioPoint[];
 
-function parseTimeseriesBigInt(value: number | string | null | undefined): bigint | null {
-  if (value === null || value === undefined) return null;
-  try {
-    if (typeof value === 'number') {
-      if (!Number.isFinite(value)) return null;
-      return BigInt(Math.floor(value));
-    }
-    const trimmed = value.includes('.') ? value.split('.')[0] : value;
-    if (!trimmed) return null;
-    return BigInt(trimmed);
-  } catch {
-    return null;
-  }
+function assetsAtPoint(shares: bigint, point: VaultRatioPoint): bigint {
+  return point.totalSupply > BigInt(0) ? (shares * point.totalAssets) / point.totalSupply : BigInt(0);
 }
 
-function buildSortedSeries(
-  points: TimeseriesPoint[] | null | undefined
-): Array<{ timestamp: number; value: bigint }> {
-  if (!points?.length) return [];
-
-  const series: Array<{ timestamp: number; value: bigint }> = [];
-  for (const point of points) {
-    if (point.x == null) continue;
-    const value = parseTimeseriesBigInt(point.y);
-    if (value === null || value < BigInt(0)) continue;
-    series.push({ timestamp: point.x, value });
-  }
-
-  series.sort((a, b) => a.timestamp - b.timestamp);
-
-  const deduped: typeof series = [];
-  for (const entry of series) {
-    const last = deduped[deduped.length - 1];
-    if (last && last.timestamp === entry.timestamp) {
-      deduped[deduped.length - 1] = entry;
-    } else {
-      deduped.push(entry);
-    }
-  }
-
-  return deduped;
-}
-
-/** Last sample at or before `timestamp` (Morpho historical buckets). */
-export function lookupTimeseriesAt(
-  series: ReadonlyArray<{ timestamp: number; value: bigint }>,
+/**
+ * Raw assets `shares` were worth at `timestamp`: linear between the indexed points around it
+ * (hourly within the last 7 days, daily before), the nearest point at either end.
+ * `undefined` with no points or no shares.
+ */
+export function sharesToAssetsAt(
+  lookup: SharePriceLookup,
+  shares: string | undefined | null,
   timestamp: number
-): bigint | null {
-  if (!series.length || !Number.isFinite(timestamp)) return null;
-
-  let lo = 0;
-  let hi = series.length - 1;
-  let result: bigint | null = null;
-
-  while (lo <= hi) {
-    const mid = (lo + hi) >> 1;
-    const point = series[mid]!;
-    if (point.timestamp <= timestamp) {
-      result = point.value;
-      lo = mid + 1;
-    } else {
-      hi = mid - 1;
-    }
-  }
-
-  return result;
-}
-
-export function lookupVaultRatioAt(
-  lookup: HistoricalRatioLookup,
-  timestamp: number
-): VaultRatioSnapshot | null {
-  const totalAssets = lookupTimeseriesAt(lookup.assetsSeries, timestamp);
-  const totalSupply = lookupTimeseriesAt(lookup.supplySeries, timestamp);
-  if (
-    totalAssets === null ||
-    totalSupply === null ||
-    totalSupply === BigInt(0)
-  ) {
-    return null;
-  }
-  return { totalAssets, totalSupply };
-}
-
-export function sharesToAssetsRaw(
-  shares: string | undefined,
-  ratio: VaultRatioSnapshot
 ): string | undefined {
-  if (!shares) return undefined;
-  if (ratio.totalSupply === BigInt(0)) return undefined;
+  if (!shares || lookup.length === 0 || !Number.isFinite(timestamp)) return undefined;
+  let amount: bigint;
   try {
-    const shareAmount = BigInt(shares);
-    if (shareAmount <= BigInt(0)) return undefined;
-    return String((shareAmount * ratio.totalAssets) / ratio.totalSupply);
+    amount = BigInt(shares);
+  } catch {
+    return undefined;
+  }
+  if (amount <= BigInt(0)) return undefined;
+  const first = lookup[0]!;
+  const last = lookup[lookup.length - 1]!;
+  if (timestamp <= first.timestamp) return assetsAtPoint(amount, first).toString();
+  if (timestamp >= last.timestamp) return assetsAtPoint(amount, last).toString();
+  let lo = 0;
+  let hi = lookup.length - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (lookup[mid]!.timestamp <= timestamp) lo = mid;
+    else hi = mid;
+  }
+  const a = lookup[lo]!;
+  const b = lookup[hi]!;
+  const va = assetsAtPoint(amount, a);
+  const vb = assetsAtPoint(amount, b);
+  const span = BigInt(b.timestamp - a.timestamp);
+  if (span <= BigInt(0)) return va.toString();
+  return (va + ((vb - va) * BigInt(timestamp - a.timestamp)) / span).toString();
+}
+
+/** Raw assets for `shares` at a vault's current totals. */
+export function sharesToAssetsRaw(
+  shares: string | undefined | null,
+  totals: { totalAssets: bigint; totalSupply: bigint }
+): string | undefined {
+  if (!shares || totals.totalSupply <= BigInt(0)) return undefined;
+  try {
+    const amount = BigInt(shares);
+    if (amount <= BigInt(0)) return undefined;
+    return ((amount * totals.totalAssets) / totals.totalSupply).toString();
   } catch {
     return undefined;
   }
 }
 
-function pickHistoricalInterval(startTimestamp: number, endTimestamp: number): 'HOUR' | 'DAY' {
-  const span = Math.max(0, endTimestamp - startTimestamp);
-  return span <= THIRTY_DAYS_SECONDS ? 'HOUR' : 'DAY';
-}
-
 /**
- * Fetch Morpho historical totalAssets / totalSupply for transfer share conversion.
- * Falls back to caller-provided spot ratio when a timestamp has no bucket.
+ * Indexed vault totals from Morpho REST `state/history`, covering `earliestTimestamp`:
+ * hourly (`seven_days`) when it is recent, else daily from inception. `null` on failure.
  */
-export async function fetchHistoricalVaultRatios(options: {
+export async function fetchSharePriceLookup(options: {
   vaultAddress: string;
   chainId: number;
-  startTimestamp: number;
-  endTimestamp: number;
-}): Promise<HistoricalRatioLookup | null> {
-  const { vaultAddress, chainId, startTimestamp, endTimestamp } = options;
-  if (!Number.isFinite(startTimestamp) || !Number.isFinite(endTimestamp)) {
-    return null;
-  }
-
-  const query = `
-    query VaultV2HistoricalRatio($address: String!, $chainId: Int!, $options: TimeseriesOptions) {
-      vaultV2ByAddress(address: $address, chainId: $chainId) {
-        historicalState {
-          totalAssets(options: $options) {
-            x
-            y
-          }
-          totalSupply(options: $options) {
-            x
-            y
-          }
-        }
-      }
-    }
-  `;
-
+  earliestTimestamp: number;
+}): Promise<SharePriceLookup | null> {
+  const { vaultAddress, chainId, earliestTimestamp } = options;
+  const now = Math.floor(Date.now() / 1000);
+  const lookback = now - earliestTimestamp < SEVEN_DAYS_SECONDS - 3600 ? 'seven_days' : 'inception';
   try {
-    const response = await fetchMorphoGraphQL(
-      {
-        query,
-        variables: {
-          address: vaultAddress,
-          chainId,
-          options: {
-            startTimestamp,
-            endTimestamp: endTimestamp + 3600,
-            interval: pickHistoricalInterval(startTimestamp, endTimestamp),
-          },
-        },
-      },
-      {
-        revalidate: MORPHO_GRAPHQL_REVALIDATE_SECONDS,
-        tags: [`vault-${vaultAddress}-${chainId}-history`],
-      }
+    const points = await morphoRestGet<Array<{ timestamp: number; total_assets?: string | null; total_supply?: string | null }>>(
+      `/v0/vaults-v2/${morphoSelector(chainId, vaultAddress)}/state/history`,
+      { lookback }
     );
-
-    if (!response.ok) {
-      logger.warn('Historical vault ratio fetch failed', {
-        vaultAddress,
-        chainId,
-        status: response.status,
-      });
-      return null;
+    const lookup: SharePriceLookup = [];
+    for (const point of points ?? []) {
+      if (!Number.isFinite(point.timestamp) || !point.total_assets || !point.total_supply) continue;
+      try {
+        const totalAssets = BigInt(point.total_assets);
+        const totalSupply = BigInt(point.total_supply);
+        if (totalSupply > BigInt(0)) lookup.push({ timestamp: point.timestamp, totalAssets, totalSupply });
+      } catch {
+        /* skip a malformed point */
+      }
     }
-
-    const json = (await response.json()) as {
-      data?: {
-        vaultV2ByAddress?: {
-          historicalState?: {
-            totalAssets?: TimeseriesPoint[] | null;
-            totalSupply?: TimeseriesPoint[] | null;
-          } | null;
-        } | null;
-      };
-      errors?: Array<{ message: string }>;
-    };
-
-    if (json.errors?.length) {
-      logger.warn('GraphQL errors in historical vault ratio query', {
-        vaultAddress,
-        chainId,
-        errors: json.errors.map((e) => e.message),
-      });
-      return null;
-    }
-
-    const historical = json.data?.vaultV2ByAddress?.historicalState;
-    const assetsSeries = buildSortedSeries(historical?.totalAssets);
-    const supplySeries = buildSortedSeries(historical?.totalSupply);
-
-    if (!assetsSeries.length || !supplySeries.length) {
-      return null;
-    }
-
-    return { assetsSeries, supplySeries };
+    lookup.sort((a, b) => a.timestamp - b.timestamp);
+    return lookup.length > 0 ? lookup : null;
   } catch (error) {
-    logger.warn('Failed to fetch historical vault ratios', {
+    logger.warn('Failed to fetch historical share prices', {
       vaultAddress,
       chainId,
       error: error instanceof Error ? error.message : String(error),

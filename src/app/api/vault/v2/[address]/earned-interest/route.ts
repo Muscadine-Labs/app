@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import type { GraphQLResponse, Transaction } from '@/types/api';
+import type { Transaction } from '@/types/api';
 import {
   morphoAmountToDecimal,
   morphoAmountToRaw,
@@ -9,7 +9,10 @@ import {
   resolveMorphoAssetSymbol,
 } from '@/lib/asset-decimals';
 import { isValidEthereumAddress, findVaultByAddress } from '@/lib/vault-utils';
-import { isValidChainId, fetchMorphoGraphQL } from '@/lib/api-utils';
+import { isValidChainId } from '@/lib/api-utils';
+import { isMorphoRestNotFound } from '@/lib/morpho-rest';
+import { getRestVault, toBigInt, tryGetRestTokenPriceUsd } from '@/lib/morpho-rest-data';
+import { fetchPosition, fetchPositionNetEarnings } from '@/lib/morpho-rest-wallet';
 import { computeEarnedInterestFromActivity } from '@/lib/interest-utils';
 import { fetchVaultV2ActivityData } from '@/lib/vault-v2-activity';
 import { logger } from '@/lib/logger';
@@ -100,52 +103,37 @@ export async function GET(
   const chainId = parseInt(chainIdParam, 10);
 
   try {
-    const positionQuery = `
-      query VaultV2PositionPnl($userAddress: String!, $vaultAddress: String!, $chainId: Int!) {
-        vaultV2PositionByAddress(
-          userAddress: $userAddress
-          vaultAddress: $vaultAddress
-          chainId: $chainId
-        ) {
-          assets
-          assetsUsd
-          shares
-          pnl
-          pnlUsd
-          vault {
-            asset {
-              symbol
-              decimals
-            }
-          }
-        }
+    // Position, lifetime profit (Morpho's average-cost `net_earnings_assets`) and the asset.
+    let position: VaultV2PositionData | null;
+    try {
+      const [restPosition, pnl, vault] = await Promise.all([
+        fetchPosition(chainId, vaultAddress, userAddress),
+        fetchPositionNetEarnings(chainId, vaultAddress, userAddress).catch((error: unknown) => {
+          if (isMorphoRestNotFound(error)) return undefined;
+          throw error;
+        }),
+        getRestVault(chainId, vaultAddress),
+      ]);
+      const price = await tryGetRestTokenPriceUsd(chainId, vault.asset.address);
+      const decimals = vault.asset.decimals;
+      const usd = (raw: string | undefined) =>
+        raw === undefined || price === null ? undefined : rawAmountToDecimal(toBigInt(raw), decimals) * price;
+      position = {
+        assets: restPosition.assets,
+        assetsUsd: usd(restPosition.assets) ?? 0,
+        shares: restPosition.shares,
+        pnl,
+        pnlUsd: usd(pnl),
+        vault: { asset: { symbol: vault.asset.symbol ?? undefined, decimals } },
+      };
+    } catch (error) {
+      if (!isMorphoRestNotFound(error)) {
+        // A failed or rate-limited read is unknown, never "earned 0".
+        return earnedInterestUnavailable(error instanceof Error ? error.message : String(error));
       }
-    `;
-
-    const positionResponse = await fetchMorphoGraphQL(
-      {
-        query: positionQuery,
-        variables: { userAddress, vaultAddress, chainId },
-      },
-      { revalidate: 0, skipMemoryCache: true, tags: [`vault-${vaultAddress}-${chainId}`] }
-    );
-
-    // A failed or rate-limited read is unknown, never "earned 0".
-    if (!positionResponse.ok) {
-      return earnedInterestUnavailable(`Morpho API returned ${positionResponse.status}`);
+      position = null;
     }
 
-    const positionJson = (await positionResponse.json()) as GraphQLResponse<{
-      vaultV2PositionByAddress: VaultV2PositionData | null;
-    }>;
-    const positionNotFound = positionJson.errors?.some(
-      (err) => err.status === 'NOT_FOUND' || err.message?.includes('No results matching')
-    );
-    if (positionJson.errors?.length && !positionNotFound) {
-      return earnedInterestUnavailable(positionJson.errors[0]?.message ?? 'GraphQL error');
-    }
-
-    const position = positionJson.data?.vaultV2PositionByAddress;
     const registryVault = findVaultByAddress(vaultAddress);
     const assetSymbol = resolveMorphoAssetSymbol({
       registrySymbol: registryVault?.symbol,

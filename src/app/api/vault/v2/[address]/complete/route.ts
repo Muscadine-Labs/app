@@ -1,8 +1,82 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { logger } from '@/lib/logger';
 import { isValidEthereumAddress } from '@/lib/vault-utils';
-import { isValidChainId, fetchMorphoGraphQL, readMorphoGraphQLResponse, MORPHO_RATE_LIMIT_BODY } from '@/lib/api-utils';
-import { BASE_CHAIN_ID, MORPHO_GRAPHQL_REVALIDATE_SECONDS } from '@/lib/constants';
+import { isValidChainId, MORPHO_RATE_LIMIT_BODY } from '@/lib/api-utils';
+import { BASE_CHAIN_ID, MORPHO_REST_REVALIDATE_SECONDS } from '@/lib/constants';
+import { isMorphoRestNotFound, isMorphoRestRateLimited } from '@/lib/morpho-rest';
+import {
+  adapterTypeName,
+  allRestCaps,
+  getRestVault,
+  getRestVaultAllocations,
+  getRestVaultApy,
+  getRestVaultRoleAddresses,
+  getRestVaultState,
+  managementFeePerYear,
+  rawToNumber,
+  toBigInt,
+  tryGetRestTokenPriceUsd,
+  wadToFraction,
+  type RestAllocations,
+  type RestVault,
+} from '@/lib/morpho-rest-data';
+import { loadMarketDetails, type MarketDetails } from '@/lib/vault-v2-markets';
+
+type FundedMarkets = { supplied: Map<string, bigint>; markets: MarketDetails[] } | null;
+
+/** The vault's live supply per funded Blue market, with each market's state. `null` on failure. */
+async function loadFundedMarkets(chainId: number, vaultAddress: string, allocations: RestAllocations): Promise<FundedMarkets> {
+  const supplied = new Map<string, bigint>();
+  for (const cap of allRestCaps(allocations)) {
+    if (cap.cap_type !== 'market_v1' || !cap.market_id) continue;
+    const amount = toBigInt(cap.expected_supply_assets ?? cap.allocated_assets);
+    if (amount <= BigInt(0)) continue;
+    const id = cap.market_id.toLowerCase();
+    supplied.set(id, (supplied.get(id) ?? BigInt(0)) + amount);
+  }
+  try {
+    return { supplied, markets: await loadMarketDetails(chainId, [...supplied.keys()]) };
+  } catch (error) {
+    logger.warn('Vault market states unavailable', {
+      vaultAddress,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+}
+
+/**
+ * What force deallocation could pull out beyond instant liquidity: for each funded market
+ * except the liquidity route (already counted as instant), the lesser of the vault's supply and
+ * the market's cash. GraphQL had this as `forceDeallocatableLiquidity`; REST does not.
+ * Unknown market states count as 0 (shown as less liquidity, never more).
+ */
+function forceDeallocatableLiquidity(vault: RestVault, funded: FundedMarkets): bigint {
+  if (!funded) return BigInt(0);
+  const routeMarket = vault.liquidity_data?.toLowerCase();
+  return funded.markets.reduce((sum, m) => {
+    if (m.marketId === routeMarket) return sum;
+    const cash = toBigInt(m.state.total_supply_assets) - toBigInt(m.state.total_borrow_assets);
+    const mine = funded.supplied.get(m.marketId) ?? BigInt(0);
+    return sum + (cash <= BigInt(0) ? BigInt(0) : cash < mine ? cash : mine);
+  }, BigInt(0));
+}
+
+/**
+ * Instant gross APY, the way Morpho's `netApy` was built: each funded market's current supply
+ * APY weighted by the vault's supply there, over total assets (idle earns nothing). `null` when
+ * a market's APY or the totals are unknown.
+ */
+function instantGrossApy(funded: FundedMarkets, totalAssets: bigint): number | null {
+  if (!funded || totalAssets <= BigInt(0)) return null;
+  let weighted = 0;
+  for (const m of funded.markets) {
+    if (m.supplyApy === null) return null;
+    weighted += Number(funded.supplied.get(m.marketId) ?? BigInt(0)) * m.supplyApy;
+  }
+  const apy = weighted / Number(totalAssets);
+  return Number.isFinite(apy) ? apy : null;
+}
 
 export async function GET(
   request: NextRequest,
@@ -32,284 +106,133 @@ export async function GET(
     }
 
     const chainId = parseInt(chainIdParam, 10);
-    
-    // V2 vaults use vaultV2ByAddress per Morpho API docs
-    // https://docs.morpho.org/tools/offchain/api/morpho-vaults/
-    const query = `
-      query VaultComplete($address: String!, $chainId: Int!) {
-        vaultV2ByAddress(address: $address, chainId: $chainId) {
-          address
-          name
-          
-          # Asset information
-          asset {
-            address
-            symbol
-            decimals
-            name
-            price {
-              usd
-            }
-            yield {
-              apr
-            }
-          }
-          
-          # Metadata
-          metadata {
-            description
-            image
-          }
-          
-          # Total Deposits & Assets
-          totalAssets
-          totalAssetsUsd
-          totalSupply
-          liquidity
-          liquidityUsd
-          idleAssets
-          idleAssetsUsd
-          forceDeallocatableLiquidity
-          forceDeallocatableLiquidityUsd
-          liquidityAdapter {
-            __typename
-            address
-          }
-          
-          # APY — apy/netApy are current allocation-weighted rates (Morpho deposit widget)
-          apy
-          netApy
-          avgNetApy
-          avgNetApyExcludingRewards
-          maxApy
-          performanceFee
-          managementFee
-          maxRate
-          
-          # Rewards
-          rewards {
-            asset {
-              address
-              chain {
-                id
-              }
-            }
-            supplyApr
-          }
-          
-          # Configuration & Curation
-          allocators {
-            allocator {
-              address
-            }
-          }
-          owner {
-            address
-          }
-          curator {
-            address
-          }
-          curators {
-            items {
-              addresses {
-                address
-              }
-            }
-          }
-          sentinels {
-            sentinel {
-              address
-            }
-          }
-          timelocks {
-            duration
-            selector
-            functionName
-            abdicatedAt
-          }
-          
-          # Risk Indicators
-          warnings {
-            type
-            level
-          }
-        }
-      }
-    `;
 
-    const response = await fetchMorphoGraphQL(
-      {
-        query,
-        variables: {
-          address,
-          chainId,
-        },
-      },
-      {
-        revalidate: MORPHO_GRAPHQL_REVALIDATE_SECONDS,
-        tags: [`vault-${address}-${chainId}`],
-      }
-    );
-
-    const { responseText, rateLimited } = await readMorphoGraphQLResponse(response);
-
-    if (!response.ok) {
-      if (rateLimited) {
+    let vault: RestVault;
+    let state: Awaited<ReturnType<typeof getRestVaultState>>;
+    let allocations: Awaited<ReturnType<typeof getRestVaultAllocations>>;
+    let sentinels: string[];
+    let allocators: string[];
+    try {
+      [vault, state, allocations, sentinels, allocators] = await Promise.all([
+        getRestVault(chainId, address),
+        getRestVaultState(chainId, address),
+        getRestVaultAllocations(chainId, address),
+        getRestVaultRoleAddresses(chainId, address, 'sentinels'),
+        getRestVaultRoleAddresses(chainId, address, 'allocators'),
+      ]);
+    } catch (error) {
+      if (isMorphoRestRateLimited(error)) {
         return NextResponse.json(MORPHO_RATE_LIMIT_BODY, { status: 503 });
       }
-      throw new Error(`Morpho API error: ${response.status}`);
-    }
-
-    const data = JSON.parse(responseText);
-
-    if (data.errors) {
-      throw new Error(`GraphQL errors: ${JSON.stringify(data.errors)}`);
-    }
-
-    // For v2 vaults, normalize response structure to match v1 format for compatibility
-    if (data.data?.vaultV2ByAddress) {
-      const vault = data.data.vaultV2ByAddress;
-      const totalAssets = vault.totalAssets || '0';
-      const totalSupply = vault.totalSupply || '0';
-      const totalAssetsUsd = vault.totalAssetsUsd || 0;
-
-      // Calculate sharePrice in tokens: totalAssets / totalSupply
-      // Both are in raw units, so we need to account for decimals
-      let sharePrice = 0;
-      let sharePriceUsd = 0;
-      
-      if (totalSupply && totalSupply !== '0' && totalAssets && totalAssets !== '0') {
-        const assetDecimals = vault.asset?.decimals || 18;
-        const totalAssetsNum = BigInt(totalAssets);
-        const totalSupplyNum = BigInt(totalSupply);
-        
-        // Convert to decimal for calculation
-        const totalAssetsDecimal = Number(totalAssetsNum) / Math.pow(10, assetDecimals);
-        const totalSupplyDecimal = Number(totalSupplyNum) / 1e18; // Shares are always 18 decimals
-        
-        if (totalSupplyDecimal > 0) {
-          sharePrice = totalAssetsDecimal / totalSupplyDecimal;
-          sharePriceUsd = totalAssetsUsd > 0 && totalSupplyDecimal > 0 
-            ? totalAssetsUsd / totalSupplyDecimal 
-            : 0;
-        }
+      if (isMorphoRestNotFound(error)) {
+        return NextResponse.json({ error: 'Vault not found' }, { status: 404 });
       }
-      
-      // Normalize allocators structure from V2 format to V1 format for compatibility
-      const normalizedAllocators = vault.allocators?.map((alloc: { allocator: { address: string } }) => ({
-        address: alloc.allocator?.address || '',
-      })) || [];
-      
-      // `owner` / `curator` are objects in the V2 schema. The `curators` list can be empty
-      // while `curator` is set, so prefer the single field.
-      const ownerAddress: string = vault.owner?.address ?? '';
-      const curatorAddress: string =
-        vault.curator?.address ?? vault.curators?.items?.[0]?.addresses?.[0]?.address ?? '';
-      const sentinels: string[] = (vault.sentinels ?? [])
-        .map((entry: { sentinel?: { address?: string } | null } | null) => entry?.sentinel?.address)
-        .filter((value: string | undefined): value is string => !!value);
-      const timelocks = (vault.timelocks ?? [])
-        .filter((entry: { functionName?: string | null } | null) => !!entry?.functionName)
-        .map(
-          (entry: {
-            functionName: string;
-            duration?: number | string | null;
-            abdicatedAt?: number | string | null;
-          }) => ({
-            functionName: entry.functionName,
-            duration: Number(entry.duration ?? 0),
-            abdicated: entry.abdicatedAt != null && Number(entry.abdicatedAt) > 0,
-          })
-        );
-
-      // Headline: Morpho netApy; popover uses gross apy → fees → netApy.
-      const morphoGrossApy = vault.apy ?? vault.netApy ?? 0;
-      const morphoNetApy =
-        vault.netApy ?? vault.apy ?? vault.avgNetApy ?? vault.avgNetApyExcludingRewards ?? 0;
-      const morphoAvgNetApy =
-        vault.avgNetApy ?? vault.avgNetApyExcludingRewards ?? morphoNetApy;
-      const morphoBaseApy =
-        vault.avgNetApyExcludingRewards ?? vault.avgNetApy ?? morphoAvgNetApy;
-
-      const instantLiquidityRaw = (() => {
-        try {
-          return BigInt(vault.liquidity ?? 0);
-        } catch {
-          return BigInt(0);
-        }
-      })();
-      const idleLiquidityRaw = (() => {
-        try {
-          return BigInt(vault.idleAssets ?? 0);
-        } catch {
-          return BigInt(0);
-        }
-      })();
-      const deallocatableLiquidityRaw = (() => {
-        try {
-          return BigInt(vault.forceDeallocatableLiquidity ?? 0);
-        } catch {
-          return BigInt(0);
-        }
-      })();
-      const liquidityAdapterRaw =
-        instantLiquidityRaw > idleLiquidityRaw
-          ? instantLiquidityRaw - idleLiquidityRaw
-          : BigInt(0);
-      const instantLiquidityUsd = Number(vault.liquidityUsd ?? 0);
-      const idleLiquidityUsd = Number(vault.idleAssetsUsd ?? 0);
-      const deallocatableLiquidityUsd = Number(vault.forceDeallocatableLiquidityUsd ?? 0);
-      const liquidityAdapterUsd = Math.max(0, instantLiquidityUsd - idleLiquidityUsd);
-
-      const totalUnderlyingLiquidityRaw = instantLiquidityRaw + deallocatableLiquidityRaw;
-      const totalUnderlyingLiquidityUsd = instantLiquidityUsd + deallocatableLiquidityUsd;
-
-      data.data.vaultByAddress = {
-        ...vault,
-        liquidity: instantLiquidityRaw.toString(),
-        liquidityUsd: instantLiquidityUsd,
-        liquidityBreakdown: {
-          instantLiquidityAssets: instantLiquidityRaw.toString(),
-          instantLiquidityUsd,
-          idleLiquidityAssets: idleLiquidityRaw.toString(),
-          idleLiquidityUsd,
-          liquidityAdapterAssets: liquidityAdapterRaw.toString(),
-          liquidityAdapterUsd,
-          deallocatableLiquidityAssets: deallocatableLiquidityRaw.toString(),
-          deallocatableLiquidityUsd,
-          totalUnderlyingLiquidityAssets: totalUnderlyingLiquidityRaw.toString(),
-          totalUnderlyingLiquidityUsd,
-        },
-        allocators: normalizedAllocators,
-        sentinels,
-        timelocks,
-        maxRate: vault.maxRate != null ? String(vault.maxRate) : null,
-        liquidityAdapterAddress: vault.liquidityAdapter?.address ?? null,
-        liquidityAdapterType: vault.liquidityAdapter?.__typename ?? null,
-        state: {
-          totalAssets: vault.totalAssets,
-          totalAssetsUsd: vault.totalAssetsUsd,
-          totalSupply: vault.totalSupply,
-          sharePrice: sharePrice,
-          sharePriceUsd: sharePriceUsd,
-          apy: morphoNetApy,
-          grossApy: morphoGrossApy,
-          netApy: morphoNetApy,
-          netApyWithoutRewards: morphoBaseApy,
-          avgApy: morphoBaseApy,
-          avgNetApy: morphoAvgNetApy,
-          maxApy: vault.maxApy || 0,
-          owner: ownerAddress,
-          curator: curatorAddress,
-          guardian: vault.guardian || '',
-          timelock: vault.timelock || 0,
-          fee: vault.fee || 0,
-          allocation: vault.allocation || [],
-          rewards: vault.rewards || [],
-        },
-      };
-      delete data.data.vaultV2ByAddress;
+      throw error;
     }
+
+    const assetDecimals = vault.asset.decimals ?? 18;
+    const price = (await tryGetRestTokenPriceUsd(chainId, vault.asset.address)) ?? 0;
+    const usd = (raw: bigint) => rawToNumber(raw, assetDecimals) * price;
+
+    const totalAssetsRaw = toBigInt(state.total_assets);
+    const totalSupplyRaw = toBigInt(state.total_supply);
+    const instantLiquidityRaw = toBigInt(state.withdrawable_assets);
+    const idleLiquidityRaw = toBigInt(state.idle_assets);
+    const funded = await loadFundedMarkets(chainId, address, allocations);
+    const deallocatableLiquidityRaw = forceDeallocatableLiquidity(vault, funded);
+
+    const totalAssetsUsd = usd(totalAssetsRaw);
+    const totalSupplyDecimal = Number(totalSupplyRaw) / 1e18;
+    const sharePrice = state.share_price_ray ? Number(toBigInt(state.share_price_ray) / BigInt(1e9)) / 1e18 : 0;
+    const sharePriceUsd = totalSupplyDecimal > 0 ? sharePrice * price : 0;
+
+    const performanceFee = wadToFraction(vault.performance_fee_wad) ?? 0;
+    const managementFee = managementFeePerYear(vault.management_fee_wad);
+    // REST has no instant vault APY: compute it from the markets (fees after), else Morpho's
+    // 6h average (already net). Rewards are excluded either way (not in REST).
+    const gross = instantGrossApy(funded, totalAssetsRaw);
+    const averageNet =
+      gross === null ? await getRestVaultApy(chainId, address, 'six_hours').catch(() => null) : null;
+    const headlineApy = gross !== null ? gross * (1 - performanceFee) - managementFee : averageNet ?? 0;
+    const grossApy =
+      gross ?? (performanceFee < 1 ? (headlineApy + managementFee) / (1 - performanceFee) : headlineApy);
+
+    const liquidityAdapterRaw =
+      instantLiquidityRaw > idleLiquidityRaw ? instantLiquidityRaw - idleLiquidityRaw : BigInt(0);
+    const liquidityAdapterKind = (allocations.allocations ?? []).find(
+      (a) => a?.adapter_address?.toLowerCase() === vault.liquidity_adapter?.toLowerCase()
+    )?.adapter_kind;
+
+    const timelocks = (vault.governance?.timelocks ?? [])
+      .filter((entry) => !!entry?.function_name)
+      .map((entry) => ({
+        functionName: entry.function_name,
+        duration: Number(entry.timelock_seconds ?? 0),
+        abdicated: entry.is_abdicated === true,
+      }));
+
+    const vaultByAddress = {
+      address: vault.address,
+      name: vault.name,
+      symbol: vault.symbol,
+      asset: {
+        address: vault.asset.address,
+        symbol: vault.asset.symbol,
+        decimals: assetDecimals,
+        name: vault.asset.name,
+        price: { usd: price || null },
+      },
+      totalAssets: totalAssetsRaw.toString(),
+      totalAssetsUsd,
+      totalSupply: totalSupplyRaw.toString(),
+      liquidity: instantLiquidityRaw.toString(),
+      liquidityUsd: usd(instantLiquidityRaw),
+      idleAssets: idleLiquidityRaw.toString(),
+      idleAssetsUsd: usd(idleLiquidityRaw),
+      liquidityBreakdown: {
+        instantLiquidityAssets: instantLiquidityRaw.toString(),
+        instantLiquidityUsd: usd(instantLiquidityRaw),
+        idleLiquidityAssets: idleLiquidityRaw.toString(),
+        idleLiquidityUsd: usd(idleLiquidityRaw),
+        liquidityAdapterAssets: liquidityAdapterRaw.toString(),
+        liquidityAdapterUsd: usd(liquidityAdapterRaw),
+        deallocatableLiquidityAssets: deallocatableLiquidityRaw.toString(),
+        deallocatableLiquidityUsd: usd(deallocatableLiquidityRaw),
+        totalUnderlyingLiquidityAssets: (instantLiquidityRaw + deallocatableLiquidityRaw).toString(),
+        totalUnderlyingLiquidityUsd: usd(instantLiquidityRaw + deallocatableLiquidityRaw),
+      },
+      performanceFee,
+      managementFee,
+      allocators: allocators.map((a) => ({ address: a })),
+      sentinels,
+      timelocks,
+      maxRate: vault.max_rate_per_second_wad ?? null,
+      liquidityAdapterAddress: vault.liquidity_adapter ?? null,
+      liquidityAdapterType: adapterTypeName(liquidityAdapterKind),
+      state: {
+        totalAssets: totalAssetsRaw.toString(),
+        totalAssetsUsd,
+        totalSupply: totalSupplyRaw.toString(),
+        sharePrice,
+        sharePriceUsd,
+        apy: headlineApy,
+        grossApy,
+        netApy: headlineApy,
+        // Rewards are not in REST (Merkl has its own API); no registry vault has any.
+        netApyWithoutRewards: headlineApy,
+        avgApy: headlineApy,
+        avgNetApy: headlineApy,
+        maxApy: 0,
+        owner: vault.owner ?? '',
+        curator: vault.curator ?? '',
+        guardian: '',
+        timelock: 0,
+        fee: performanceFee,
+        allocation: [],
+        rewards: [],
+      },
+    };
+    const data = { data: { vaultByAddress } };
 
     return NextResponse.json({
       ...data,
@@ -317,7 +240,7 @@ export async function GET(
       timestamp: Date.now(),
     }, {
       headers: {
-        'Cache-Control': `public, s-maxage=${MORPHO_GRAPHQL_REVALIDATE_SECONDS}, stale-while-revalidate=${MORPHO_GRAPHQL_REVALIDATE_SECONDS * 2}`,
+        'Cache-Control': `public, s-maxage=${MORPHO_REST_REVALIDATE_SECONDS}, stale-while-revalidate=${MORPHO_REST_REVALIDATE_SECONDS * 2}`,
       }
     });
 

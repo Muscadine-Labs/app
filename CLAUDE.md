@@ -25,7 +25,7 @@ Comprehensive context for AI assistants and developers. This is the canonical �
 4. [Vault registry](#vault-registry)
 5. [V1 vs V2 — the most important split](#v1-vs-v2--the-most-important-split)
 6. [On-chain transactions](#on-chain-transactions)
-7. [Morpho GraphQL & API routes](#morpho-graphql--api-routes)
+7. [Morpho REST & API routes](#morpho-rest--api-routes)
 8. [Morpho npm packages](#morpho-npm-packages)
 9. [App routes & pages](#app-routes--pages)
 10. [Dashboard & vault explorer UI](#dashboard--vault-explorer-ui)
@@ -81,8 +81,8 @@ Never commit real keys. `.env.example` documents placeholders.
 | UI | React 19, Tailwind CSS 4 |
 | Wallet | wagmi **3.x**, Reown AppKit **2.x**, viem 2 |
 | Chain | Base only (`8453`) |
-| Server data | Next.js Route Handlers → Morpho GraphQL |
-| Client GraphQL | None — Morpho GraphQL is server-only via `fetchMorphoGraphQL()` |
+| Server data | Next.js Route Handlers → Morpho REST (`src/lib/morpho-rest.ts`) + chain reads |
+| Client Morpho reads | None — Morpho REST is server-only |
 | V2 txs | Direct ERC-4626 via viem (`transactionUtilsV2.ts`); force exits via vault `multicall` (`force-withdraw-v2.ts`) |
 | Charts | Recharts |
 | Base Account SDK | `@base-org/account` |
@@ -102,14 +102,14 @@ Never commit real keys. `.env.example` documents placeholders.
                             │
 ┌───────────────────────────▼─────────────────────────────────────┐
 │              Next.js Route Handlers (/api/...)                   │
-│  POST https://api.morpho.org/graphql  (revalidate ~60s)           │
-│  vaultV2ByAddress (v2) only                                         │
+│  GET https://api.morpho.org/v0|v1/...  (Morpho REST, ~60s cache)  │
+│  + Base RPC (pending changes)                                    │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-**Reads:** Morpho GraphQL (server routes via `fetchMorphoGraphQL()`).
+**Reads:** Morpho REST (server routes via `morphoRestGet` / `morphoRestList` in `src/lib/morpho-rest.ts`). Morpho GraphQL is no longer called (it shuts down Jan 2027).
 
-**Writes:** User wallet signs transactions built in-app — **not** via GraphQL. Deposits, plain withdraws, and force exits are direct vault calls and pay the vault asset (WETH vaults take and pay WETH).
+**Writes:** User wallet signs transactions built in-app — **not** via the Morpho API. Deposits, plain withdraws, and force exits are direct vault calls and pay the vault asset (WETH vaults take and pay WETH).
 
 ---
 
@@ -119,7 +119,7 @@ Single source of truth: `src/lib/vaults.ts` → `VAULTS` record.
 
 Always resolve a vault with `findVaultByAddress()` from `src/lib/vault-utils.ts`. Every registry vault is v2. Do not infer v1/v2 from asset symbol alone.
 
-The product surface is four curated Morpho Vault V2 contracts in `src/lib/vaults.ts` that allocate to Blue markets. Query them with `vaultV2ByAddress`. Deposits and plain withdraws are ERC-4626. A withdraw larger than instant liquidity force-deallocates the vault's markets, then withdraws, in one vault `multicall`.
+The product surface is four curated Morpho Vault V2 contracts in `src/lib/vaults.ts` that allocate to Blue markets. Read them from Morpho REST `/v0/vaults-v2/{8453:address}`. Deposits and plain withdraws are ERC-4626. A withdraw larger than instant liquidity force-deallocates the vault's markets, then withdraws, in one vault `multicall`.
 
 | Asset | Prime | Frontier |
 |-------|-------|----------|
@@ -158,17 +158,17 @@ All vault writes go through **`src/lib/transactionUtilsV2.ts`**. ERC-4626 ops an
 |---------|--------|
 | **Your balances (registry vaults)** | On chain: `readRegistryVaultBalances` (`lib/onchain-positions.ts`, `balanceOf` + `convertToAssets` multicalls) merged into `WalletContext.morphoHoldings`, priced with live token prices. Vault page position and the withdraw max also read on chain. |
 | **Deposit / withdraw amounts** | RPC only: deposit MAX is the wallet's on-chain `balanceOf` (the wallet token list only while it loads); withdraw uses on-chain shares + `convertToAssets`, a simulate, the force planner, and `readInstantLiquidityAssets` (`force-withdraw-v2.ts`) for the warning's instant-liquidity figure. No API data feeds a transaction amount. |
-| **Live Morpho positions** | `/api/user/morpho-positions` → `WalletContext`: profit (`pnl`) and non-registry vaults; registry balances are replaced by the on-chain read |
+| **Live Morpho positions** | `/api/user/morpho-positions` (REST `/users/{u}/positions` + `/position/performance`) → `WalletContext`: profit (`pnl`) and non-registry vaults; registry balances are replaced by the on-chain read |
 | **Liquid balances** | One `balanceOf` multicall over every registry vault asset (`fetchAllTokenBalances` in `WalletContext`), priced by address from Morpho, plus wagmi ETH (priced as WETH) |
-| **Position history (charts)** | `vaultV2PositionByAddress` → `history` via `/api/vault/v2/.../position-history`. Client reads go through `fetchPositionHistoryJson` (`lib/position-history-cache.ts`): 60s cache shared by the dashboard and vault page, in-flight dedupe, failures not kept, cleared by `refreshBalances`; after a transaction `markPositionHistoryTransaction()` (in `refreshBalancesWithPolling`) clears it and stores nothing for 2 minutes while Morpho indexes the transaction. HTTP-200 `{ error }` bodies are failures and are not kept. |
-| **Earned interest** | Morpho `pnl` or activity-based fallback via `/api/vault/v2/.../earned-interest` |
-| **Vault TVL / APY** | `vaultV2ByAddress` via `/api/vault/v2/.../complete` and `history` |
-| **Headline APY** | Morpho `netApy` (current allocation-weighted; fallbacks `apy` / `avgNetApy` / `avgNetApyExcludingRewards`) |
-| **Liquidity in UI** | GraphQL `liquidity` / `liquidityUsd`, not `totalAssets` (the withdraw cap is read on chain at send time) |
+| **Position history (charts)** | REST `/position/history?lookback=` via `/api/vault/v2/.../position-history` (30d also reads `seven_days` for an hourly last week; USD at today's price). Client reads go through `fetchPositionHistoryJson` (`lib/position-history-cache.ts`): 60s cache shared by the dashboard and vault page, in-flight dedupe, failures not kept, cleared by `refreshBalances`; after a transaction `markPositionHistoryTransaction()` (in `refreshBalancesWithPolling`) clears it and stores nothing for 2 minutes while Morpho indexes the transaction. HTTP-200 `{ error }` bodies are failures and are not kept. |
+| **Earned interest** | Morpho REST `/position/performance` `net_earnings_assets` (average cost; GraphQL `pnl`) or activity-based fallback via `/api/vault/v2/.../earned-interest` |
+| **Vault TVL / APY** | REST `/state`, `/state/history`, `/apy/history` via `/api/vault/v2/.../complete` and `history` |
+| **Headline APY** | Computed instant net APY: funded markets' supply APY (`marketSupplyApy`, Adaptive Curve IRM from REST market state) weighted by the vault's live supply over total assets, `× (1 − perf fee) − mgmt fee`; REST 6h average if a market's APY is unknown. Rewards excluded (not in REST). Matches GraphQL `netApy` within 0.02 pp. |
+| **Liquidity in UI** | REST `/state` `withdrawable_assets` (USD = spot price), not `totalAssets` (the withdraw cap is read on chain at send time) |
 
 **Rule:** anything about the user's own money (position, deposit / withdraw amounts, share balance) comes from on-chain RPC. Vault-level data (deposits, TVL, APY, liquidity, token prices) and every chart come from APIs. Earned interest is Morpho `pnl`, with an activity-based fallback against the on-chain balance.
 
-**Token list and prices (any token):** the token list is each registry vault's own `asset()`, read on chain once per page load with its `decimals()` and `symbol()` (`readRegistryAssets` in `lib/registry-assets.ts`). `PriceContext` loads that list and prices it from `/api/prices?addresses=…`, which reads Morpho `assets(where: { address_in })` → `price { usd }` and `logoURI` (`lib/token-prices.ts`, cached 60s). Native ETH uses the WETH price. Learned tokens are registered in `lib/token-metadata.ts`, so `getAssetDecimalsForSymbol`, `findTokenBySymbol` and `getVaultLogo` (bundled logo, then Morpho logo from `cdn.morpho.org`, then the app icon) work for a token with no hardcoded entry. Adding a vault in a new token needs only the registry row. CoinGecko and the hardcoded USDC / cbBTC / WETH token list are gone. Resilience: each vault is read with `allowFailure`, a `bytes32` `symbol()` is decoded, and a failed or partial read is retried every 30s while `fallbackRegistryAssets` (merged into a partial read by `withFallbackAssets`, in prices and wallet balances; the wallet re-reads token balances when the asset list changes) (USDC / cbBTC / WETH matched by the registry label, plus WETH for ETH) stands in. With no Morpho price, a stablecoin is $1 and anything else is 0 (activity too). The wallet token list is tagged with its wallet, so a failed read after a switch never shows another wallet's tokens. The transact panel takes decimals from the vault's on-chain asset and re-applies its accounts when that read lands. Logos use `useTokenLogo` so a Morpho logo shows once it loads; only `https://cdn.morpho.org/` logos are kept. A registry label is an extra symbol only when no other token holds it. Privacy settings are listed under **Wallet & balances → Privacy**; the privacy page covers Reown's mandatory connection events under Reown / WalletConnect.
+**Token list and prices (any token):** the token list is each registry vault's own `asset()`, read on chain once per page load with its `decimals()` and `symbol()` (`readRegistryAssets` in `lib/registry-assets.ts`). `PriceContext` loads that list and prices it from `/api/prices?addresses=…`, which reads Morpho REST `/v0/tokens/{t}/price` (spot) and `/v0/tokens/{t}` (`logo_uri`) per token (`lib/token-prices.ts`, cached 60s / 1h). Native ETH uses the WETH price. Learned tokens are registered in `lib/token-metadata.ts`, so `getAssetDecimalsForSymbol`, `findTokenBySymbol` and `getVaultLogo` (bundled logo, then Morpho logo from `cdn.morpho.org`, then the app icon) work for a token with no hardcoded entry. Adding a vault in a new token needs only the registry row. CoinGecko and the hardcoded USDC / cbBTC / WETH token list are gone. Resilience: each vault is read with `allowFailure`, a `bytes32` `symbol()` is decoded, and a failed or partial read is retried every 30s while `fallbackRegistryAssets` (merged into a partial read by `withFallbackAssets`, in prices and wallet balances; the wallet re-reads token balances when the asset list changes) (USDC / cbBTC / WETH matched by the registry label, plus WETH for ETH) stands in. With no Morpho price, a stablecoin is $1 and anything else is 0 (activity too). The wallet token list is tagged with its wallet, so a failed read after a switch never shows another wallet's tokens. The transact panel takes decimals from the vault's on-chain asset and re-applies its accounts when that read lands. Logos use `useTokenLogo` so a Morpho logo shows once it loads; only `https://cdn.morpho.org/` logos are kept. A registry label is an extra symbol only when no other token holds it. Privacy settings are listed under **Wallet & balances → Privacy**; the privacy page covers Reown's mandatory connection events under Reown / WalletConnect.
 
 Share tokens use **18 decimals**; underlying assets use the decimals read from each vault asset on chain (USDC **6**, cbBTC **8**, WETH **18**).
 
@@ -238,76 +238,61 @@ v2-only: `depositToVaultV2` / `withdrawFromVaultV2` / `redeemFromVaultV2` / `for
 
 ---
 
-## Morpho GraphQL & API routes
+## Morpho REST & API routes
 
-**Endpoint:** `https://api.morpho.org/graphql`  
-**Deprecation:** Morpho shuts down this GraphQL endpoint on **January 29, 2027**. The REST migration plan (endpoint map, file-by-file, gaps) is in `docs/morpho-rest-migration.md`.  
-**Docs:** https://docs.morpho.org/tools/offchain/api/morpho-vaults/
+**Morpho GraphQL is not called anymore.** Morpho shuts it down on **January 29, 2027** (field removal warnings say **2027-01-25**). Every Morpho read is REST (`https://api.morpho.org`) or the chain. What each route reads, the accepted trade-offs, and the features dropped until Morpho adds them (with restore steps) are in **`docs/morpho-rest-migration.md`** — read it before changing a Morpho read.
+**Docs:** https://docs.morpho.org/api/ (OpenAPI: https://docs.morpho.org/openapi.json)
+
+### Client (`src/lib/morpho-rest.ts`, `morpho-rest-data.ts`, `morpho-rest-wallet.ts`, `vault-v2-markets.ts`)
+
+- `morphoRestGet` / `morphoRestList` (cursor paging, max 20 pages; throws rather than return a cut list). `MorphoRestError` has `status` and `rateLimited`; `isMorphoRestNotFound` / `isMorphoRestRateLimited`.
+- 60s Next data cache + in-memory cache with in-flight dedupe; `revalidate: 0` for per-wallet reads. Retries 429/502/503/504 honouring `Retry-After` up to 3s; a longer wait (Morpho sends 600s on a rate limit) returns the error at once. A rate limit or outage serves the last good response for 10 minutes.
+- Cache per read: vault config and roles 5 min, tokens and market params 1h, state / allocations / prices 60s.
+- Optional server-only `MORPHO_API_KEY` switches to `https://private.api.morpho.org` (`x-api-key`). Public limit: 750 req/min per IP, 3,334 in 10 min blocks the IP for 7 days.
+- REST amounts are integer strings. `share_price_ray` is decimals-adjusted (display share price = ray / 1e27); raw share → asset conversions use `total_assets / total_supply`. `management_fee_wad` and `setManagementFee` calldata are **per second** (`managementFeePerYear`).
 
 ### V2 complete route (`src/app/api/vault/v2/[address]/complete/route.ts`)
 
-Query root: `vaultV2ByAddress(address, chainId)`.
-
-Notable fields: `asset`, `totalAssets`, `totalSupply`, `liquidity`, `liquidityUsd`, `idleAssetsUsd`, `avgNetApy`, `avgNetApyExcludingRewards`, `maxApy`, `adapters`, `rewards`, `warnings`, etc. Governance fields for the Overview: `owner { address }`, `curator { address }` (the `curators` list can be empty while `curator` is set — use the single field), `sentinels`, `timelocks { functionName duration abdicatedAt }`, `maxRate`, `liquidityAdapter`. The route flattens these to `state.owner` / `state.curator` address strings and top-level `sentinels`, `timelocks` (`{ functionName, duration, abdicated }`), `maxRate`, `liquidityAdapterAddress`. Response is normalized toward v1-shaped JSON (`vaultByAddress` shape) for shared UI. Headline APY maps from Morpho **`netApy`** (with fallbacks), matching the Morpho deposit widget.
+REST `/v0/vaults-v2/{v}` (name, asset, owner, curator, `governance.timelocks`, fees, `max_rate_per_second_wad`, `liquidity_adapter`, `liquidity_data` = route market id), `/v1/vaults-v2/{v}/state` (totals, `withdrawable_assets` = instant liquidity, `idle_assets`, share price), `/allocations`, `/sentinels`, `/allocators`, the asset's spot price, and each funded market's params + state. The response keeps the old `data.vaultByAddress` shape for `VaultDataContext`: `state.owner` / `state.curator`, `sentinels`, `timelocks` (`{ functionName, duration, abdicated }`), `maxRate` (per-second WAD string), `liquidityAdapterAddress`, `liquidityAdapterType` (from REST `adapter_kind`), `liquidityBreakdown`. Force-deallocatable liquidity is computed (min of the vault's supply and the market's cash, per funded market except the route market). Headline APY: see the table above. `rewards` is empty.
 
 ### V2 history route (`src/app/api/vault/v2/[address]/history/route.ts`)
 
-Query root: `vaultV2ByAddress` → `historicalState`. APY series uses **`avgNetApy` only** (`avgNetApyExcludingRewards` is not on the history type). Maps to `apy` / `netApy` in the JSON response (percent × 100). A bucket with no APY from Morpho is sent as `apy: 0` with `hasApy: false`, and the Overview's average line leaves it out.
+REST `/state/history` + `/apy/history` with `lookback` from `POSITION_LOOKBACK` (7d hourly, 30d / 90d daily, 1y and all = inception daily, 1y cut to the last year). REST APY points are **trailing averages** (1-day for 7d, 7-day for 30d, 30-day for 90d / all). USD = today's spot price for every point. A point with no APY is sent as `apy: 0` with `hasApy: false`, and the Overview's average line leaves it out.
 
 ### Position history (v2)
 
-- **V1:** `vaultPosition` + `historicalState.{assets,assetsUsd,shares}`
-- **V2:** `vaultV2PositionByAddress` + `history.{assets,assetsUsd,shares}`; raw `assets` / `shares` scaled by asset decimals / 1e18 in the route handler
-
-Both return `currentPosition` + `history[]` with `{ timestamp, assets, assetsUsd, shares }`.
+REST `/position/history?lookback=` + `/position` (live tip); raw `assets` / `shares` scaled by asset decimals / 1e18. 30d also reads `seven_days` and uses it for the last week (the vault page and dashboard cut their 7D chart from the 30d series). REST ends with an off-grid "now" point, which the route drops (the live tip covers it). Returns `currentPosition` + `history[]` with `{ timestamp, assets, assetsUsd, shares }`; USD at today's price.
 
 ### Incomplete Morpho timeseries buckets
 
-Morpho often returns a **trailing interval** (current hour/day) with **zeros** for TVL and/or position while the in-progress bucket is empty. That makes charts dip to zero on the last point.
+Morpho can return a **trailing interval** (current hour/day) with **zeros** for TVL and/or position while the in-progress bucket is empty. That makes charts dip to zero on the last point.
 
 **Fix:** `stripIncompleteVaultHistoryBuckets` (vault `history` routes) and `finalizePositionHistory` (`position-history` routes) in `src/lib/api-utils.ts` — applied on v2 route responses before JSON is returned.
 
-Brand-new vaults often have TVL/share-price points before Morpho indexes `avgNetApy`. `stripIncompleteVaultHistoryBuckets` keeps those TVL points instead of emptying the series. Overview still hides the APY chart until a positive `apy` exists, and falls back to the hourly 30d series when daily `period=all` is empty.
+Brand-new vaults often have TVL/share-price points before Morpho indexes APY. `stripIncompleteVaultHistoryBuckets` keeps those TVL points instead of emptying the series. Overview still hides the APY chart until a positive `apy` exists, and falls back to the 30d series when daily `period=all` is empty.
 
 **`finalizePositionHistory` (position-history only):** uses the live `currentPosition` to disambiguate trailing zeros:
 
-- **Position open** (shares/assets > 0): only zero buckets inside the current interval are stripped (`stripOpenIntervalPositionBuckets`). Earlier zeros stay, so dashboard forward-fill does not carry an old balance across days the wallet was empty. If Morpho has not indexed any history yet, seed a short flat line from the live position. If the indexed series ends at zero while the live position is open, append that live value at now.
+- **Position open** (shares/assets > 0): only zero buckets inside the current interval are stripped (`stripOpenIntervalPositionBuckets`; the interval is the series' smallest gap, `bucketSeconds`). Earlier zeros stay, so dashboard forward-fill does not carry an old balance across days the wallet was empty. If Morpho has not indexed any history yet, seed a short flat line from the live position. If the indexed series ends at zero while the live position is open, append that live value at now.
 - **Position closed** (fully withdrawn): trailing zeros are real → kept. If the series still ends at a **pre-withdrawal value**, a **zero point** is appended one bucket after the last point, so the dashboard's forward-fill aggregation drops to zero instead of being stuck at the last held amount.
 
-### Morpho GraphQL schema changes (2025–2026)
+### Activity
 
-If `complete` routes return **HTTP 400**, validate queries against `https://api.morpho.org/graphql` — invalid fields fail the whole request.
-
-| Removed / renamed | Use instead |
-|-------------------|-------------|
-| `Asset.priceUsd` | `price { usd }` — use `resolveMorphoAssetPriceUsd()` in `api-utils.ts` |
-| `VaultStateReward.yearlySupplyTokens` | Removed — query `supplyApr` only |
-| `whitelisted` on Vault / VaultV2 | `listed`. The app does not store it. |
-| `state.sharePrice` (v1 VaultState) | Compute from `totalAssets` / `totalSupply` |
-| `state.avgApy` (v1) | `avgNetApy` or `apy` |
-| `metadata.curators` (v1) | Removed — omit from query |
-| `market.uniqueKey` (v1) | `id` (alias as `uniqueKey: id` in query) |
-| `historicalState.sharePrice` (v1 VaultHistory) | Removed — derive from `totalAssets` / `totalSupply` in route handler |
-
-**Positions in the UI** use `/api/user/morpho-positions` for Morpho holdings; vault metadata from `/api/vault/v2/.../complete`. Broken GraphQL breaks explorer columns; `WalletContext` falls back to registry metadata when complete fails.
+REST only has a wallet's own activity (`/position/activity`). The History tab is wallet-only (no "Show All"; disconnected visitors are asked to connect), and the activity route returns 400 without `userAddress`. Transfer rows carry shares only and are valued at the vault's `total_assets / total_supply` interpolated from `/state/history` at that time (`sharesToAssetsAt`), else today's totals.
 
 ### Caching
 
-`next: { revalidate: MORPHO_GRAPHQL_REVALIDATE_SECONDS }` (60 seconds by default in `constants.ts`) + cache tags like `vault-{address}-{chainId}`.
-
-Per-wallet routes (`morpho-positions`, `position-history`, `earned-interest`, and `activity` with `userAddress`) are `force-dynamic`, read Morpho with `revalidate: 0`, and send `private, no-store`, so charts catch up right after a transaction. Per-wallet activity pages through up to 10 pages so an old deposit is not cut off; the vault-wide feed stays one cached page. `earned-interest` returns 503 (`retryable`) when the Morpho position read fails or a holder's activity fallback fails, so the UI shows a dash instead of 0 earned. `/api/prices` returns 502 when Morpho prices fail; the client keeps the last prices.
-
-`fetchMorphoGraphQL` also keeps a 60s in-memory cache. An expired entry is kept 10 more minutes and served only when Morpho rate-limits. Retries honor `Retry-After` up to 3s; a longer wait returns the error right away so a route handler never hangs. Routes whose body changes every call (the vault `history` route's `endTimestamp`) pass a stable `cacheKey` (vault, chain, period).
+Vault-level reads: 60s (Next data cache + in-memory, see Client). Route responses send `public, s-maxage=60`. Per-wallet routes (`morpho-positions`, `position-history`, `earned-interest`, `activity`) are `force-dynamic`, read Morpho with `revalidate: 0`, and send `private, no-store`, so charts catch up right after a transaction. `earned-interest` returns 503 (`retryable`) when the Morpho position read fails or a holder's activity fallback fails, so the UI shows a dash instead of 0 earned. `/api/prices` returns 502 when every price read fails (a token Morpho does not index is just left out); the client keeps the last prices.
 
 ### Client data
 
-Morpho GraphQL is **server-only** (`fetchMorphoGraphQL()` in route handlers). There is no client Apollo/GraphQL client.
+Morpho reads are **server-only** (route handlers). There is no client Morpho client.
 
 ---
 
 ## Morpho npm packages
 
-**Removed from `package.json`:** `@morpho-org/*` bundler/simulation SDKs (v1 path deleted), unused Apollo Client / `graphql`. Morpho reads use **server `fetch`** to `api.morpho.org`.
+**Removed from `package.json`:** `@morpho-org/*` bundler/simulation SDKs (v1 path deleted), unused Apollo Client / `graphql`. Morpho reads use **server `fetch`** to Morpho REST (`api.morpho.org`).
 
 **Not a dependency:** `@morpho-org/morpho-sdk` (`viem` peer only). Optional for Permit/Permit2 and in-kind redemption. Cash force-withdraw already matches SDK `forceWithdraw` / `forceRedeem`.
 
@@ -323,7 +308,7 @@ Morpho GraphQL is **server-only** (`fetchMorphoGraphQL()` in route handlers). Th
 | `/vault/v2/[address]` | V2 vault detail |
 | `/api/prices` | Morpho USD prices by token address (`?addresses=`) |
 | `/api/user/morpho-positions` | User Morpho v2 positions |
-| `/api/vault/v2/...` | V2 Morpho GraphQL proxies |
+| `/api/vault/v2/...` | V2 vault data (Morpho REST + chain) |
 
 **NavBar:** Dashboard → `/`, Vaults → `/vaults`. Settings: theme (light/dark/auto). Right sidebar (`LearnContent`) is Q&A links to Morpho docs (protocol, Vault V2, curator, Blue, Midnight) and [self-custody](https://muscadine.xyz/self-custody).
 
@@ -389,8 +374,8 @@ The analytics site (`analytics.muscadine.xyz`) is retired; its vault information
 2. **Jump links** (`VaultSectionNav`, `VAULT_OVERVIEW_SECTIONS`): Performance · Allocation · Risk · Details, on phones too. They are the bottom row of the vault page's sticky header (`data-vault-sticky-header`, under the tabs, Overview only). The app scrolls inside `[data-app-scroll]`; a jump scrolls that container so the section lands just below the header (`contentTop`). The section in view is highlighted (`aria-current`). Opening Overview highlights Performance. A tapped jump link stays highlighted until the user scrolls away from where it landed, so a section near the bottom (Risk) that cannot reach the header, or content above that grows after the jump, does not move the highlight. Switching tabs after scrolling past the header starts the new tab at its top.
 3. **Performance:** chart tabs **APY** → **Total Deposits** → **Share Price** (Allocations is no longer a chart tab). The APY chart draws a dotted **Avg** line at the time-weighted average APY for the selected period (`timeWeightedAverage` in `chart-utils.ts`), as on Morpho's chart. Buckets with no Morpho APY (`hasApy: false`) are gaps the line bridges (`connectNulls`), left out of the average and the y-axis range. All three charts use a numeric time x-axis with evenly spaced ticks (`evenTimeTicks`: every N calendar days at local midnight, N picked so labels fit the measured width via `maxTimeTicksForWidth` and `useElementWidth`); `interval={0}` so Recharts never drops ticks unevenly. **Total Deposits** and **Share Price** support USD / token toggle. Axis labels and tooltips use full values with 2 decimals (`formatCurrency` / `formatAssetAmount`).
 4. **Allocation:** the market table only (`VaultAllocations`). No summary sentence and no collateral bar. Name, allocated amount, and APY always show. There is no share column. Market size sits under the market name, not in its own column. If the table would overflow, liquidity drops first, then type. Below 30rem the row is a card with the size under the name, plus type, allocated amount, APY and liquidity. The table shows at most the 5 largest positions above $0.01 (`isAllocationDust`). An idle row (**Unallocated Capital**, APY 0) is always in the data and joins them only while it holds funds. The **Other markets** disclosure opens the rest (smaller positions, dust and every capped market at zero, idle last). Its count is markets only. Fixed-rate market links go to markets.morpho.org (app.morpho.org has no /fixed route). Market names link to Morpho.
-5. **Risk** (`VaultRiskFacts`), kept short on purpose: the strategy in one paragraph (`STRATEGY_TEXT`: **Prime** = blue-chip collateral such as BTC / ETH and their wrapped or staked versions, deep markets, conservative LTV; **Frontier** = higher yield, wider crypto and tokenized stocks, lower LTV). Then a three-item **Every market is screened on** box: Collateral (native, wrapped/staked, tokenized stock, redemption), Market liquidity, Oracle and LTV. Then **Pending changes** (below), then links: **View markets on Morpho** (the vault's Morpho page; curator.muscadine.xyz stays private, so it is not linked), **Risk framework** (muscadine.xyz/risk), **Morpho's disclaimer**. No live numbers here: liquidity is in the key numbers, fees / timelocks / roles in Vault details. **Morpho `warnings` are not shown to users** (every vault is unlisted on Morpho); Curator keeps them for risk management. **Pending changes** (`/api/vault/v2/{address}/pending`, Morpho `pendingConfigs`, `mapVaultV2Pending` in `lib/vault-v2-pending.ts`) lists curator changes still in their timelock with a small **+** (adds: adapter, cap raise, fee increase, allocator), **−** (removes: adapter, allocator, fee cut, abdication) or **•** (other) mark and a countdown. The list is read from the chain (`fetchPendingConfigItems` in `lib/vault-v2-pending-submits.ts`): Morpho GraphQL drops `pendingConfigs.data` and the decoded cap amount on 2026-12-02 and REST has no calldata, so REST `/pending-governance-actions` gives the submit tx hashes, each receipt's `Submit` events from this vault give the calldata, `executableAt(data)` keeps what is still pending (and is the countdown), and the calldata is decoded locally into the fields `mapVaultV2Pending` reads. Any failed read hides the section (never a partial list). More than 5 changes collapse into a closed dropdown with the count in its title (`PENDING_COLLAPSE_AFTER`). Hidden when nothing is pending or the read fails.
-6. **Vault details** (`VaultDetails`, its own section after Risk, jump link **Details**, each part a collapsed `<details>`): Roles (owner, curator, allocators, sentinels with copy + Basescan), Timelocks grouped by delay with **Abdicated** last (`groupTimelocks`; `decreaseTimelock` is hidden because Morpho reports it as no delay, yet cutting a timelock waits out the timelock being changed), Caps in three sections — Markets, Tokens, Adapters (lazy `/api/vault/v2/{address}/caps` on first open; token (collateral) caps come from Morpho REST `/allocations` `collateral_address`, since GraphQL drops `CollateralCapData.collateralAddress` on 2026-12-02, and a failed read fails the caps section (an error, never a list missing its token caps); only caps holding funds by default, "Show all" toggle; market rows say Variable or Fixed with LLTV and link to the Morpho market; token rows link to the token on Basescan; the Morpho Blue adapter is labeled "Morpho Blue adapter"; uint128 max = No limit, relative cap 1e18 = No limit), Contracts and limits (vault, liquidity adapter, performance fee and management fee, max rate as %/yr, then **Send-assets gate** (above the links): the vault's `sendAssetsGate` address from `useVaultDepositGates().sendAssetsGates`, or **None** when unset, then Morpho + Basescan links).
+5. **Risk** (`VaultRiskFacts`), kept short on purpose: the strategy in one paragraph (`STRATEGY_TEXT`: **Prime** = blue-chip collateral such as BTC / ETH and their wrapped or staked versions, deep markets, conservative LTV; **Frontier** = higher yield, wider crypto and tokenized stocks, lower LTV). Then a three-item **Every market is screened on** box: Collateral (native, wrapped/staked, tokenized stock, redemption), Market liquidity, Oracle and LTV. Then **Pending changes** (below), then links: **View markets on Morpho** (the vault's Morpho page; curator.muscadine.xyz stays private, so it is not linked), **Risk framework** (muscadine.xyz/risk), **Morpho's disclaimer**. No live numbers here: liquidity is in the key numbers, fees / timelocks / roles in Vault details. **Morpho `warnings` are not shown to users** (every vault is unlisted on Morpho); Curator keeps them for risk management. **Pending changes** (`/api/vault/v2/{address}/pending`, `mapVaultV2Pending` in `lib/vault-v2-pending.ts`; current fees from REST `/v0/vaults-v2/{v}`, market labels from `/allocations` + market params) lists curator changes still in their timelock with a small **+** (adds: adapter, cap raise, fee increase, allocator), **−** (removes: adapter, allocator, fee cut, abdication) or **•** (other) mark and a countdown. The list is read from the chain (`fetchPendingConfigItems` in `lib/vault-v2-pending-submits.ts`): REST has no calldata, so REST `/pending-governance-actions` gives the submit tx hashes, each receipt's `Submit` events from this vault give the calldata, `executableAt(data)` keeps what is still pending (and is the countdown), and the calldata is decoded locally into the fields `mapVaultV2Pending` reads. Any failed read hides the section (never a partial list). More than 5 changes collapse into a closed dropdown with the count in its title (`PENDING_COLLAPSE_AFTER`). Hidden when nothing is pending or the read fails.
+6. **Vault details** (`VaultDetails`, its own section after Risk, jump link **Details**, each part a collapsed `<details>`): Roles (owner, curator, allocators, sentinels with copy + Basescan), Timelocks grouped by delay with **Abdicated** last (`groupTimelocks`; `decreaseTimelock` is hidden because Morpho reports it as no delay, yet cutting a timelock waits out the timelock being changed), Caps in three sections — Markets, Tokens, Adapters (lazy `/api/vault/v2/{address}/caps` on first open; every cap (market, token, adapter) comes from one Morpho REST `/allocations` read plus market params and token symbols, and a failed read shows an error instead of a short list; only caps holding funds by default, "Show all" toggle; market rows say Variable or Fixed with LLTV and link to the Morpho market; token rows link to the token on Basescan; the Morpho Blue adapter is labeled "Morpho Blue adapter"; uint128 max = No limit, relative cap 1e18 = No limit), Contracts and limits (vault, liquidity adapter, performance fee and management fee, max rate as %/yr, then **Send-assets gate** (above the links): the vault's `sendAssetsGate` address from `useVaultDepositGates().sendAssetsGates`, or **None** when unset, then Morpho + Basescan links).
 
 Pure helpers and their tests: `src/lib/vault-details.ts` (`__tests__/vault-details.test.ts`), `src/lib/vault-v2-caps.ts` (`__tests__/vault-v2-caps.test.ts`), `src/lib/vault-v2-pending.ts` (`__tests__/vault-v2-pending.test.ts`).
 
@@ -545,7 +530,7 @@ Plain web app on Base, like Fintech-vault-project: no Base App / mini-app integr
 - `MORPHO_CHAIN_SLUG` / `getMorphoChainSlug` — chain slug for app.morpho.org links
 - `BASE_WETH_ADDRESS` — Base canonical WETH
 - Cache TTLs: vault client + Morpho in-memory **60s**; prices 60s server / refetch every 5 min; activity 1m
-- Morpho GraphQL: `MORPHO_GRAPHQL_URL`, `MORPHO_GRAPHQL_REVALIDATE_SECONDS`, fetch timeout/retries, preload batch size — all Morpho calls go through `fetchMorphoGraphQL()` in `api-utils.ts`
+- Morpho REST: `MORPHO_REST_URL`, `MORPHO_REST_REVALIDATE_SECONDS`, fetch timeout/retries, preload batch size — all Morpho calls go through `src/lib/morpho-rest.ts`
 
 `next.config.ts`:
 
@@ -612,7 +597,7 @@ rm -rf .next .turbo && npm run dev
 ### Adding a vault
 
 1. Add to `src/lib/vaults.ts` with `version: 'v2'` and `strategy` (`prime` | `frontier`).
-2. Confirm Morpho GraphQL returns it (`vaultV2ByAddress`).
+2. Confirm Morpho REST returns it (`/v0/vaults-v2/8453:{address}` and `/allocations`).
 3. Confirm the vault has Morpho dead-share inflation protection (minted to `0x…dEaD`) before listing — we do not RPC-check this at runtime.
 4. v2 writes require no change in `transactionUtilsV2` if address is passed dynamically — registry drives UI labels and routing.
 
@@ -662,7 +647,7 @@ Do not bump without checking compatibility:
 
 ### Product / registry (planned)
 
-1. **Multi-chain vaults** — Extend beyond Base to **Ethereum** and **Hyperliquid**: multi-chain `VAULTS` entries, RPC/wagmi chains, Morpho GraphQL `chainId` on API routes, explorer Network filter (today only Base is real; “All” is forward-compatible).
+1. **Multi-chain vaults** — Extend beyond Base to **Ethereum** and **Hyperliquid**: multi-chain `VAULTS` entries, RPC/wagmi chains, Morpho REST chain selectors (`{chainId}:{address}`) on API routes, explorer Network filter (today only Base is real; “All” is forward-compatible).
 ### Technical (optional)
 
 3. **`@morpho-org/morpho-sdk` for v2** — optional for Permit/Permit2 and **in-kind redemption** (`inKindRedeem`). Peer dep is viem only.
@@ -695,7 +680,7 @@ Do not bump without checking compatibility:
 | Earned interest API | `src/app/api/vault/v2/[address]/earned-interest/route.ts` |
 | Morpho positions API | `src/app/api/user/morpho-positions/route.ts` |
 | Advisory agreement modal | `src/components/features/wallet/AdvisoryAgreementModal.tsx` |
-| Morpho GraphQL / fetch helper | `src/lib/api-utils.ts` (`fetchMorphoGraphQL`) |
+| Morpho REST client / reads | `src/lib/morpho-rest.ts`, `morpho-rest-data.ts`, `morpho-rest-wallet.ts`, `vault-v2-markets.ts`; plan + gaps `docs/morpho-rest-migration.md` |
 | V2 vault API data | `src/app/api/vault/v2/[address]/complete/route.ts` |
 | Transact state | `src/contexts/TransactionContext.tsx` |
 | Total Deposits chart formatting | `src/components/features/vault/VaultOverview.tsx` |

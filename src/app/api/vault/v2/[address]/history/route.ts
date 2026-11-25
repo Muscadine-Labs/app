@@ -1,9 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
-import type { GraphQLError } from '@/types/api';
 import { logger } from '@/lib/logger';
 import { isValidEthereumAddress } from '@/lib/vault-utils';
-import { isValidChainId, isValidPeriod, MIN_VALID_TIMESTAMP, PERIOD_SECONDS, INTERVAL_MAP, stripIncompleteVaultHistoryBuckets, fetchMorphoGraphQL, readMorphoGraphQLResponse, MORPHO_RATE_LIMIT_BODY, resolveMorphoAssetPriceUsd } from '@/lib/api-utils';
-import { BASE_CHAIN_ID, MORPHO_GRAPHQL_REVALIDATE_SECONDS } from '@/lib/constants';
+import { isValidChainId, isValidPeriod, MIN_VALID_TIMESTAMP, PERIOD_SECONDS, POSITION_LOOKBACK, stripIncompleteVaultHistoryBuckets, MORPHO_RATE_LIMIT_BODY } from '@/lib/api-utils';
+import { BASE_CHAIN_ID, MORPHO_REST_REVALIDATE_SECONDS } from '@/lib/constants';
+import { isMorphoRestNotFound, isMorphoRestRateLimited, morphoRestGet, morphoSelector } from '@/lib/morpho-rest';
+import { getRestVault, rawToNumber, toBigInt, tryGetRestTokenPriceUsd } from '@/lib/morpho-rest-data';
+
+type RestStatePoint = {
+  timestamp: number;
+  total_assets: string;
+  total_supply: string;
+  share_price_ray?: string | null;
+};
 
 export async function GET(
   request: NextRequest,
@@ -53,278 +61,65 @@ export async function GET(
     }
 
     const chainId = parseInt(chainIdParam, 10);
-    
-    // Calculate time range based on period
     const now = Math.floor(Date.now() / 1000);
     const startTime = period === 'all' ? 0 : (now - (PERIOD_SECONDS[period] || PERIOD_SECONDS['30d']));
-    const interval = INTERVAL_MAP[period] || 'DAY';
+    const lookback = POSITION_LOOKBACK[period];
+    const selector = morphoSelector(chainId, address);
 
-    // V2 historicalState: avgNetApy (avgApy deprecated; avgNetApyExcludingRewards not on history type)
-    const query = `
-      query VaultHistory($address: String!, $chainId: Int!, $options: TimeseriesOptions) {
-        vaultV2ByAddress(address: $address, chainId: $chainId) {
-          address
-          asset {
-            symbol
-            decimals
-            price {
-              usd
-            }
-          }
-          historicalState {
-            avgNetApy(options: $options) {
-              x
-              y
-            }
-            totalAssetsUsd(options: $options) {
-              x
-              y
-            }
-            totalAssets(options: $options) {
-              x
-              y
-            }
-            totalSupply(options: $options) {
-              x
-              y
-            }
-          }
-        }
-      }
-    `;
-
-    const response = await fetchMorphoGraphQL(
-      {
-        query,
-        variables: {
-          address,
-          chainId,
-          options: {
-            startTimestamp: startTime,
-            endTimestamp: now,
-            interval: interval,
-          },
-        },
-      },
-      {
-        revalidate: MORPHO_GRAPHQL_REVALIDATE_SECONDS,
-        // The body's endTimestamp changes every second; key the cache by what is asked for.
-        cacheKey: `vault-v2-history:${address.toLowerCase()}:${chainId}:${period}`,
-      }
-    );
-
-    const { responseText, rateLimited } = await readMorphoGraphQLResponse(response);
-
-    if (!response.ok) {
-      if (rateLimited) {
+    let statePoints: RestStatePoint[];
+    let apyPoints: Array<{ timestamp: number; apy: number | null }>;
+    let vault: Awaited<ReturnType<typeof getRestVault>>;
+    try {
+      [statePoints, apyPoints, vault] = await Promise.all([
+        morphoRestGet<RestStatePoint[]>(`/v0/vaults-v2/${selector}/state/history`, { lookback }),
+        // Morpho's APY points are trailing averages (seven_days → 1-day, thirty_days → 7-day,
+        // ninety_days / inception → 30-day), not per-bucket APY.
+        morphoRestGet<Array<{ timestamp: number; apy: number | null }>>(
+          `/v0/vaults-v2/${selector}/apy/history`,
+          { lookback }
+        ).catch(() => []),
+        getRestVault(chainId, address),
+      ]);
+    } catch (error) {
+      if (isMorphoRestRateLimited(error)) {
         return NextResponse.json({ ...MORPHO_RATE_LIMIT_BODY, history: [], period }, { status: 503 });
       }
-      throw new Error(`Morpho API error: ${response.status}`);
+      if (isMorphoRestNotFound(error)) {
+        return NextResponse.json({ history: [], period, cached: false, timestamp: Date.now() });
+      }
+      throw error;
     }
 
-    const data = JSON.parse(responseText);
-
-    const hasNotFoundError = data.errors?.some((err: GraphQLError) => 
-      err.status === 'NOT_FOUND' || err.message?.includes('No results matching')
-    );
-    
-    if (data.errors && !hasNotFoundError) {
-      logger.error(
-        'GraphQL errors in V2 history query',
-        new Error(data.errors[0]?.message || 'GraphQL query failed'),
-        { address, chainId, period, errors: data.errors }
-      );
-      return NextResponse.json({
-        history: [],
-        period,
-        cached: false,
-        timestamp: Date.now(),
-        error: data.errors[0]?.message || 'GraphQL query failed',
-      });
-    }
-    
-    if (hasNotFoundError) {
-      logger.warn(
-        'V2 vault not found or has no historical data',
-        { address, chainId, period, errors: data.errors }
-      );
+    const assetDecimals = vault.asset.decimals ?? 18;
+    // USD uses today's price for every point: REST has no historical prices.
+    const assetPriceUsd = (await tryGetRestTokenPriceUsd(chainId, vault.asset.address)) ?? 0;
+    const apyMap = new Map<number, number>();
+    for (const point of apyPoints ?? []) {
+      if (typeof point.apy === 'number' && Number.isFinite(point.apy)) apyMap.set(point.timestamp, point.apy);
     }
 
-    const vaultData = data.data?.vaultV2ByAddress;
-    
-    if (!vaultData) {
-      logger.warn(
-        'No vault data returned from GraphQL for V2 history',
-        { address, chainId, period, data: data.data }
-      );
-      return NextResponse.json({
-        history: [],
-        period,
-        cached: false,
-        timestamp: Date.now(),
-      });
-    }
-    
-    if (!vaultData.historicalState) {
-      logger.warn(
-        'No historicalState returned from GraphQL for V2 vault',
-        { address, chainId, period, vaultData: { address: vaultData.address, name: vaultData.name } }
-      );
-      return NextResponse.json({
-        history: [],
-        period,
-        cached: false,
-        timestamp: Date.now(),
-      });
-    }
-    
-    const netApyData = vaultData.historicalState.avgNetApy || [];
-    const apyData = netApyData;
-    const totalAssetsUsdData = vaultData.historicalState.totalAssetsUsd || [];
-    const totalAssetsData = vaultData.historicalState.totalAssets || [];
-    // V2 vaults don't have sharePrice in historicalState - must calculate from totalAssets/totalSupply
-    const totalSupplyData = vaultData.historicalState.totalSupply || [];
-    
-    const assetDecimals = vaultData.asset?.decimals || 18;
-    const assetPriceUsd = resolveMorphoAssetPriceUsd(vaultData.asset);
-
-    const timestamps = new Set<number>();
-    netApyData.forEach((point: { x: number; y: number }) => timestamps.add(point.x));
-    totalAssetsUsdData.forEach((point: { x: number; y: number }) => timestamps.add(point.x));
-    totalAssetsData.forEach((point: { x: number; y: number }) => timestamps.add(point.x));
-    totalSupplyData.forEach((point: { x: number; y: number }) => timestamps.add(point.x));
-
-    const apyMap = new Map(apyData.map((p: { x: number; y: number }) => [p.x, p.y]));
-    const netApyMap = new Map(netApyData.map((p: { x: number; y: number }) => [p.x, p.y]));
-    const totalAssetsUsdMap = new Map(totalAssetsUsdData.map((p: { x: number; y: number }) => [p.x, p.y]));
-    const totalAssetsMap = new Map(totalAssetsData.map((p: { x: number; y: number }) => [p.x, p.y]));
-    const totalSupplyMap = new Map(totalSupplyData.map((p: { x: number; y: number }) => [p.x, p.y]));
-
-    // If no timestamps found, return empty history
-    if (timestamps.size === 0) {
-      return NextResponse.json({
-        history: [],
-        period,
-        cached: false,
-        timestamp: Date.now(),
-      });
-    }
-
-    const rawHistory = Array.from(timestamps)
-      .sort((a, b) => a - b)
-      .map((timestamp) => {
-        const apy = apyMap.get(timestamp) || 0;
-        const netApy = netApyMap.get(timestamp) || 0;
-        const totalAssetsUsd: number = (totalAssetsUsdMap.get(timestamp) || 0) as number;
-        const totalAssetsRawValue = totalAssetsMap.get(timestamp);
-        
-        let totalAssets: number = 0;
-        if (totalAssetsRawValue !== undefined && totalAssetsRawValue !== null) {
-          let rawValue: number = 0;
-          if (typeof totalAssetsRawValue === 'string') {
-            rawValue = parseFloat(totalAssetsRawValue);
-          } else if (typeof totalAssetsRawValue === 'number') {
-            rawValue = totalAssetsRawValue;
-          }
-          
-          if (rawValue > 0 && !isNaN(rawValue) && isFinite(rawValue)) {
-            const convertedValue = rawValue / Math.pow(10, assetDecimals);
-            
-            if (typeof assetPriceUsd === 'number' && assetPriceUsd > 0 && 
-                typeof totalAssetsUsd === 'number' && totalAssetsUsd > 0) {
-              const expectedFromUsd = totalAssetsUsd / assetPriceUsd;
-              
-              let ratioConverted = 0;
-              let ratioRaw = 0;
-              
-              if (convertedValue > 0) {
-                ratioConverted = expectedFromUsd / convertedValue;
-              }
-              if (rawValue > 0) {
-                ratioRaw = expectedFromUsd / rawValue;
-              }
-              
-              if (convertedValue > 0 && (ratioConverted > 100 || ratioConverted < 0.01)) {
-                if (ratioRaw > 0.5 && ratioRaw < 2) {
-                  totalAssets = rawValue;
-                } else {
-                  totalAssets = convertedValue;
-                }
-              } else if (convertedValue > 0) {
-                totalAssets = convertedValue;
-              } else {
-                totalAssets = rawValue;
-              }
-            } else {
-              totalAssets = convertedValue > 0 ? convertedValue : rawValue;
-            }
-          }
-        }
-        
-        let historicalAssetPriceUsd = assetPriceUsd;
-        if (totalAssets > 0 && totalAssetsUsd > 0) {
-          historicalAssetPriceUsd = totalAssetsUsd / totalAssets;
-        }
-        
-        const historicalTotalSupplyRaw = totalSupplyMap.get(timestamp);
-        
-        // For v2 vaults, calculate sharePrice from totalAssets/totalSupply
-        let sharePrice: number = 0;
-        if (totalAssets > 0 && historicalTotalSupplyRaw !== undefined && historicalTotalSupplyRaw !== null) {
-          const totalSupplyRaw = typeof historicalTotalSupplyRaw === 'string' 
-            ? parseFloat(historicalTotalSupplyRaw)
-            : (typeof historicalTotalSupplyRaw === 'number' ? historicalTotalSupplyRaw : 0);
-          if (totalSupplyRaw > 0) {
-            const totalSupplyDecimal = totalSupplyRaw / 1e18;
-            if (totalSupplyDecimal > 0) {
-              sharePrice = totalAssets / totalSupplyDecimal;
-            }
-          }
-        }
-        
-        // Calculate sharePriceUsd for v2
-        let sharePriceUsd: number = 0;
-        if (sharePrice > 0 && historicalAssetPriceUsd > 0) {
-          sharePriceUsd = sharePrice * historicalAssetPriceUsd;
-        } else if (historicalTotalSupplyRaw !== undefined && historicalTotalSupplyRaw !== null) {
-          const totalSupplyRaw = typeof historicalTotalSupplyRaw === 'string' 
-            ? parseFloat(historicalTotalSupplyRaw)
-            : (typeof historicalTotalSupplyRaw === 'number' ? historicalTotalSupplyRaw : 0);
-          if (totalSupplyRaw > 0) {
-            const totalSupplyDecimal = totalSupplyRaw / 1e18;
-            if (totalSupplyDecimal > 0 && totalAssetsUsd > 0) {
-              sharePriceUsd = totalAssetsUsd / totalSupplyDecimal;
-            }
-          }
-        }
-        
-        const apyValue = typeof apy === 'number' ? apy : 0;
-        // Morpho can leave an APY bucket out while other series have that timestamp; it is
-        // plotted as 0 but must not count as a real 0% in averages.
-        const hasApy = typeof apyMap.get(timestamp) === 'number';
-        const netApyValue = typeof netApy === 'number' ? netApy : 0;
-
+    const rawHistory = [...(statePoints ?? [])]
+      .filter((point) => Number.isFinite(point.timestamp))
+      .sort((x, y) => x.timestamp - y.timestamp)
+      .map((point) => {
+        const totalAssets = rawToNumber(point.total_assets, assetDecimals);
+        const sharePrice = point.share_price_ray ? Number(toBigInt(point.share_price_ray) / BigInt(1e9)) / 1e18 : 0;
+        const apy = apyMap.get(point.timestamp);
         return {
-          timestamp,
-          date: new Date(timestamp * 1000).toISOString().split('T')[0],
-          totalAssetsUsd,
+          timestamp: point.timestamp,
+          date: new Date(point.timestamp * 1000).toISOString().split('T')[0],
+          totalAssetsUsd: totalAssets * assetPriceUsd,
           totalAssets,
-          sharePrice: sharePrice || 0,
-          sharePriceUsd: sharePriceUsd || 0,
-          assetPriceUsd: historicalAssetPriceUsd,
-          apy: apyValue * 100,
-          netApy: netApyValue * 100,
-          hasApy,
+          sharePrice,
+          sharePriceUsd: sharePrice * assetPriceUsd,
+          assetPriceUsd,
+          apy: (apy ?? 0) * 100,
+          netApy: (apy ?? 0) * 100,
+          // A bucket with no APY is plotted as a gap, not a real 0%.
+          hasApy: apy !== undefined,
         };
       })
-      .filter(item => {
-        // Only filter by MIN_VALID_TIMESTAMP if it's a reasonable date (not in the future)
-        const now = Math.floor(Date.now() / 1000);
-        if (MIN_VALID_TIMESTAMP > now) {
-          return true; // Don't filter if MIN_VALID_TIMESTAMP is in the future
-        }
-        return item.timestamp >= MIN_VALID_TIMESTAMP;
-      });
+      .filter((item) => item.timestamp >= MIN_VALID_TIMESTAMP && item.timestamp >= startTime);
 
     const history = stripIncompleteVaultHistoryBuckets(rawHistory);
 
@@ -335,7 +130,7 @@ export async function GET(
       timestamp: Date.now(),
     }, {
       headers: {
-        'Cache-Control': `public, s-maxage=${MORPHO_GRAPHQL_REVALIDATE_SECONDS}, stale-while-revalidate=${MORPHO_GRAPHQL_REVALIDATE_SECONDS * 2}`,
+        'Cache-Control': `public, s-maxage=${MORPHO_REST_REVALIDATE_SECONDS}, stale-while-revalidate=${MORPHO_REST_REVALIDATE_SECONDS * 2}`,
       }
     });
 

@@ -1,44 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { BASE_CHAIN_ID } from '@/lib/constants';
-
-/** User positions must be fresh — never use the Morpho GraphQL response cache. */
-export const dynamic = 'force-dynamic';
-import {
-  fetchMorphoGraphQL,
-  isMorphoRateLimitError,
-  isTransientMorphoHttpStatus,
-  MORPHO_RATE_LIMIT_BODY,
-  readMorphoGraphQLResponse,
-} from '@/lib/api-utils';
+import { BASE_CHAIN_ID, STABLECOIN_SYMBOLS } from '@/lib/constants';
+import { MORPHO_RATE_LIMIT_BODY } from '@/lib/api-utils';
 import {
   getAssetDecimalsForSymbol,
   morphoAmountToDecimal,
   morphoAmountToRaw,
   normalizeMorphoShares,
+  rawAmountToDecimal,
   resolveMorphoAssetSymbol,
 } from '@/lib/asset-decimals';
 import { isValidEthereumAddress, findVaultByAddress, preferredVaultName } from '@/lib/vault-utils';
 import { logger } from '@/lib/logger';
+import { isMorphoRestRateLimited, MorphoRestError, morphoRestList } from '@/lib/morpho-rest';
+import { getRestVault, tryGetRestTokenPriceUsd, toBigInt } from '@/lib/morpho-rest-data';
+import { fetchPositionNetEarnings } from '@/lib/morpho-rest-wallet';
 
-interface MorphoV2PositionItem {
-  assets: number | string;
-  assetsUsd: number;
-  shares: number | string;
-  pnl?: number | string;
-  pnlUsd?: number;
-  vault: {
-    address: string;
-    name: string;
-    symbol?: string;
-    asset?: { symbol?: string; decimals?: number };
-  };
-}
+/** User positions must be fresh — never cached. */
+export const dynamic = 'force-dynamic';
 
-interface UserPositionsGraphQL {
-  userByAddress?: {
-    vaultV2Positions: MorphoV2PositionItem[];
-  };
-}
+type RestUserPosition = {
+  chain_id: number;
+  vault_address: string;
+  shares: string;
+  assets: string;
+};
 
 function mapPosition(
   vaultAddress: string,
@@ -90,118 +75,68 @@ export async function GET(request: NextRequest) {
   }
   const includeEmpty = searchParams.get('includeEmpty') === 'true';
 
-  const query = `
-    query UserMorphoPositions($address: String!, $chainId: Int!) {
-      userByAddress(address: $address, chainId: $chainId) {
-        vaultV2Positions {
-          assets
-          assetsUsd
-          shares
-          pnl
-          pnlUsd
-          vault {
-            address
-            name
-            symbol
-            asset {
-              symbol
-              decimals
-            }
-          }
-        }
-      }
-    }
-  `;
-
   try {
-    const response = await fetchMorphoGraphQL(
-      {
-        query,
-        variables: { address: userAddress, chainId },
-      },
-      { timeoutMs: 20_000, revalidate: 0, skipMemoryCache: true }
+    // REST rows carry shares and assets only; name, asset, USD and profit come from other reads.
+    const rows = await morphoRestList<RestUserPosition>(
+      `/v0/vaults-v2/users/${userAddress}/positions`,
+      { chain_ids: chainId, active_only: includeEmpty ? false : true },
+      { revalidate: 0, timeoutMs: 20_000 }
     );
+    const kept = rows.filter((row) => includeEmpty || toBigInt(row.shares) > BigInt(0));
 
-    if (!response.ok) {
-      const { responseText, rateLimited } = await readMorphoGraphQLResponse(response);
-      if (rateLimited || isMorphoRateLimitError(response.status, responseText)) {
-        return NextResponse.json(
-          { ...MORPHO_RATE_LIMIT_BODY, positions: [] },
-          { status: 503 }
-        );
-      }
-      if (isTransientMorphoHttpStatus(response.status)) {
-        logger.warn('Morpho positions upstream temporarily unavailable', {
-          userAddress,
-          status: response.status,
-        });
-        return NextResponse.json(
-          {
-            error: 'Morpho API temporarily unavailable',
-            positions: [],
-            retryable: true,
-          },
-          { status: 503 }
-        );
-      }
-      throw new Error(`Morpho API returned ${response.status}`);
-    }
-
-    const json = (await response.json()) as {
-      data?: UserPositionsGraphQL;
-      errors?: Array<{ message: string }>;
-    };
-
-    if (json.errors?.length) {
-      throw new Error(json.errors[0].message);
-    }
-
-    const v2Raw = json.data?.userByAddress?.vaultV2Positions ?? [];
-
-    const positions = v2Raw
-      .filter((p) => {
-        if (includeEmpty) return true;
-        const sharesRaw = normalizeMorphoShares(p.shares);
-        try {
-          return BigInt(sharesRaw) > BigInt(0);
-        } catch {
-          return false;
-        }
-      })
-      .map((p) => {
-        const registryVault = findVaultByAddress(p.vault.address);
-        const assetDecimalsFromApi = p.vault.asset?.decimals ?? null;
+    const positions = await Promise.all(
+      kept.map(async (row) => {
+        const registryVault = findVaultByAddress(row.vault_address);
+        const vault = await getRestVault(chainId, row.vault_address).catch(() => null);
+        const assetDecimalsFromApi = vault?.asset.decimals ?? null;
         const assetSymbol = resolveMorphoAssetSymbol({
           registrySymbol: registryVault?.symbol,
-          assetSymbol: p.vault.asset?.symbol,
-          vaultSymbol: p.vault.symbol,
+          assetSymbol: vault?.asset.symbol,
+          vaultSymbol: vault?.symbol,
           assetDecimals: assetDecimalsFromApi,
-          vaultName: p.vault.name,
+          vaultName: vault?.name ?? undefined,
         });
-        const resolvedDecimals =
-          assetDecimalsFromApi ?? getAssetDecimalsForSymbol(assetSymbol);
+        const decimals = assetDecimalsFromApi ?? getAssetDecimalsForSymbol(assetSymbol);
+        const open = toBigInt(row.shares) > BigInt(0);
+        const [price, pnl] = await Promise.all([
+          vault ? tryGetRestTokenPriceUsd(chainId, vault.asset.address) : Promise.resolve(null),
+          // Profit only matters for an open position (an emptied row shows nothing).
+          open ? fetchPositionNetEarnings(chainId, row.vault_address, userAddress).catch(() => undefined) : undefined,
+        ]);
+        const priceUsd =
+          price ??
+          (STABLECOIN_SYMBOLS.includes(assetSymbol.toUpperCase() as (typeof STABLECOIN_SYMBOLS)[number]) ? 1 : 0);
+        const assetsUsd = rawAmountToDecimal(toBigInt(row.assets), decimals) * priceUsd;
+        const pnlUsd = pnl !== undefined ? rawAmountToDecimal(toBigInt(pnl), decimals) * priceUsd : undefined;
         return mapPosition(
-          p.vault.address,
-          p.vault.name,
+          row.vault_address,
+          vault?.name ?? '',
           assetSymbol,
-          resolvedDecimals,
-          p.shares,
-          p.assets,
-          p.assetsUsd,
-          p.pnl,
-          p.pnlUsd
+          decimals,
+          row.shares,
+          row.assets,
+          assetsUsd,
+          pnl,
+          pnlUsd
         );
-      });
+      })
+    );
 
-    return NextResponse.json({ positions });
+    return NextResponse.json({ positions }, { headers: { 'Cache-Control': 'private, no-store' } });
   } catch (err) {
+    if (isMorphoRestRateLimited(err)) {
+      return NextResponse.json({ ...MORPHO_RATE_LIMIT_BODY, positions: [] }, { status: 503 });
+    }
+    if (err instanceof MorphoRestError && (err.status === 0 || err.status >= 500)) {
+      logger.warn('Morpho positions upstream temporarily unavailable', { userAddress, status: err.status });
+      return NextResponse.json(
+        { error: 'Morpho API temporarily unavailable', positions: [], retryable: true },
+        { status: 503 }
+      );
+    }
     logger.error('Failed to fetch Morpho user positions', err);
     return NextResponse.json(
-      {
-        error: 'Failed to fetch positions',
-        positions: [],
-        retryable: false,
-      },
+      { error: 'Failed to fetch positions', positions: [], retryable: false },
       { status: 502 }
     );
   }

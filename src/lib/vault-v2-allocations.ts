@@ -1,11 +1,20 @@
-import { fetchMorphoGraphQL, readMorphoGraphQLResponse } from '@/lib/api-utils';
+import { isMorphoRestNotFound, isMorphoRestRateLimited } from '@/lib/morpho-rest';
+import {
+  allRestCaps,
+  getRestVault,
+  getRestVaultAllocations,
+  getRestVaultState,
+  rawToNumber,
+  toBigInt,
+  type RestCap,
+} from '@/lib/morpho-rest-data';
+import { loadMarketDetails, loadPrices } from '@/lib/vault-v2-markets';
 import {
   formatMorphoMarketName,
   getMorphoMarketUrl,
   type MorphoMarketRateType,
 } from '@/lib/morpho-market-url';
 import { resolveAssetDecimals } from '@/lib/asset-decimals';
-import { MORPHO_GRAPHQL_REVALIDATE_SECONDS } from '@/lib/constants';
 import { logger } from '@/lib/logger';
 
 export type VaultAllocationKind = 'market' | 'idle';
@@ -38,179 +47,31 @@ export interface VaultAllocationData {
   allocations: VaultMarketAllocation[];
 }
 
-const MARKET_V1_ADAPTER_SELECTION = `
-          ... on MorphoMarketV1Adapter {
-            positions(first: 100) {
-              items {
-                market {
-                  marketId
-                  lltv
-                  loanAsset {
-                    symbol
-                    decimals
-                  }
-                  collateralAsset {
-                    symbol
-                  }
-                  state {
-                    supplyAssetsUsd
-                    liquidityAssetsUsd
-                    netSupplyApy
-                  }
-                }
-                state {
-                  supplyAssets
-                  supplyAssetsUsd
-                }
-              }
-            }
-          }
-`;
-
-const VAULT_ALLOCATIONS_QUERY = `
-  query VaultV2Allocations($address: String!, $chainId: Int!) {
-    vaultV2ByAddress(address: $address, chainId: $chainId) {
-      idleAssets
-      idleAssetsUsd
-      asset {
-        symbol
-        decimals
-      }
-      adapters(first: 20) {
-        items {
-          __typename
-          ${MARKET_V1_ADAPTER_SELECTION}
-        }
-      }
-      caps(first: 100) {
-        items {
-          type
-          absoluteCap
-          allocation
-          data {
-            __typename
-            ... on MarketV1CapData {
-              market {
-                marketId
-                lltv
-                loanAsset { symbol decimals }
-                collateralAsset { symbol }
-                state {
-                  supplyAssetsUsd
-                  liquidityAssetsUsd
-                  netSupplyApy
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-`;
-
-type AdapterItem = {
-  __typename?: string;
-  positions?: {
-    items?: Array<{
-      market?: {
-        marketId?: string;
-        lltv?: number | string;
-        loanAsset?: { symbol?: string; decimals?: number };
-        collateralAsset?: { symbol?: string };
-        state?: {
-          supplyAssetsUsd?: number;
-          liquidityAssetsUsd?: number;
-          netSupplyApy?: number;
-        };
-      };
-      state?: {
-        supplyAssets?: number | string;
-        supplyAssetsUsd?: number;
-      };
-    }>;
-  };
-};
-
-type CapMarket = NonNullable<NonNullable<AdapterItem['positions']>['items']>[number]['market'];
-
-type VaultAllocationGraphQL = {
-  idleAssets?: number | string;
-  idleAssetsUsd?: number;
-  asset?: {
-    symbol?: string;
-    decimals?: number;
-  };
-  adapters?: { items?: AdapterItem[] };
-  /** Markets the vault may lend to, including ones with nothing allocated. */
-  caps?: {
-    items?: Array<{
-      type?: string | null;
-      absoluteCap?: number | string | null;
-      allocation?: number | string | null;
-      data?: { market?: CapMarket | null } | null;
-    } | null> | null;
-  } | null;
-};
-
-function morphoRawAmount(value: number | string | null | undefined): string {
-  if (value === null || value === undefined) return '0';
-  if (typeof value === 'string') {
-    const trimmed = value.includes('.') ? value.split('.')[0] : value;
-    if (!trimmed || trimmed === '0') return '0';
-    try {
-      return BigInt(trimmed).toString();
-    } catch {
-      return '0';
-    }
-  }
-  if (!Number.isFinite(value) || value <= 0) return '0';
-  if (!Number.isSafeInteger(value)) {
-    return morphoRawAmount(value.toLocaleString('fullwide', { useGrouping: false }));
-  }
-  return BigInt(value).toString();
+/** Market caps with nothing allocated and a cap of 0 are removed markets and stay out. */
+function isListedMarketCap(cap: RestCap): boolean {
+  return toBigInt(cap.absolute_cap) > BigInt(0) || toBigInt(cap.allocated_assets) > BigInt(0);
 }
 
-function addRawAmounts(a: string, b: string): string {
-  try {
-    return (BigInt(a || '0') + BigInt(b || '0')).toString();
-  } catch {
-    return a || '0';
-  }
-}
-
-/** MorphoMarketV1Adapter positions are Blue variable-rate markets. */
-function resolveMorphoAdapterRateType(
-  adapterTypename: string | undefined
-): MorphoMarketRateType {
-  if (adapterTypename?.toLowerCase().includes('fixed')) return 'fixed';
-  return 'variable';
-}
-
-function isPositiveRaw(raw: string): boolean {
-  try {
-    return BigInt(raw || '0') > BigInt(0);
-  } catch {
-    return false;
-  }
+/** The adapter's live supply in the market (interest included), else the booked allocation. */
+function capSuppliedRaw(cap: RestCap): bigint {
+  const live = toBigInt(cap.expected_supply_assets);
+  return live > BigInt(0) ? live : toBigInt(cap.allocated_assets);
 }
 
 /** Cash not lent to a market. Always present, including at zero: it earns nothing, and its liquidity is the cash itself. */
 function buildIdleRow(args: {
-  id: string;
   assetSymbol: string;
   assetDecimals: number;
-  idleAssetsUsd: number;
-  idleAssetsRaw: string;
+  idleAssetsRaw: bigint;
+  priceUsd: number;
 }): VaultMarketAllocation {
-  const idleAllocatedUsd = Number.isFinite(args.idleAssetsUsd) ? args.idleAssetsUsd : 0;
-
+  const idleAllocatedUsd = rawToNumber(args.idleAssetsRaw, args.assetDecimals) * args.priceUsd;
   return {
-    id: args.id,
+    id: 'idle',
     kind: 'idle',
     name: `${args.assetSymbol} (Idle)`,
     allocatedUsd: idleAllocatedUsd,
-    allocatedAssetsRaw: args.idleAssetsRaw,
+    allocatedAssetsRaw: args.idleAssetsRaw.toString(),
     tokenSymbol: args.assetSymbol,
     tokenDecimals: args.assetDecimals,
     marketSizeUsd: null,
@@ -219,153 +80,74 @@ function buildIdleRow(args: {
   };
 }
 
-function parseMarketRowsFromAdapters(
-  items: AdapterItem[],
-  chainId: number,
-  fallbackAssetSymbol: string
-): VaultMarketAllocation[] {
-  const byMarketId = new Map<string, VaultMarketAllocation>();
+/** Allocation table rows from Morpho REST `/allocations` + each market's params and state. */
+export async function loadVaultV2Allocations(
+  vaultAddress: string,
+  chainId: number
+): Promise<VaultAllocationData> {
+  const [vault, state, allocations] = await Promise.all([
+    getRestVault(chainId, vaultAddress),
+    getRestVaultState(chainId, vaultAddress),
+    getRestVaultAllocations(chainId, vaultAddress),
+  ]);
+  const assetSymbol = vault.asset.symbol ?? 'Asset';
+  const assetDecimals = resolveAssetDecimals(assetSymbol, vault.asset.decimals);
 
-  for (const adapter of items) {
-    if (adapter.__typename !== 'MorphoMarketV1Adapter') continue;
-
-    for (const position of adapter.positions?.items ?? []) {
-      const market = position.market;
-      const marketId = market?.marketId;
-      const loanSymbol = market?.loanAsset?.symbol;
-      const collateralSymbol = market?.collateralAsset?.symbol;
-      const loanDecimals = resolveAssetDecimals(
-        loanSymbol ?? fallbackAssetSymbol,
-        market?.loanAsset?.decimals
-      );
-
-      if (!marketId || !loanSymbol || !collateralSymbol) continue;
-
-      const allocatedUsd = Number(position.state?.supplyAssetsUsd ?? 0);
-      const allocatedAssetsRaw = morphoRawAmount(position.state?.supplyAssets);
-      if (allocatedUsd <= 0 && !isPositiveRaw(allocatedAssetsRaw)) continue;
-
-      const marketApy = market.state?.netSupplyApy;
-      const apy =
-        marketApy != null && Number.isFinite(Number(marketApy))
-          ? Number(marketApy)
-          : null;
-
-      const marketSizeUsd = Number(market.state?.supplyAssetsUsd ?? 0);
-      const liquidityUsd = Number(market.state?.liquidityAssetsUsd ?? 0);
-      const rateType = resolveMorphoAdapterRateType(adapter.__typename);
-      const existing = byMarketId.get(marketId);
-      if (existing) {
-        existing.allocatedUsd += allocatedUsd;
-        existing.allocatedAssetsRaw = addRawAmounts(existing.allocatedAssetsRaw, allocatedAssetsRaw);
-        continue;
-      }
-
-      byMarketId.set(marketId, {
-        id: marketId,
-        kind: 'market',
-        marketId,
-        name: formatMorphoMarketName(collateralSymbol, loanSymbol),
-        morphoUrl: getMorphoMarketUrl(chainId, marketId, collateralSymbol, loanSymbol, rateType),
-        allocatedUsd,
-        allocatedAssetsRaw,
-        tokenSymbol: loanSymbol,
-        tokenDecimals: loanDecimals,
-        marketSizeUsd: Number.isFinite(marketSizeUsd) ? marketSizeUsd : null,
-        liquidityUsd: Number.isFinite(liquidityUsd) ? liquidityUsd : null,
-        apy,
-        loanSymbol,
-        collateralSymbol,
-        rateType,
-        lltv: market.lltv ?? null,
-      });
-    }
+  const supplied = new Map<string, bigint>();
+  for (const cap of allRestCaps(allocations)) {
+    if (cap.cap_type !== 'market_v1' || !cap.market_id || !isListedMarketCap(cap)) continue;
+    const id = cap.market_id.toLowerCase();
+    supplied.set(id, (supplied.get(id) ?? BigInt(0)) + capSuppliedRaw(cap));
   }
 
-  return Array.from(byMarketId.values()).sort((a, b) => b.allocatedUsd - a.allocatedUsd);
-}
+  const markets = await loadMarketDetails(chainId, [...supplied.keys()]);
+  const prices = await loadPrices(chainId, [vault.asset.address, ...markets.map((m) => m.loanToken.address)]);
+  const priceOf = (token: string) => prices.get(token.toLowerCase()) ?? 0;
 
-/**
- * Market caps with nothing supplied. A cap at 0 that also holds 0 is a removed
- * market and stays out. Markets already in `allocated` are not repeated.
- */
-function parseUnallocatedMarketRows(
-  caps: VaultAllocationGraphQL['caps'],
-  allocated: readonly VaultMarketAllocation[],
-  chainId: number,
-  fallbackAssetSymbol: string
-): VaultMarketAllocation[] {
-  const seen = new Set(
-    allocated.map((row) => row.marketId).filter((id): id is string => !!id)
-  );
-  const rows: VaultMarketAllocation[] = [];
-
-  for (const cap of caps?.items ?? []) {
-    const market = cap?.data?.market;
-    const marketId = market?.marketId;
-    const loanSymbol = market?.loanAsset?.symbol;
-    const collateralSymbol = market?.collateralAsset?.symbol;
-    if (!marketId || !loanSymbol || !collateralSymbol || seen.has(marketId)) continue;
-    if (morphoRawAmount(cap?.absoluteCap) === '0' && morphoRawAmount(cap?.allocation) === '0') {
-      continue;
-    }
-    seen.add(marketId);
-
-    const marketSizeUsd = Number(market?.state?.supplyAssetsUsd ?? 0);
-    const liquidityUsd = Number(market?.state?.liquidityAssetsUsd ?? 0);
-    const marketApy = market?.state?.netSupplyApy;
-    const apy =
-      marketApy != null && Number.isFinite(Number(marketApy)) ? Number(marketApy) : null;
-    const rateType: MorphoMarketRateType =
-      cap?.type?.toLowerCase().includes('fixed') ? 'fixed' : 'variable';
-
-    rows.push({
-      id: marketId,
+  const marketRows: VaultMarketAllocation[] = markets.map((m) => {
+    const raw = supplied.get(m.marketId) ?? BigInt(0);
+    const loanSymbol = m.loanToken.symbol ?? assetSymbol;
+    const collateralSymbol = m.collateralToken?.symbol ?? '?';
+    const loanDecimals = resolveAssetDecimals(loanSymbol, m.loanToken.decimals);
+    const price = priceOf(m.loanToken.address);
+    const supply = toBigInt(m.state.total_supply_assets);
+    const borrow = toBigInt(m.state.total_borrow_assets);
+    const rateType: MorphoMarketRateType = 'variable';
+    return {
+      id: m.marketId,
       kind: 'market',
-      marketId,
+      marketId: m.marketId,
       name: formatMorphoMarketName(collateralSymbol, loanSymbol),
-      morphoUrl: getMorphoMarketUrl(chainId, marketId, collateralSymbol, loanSymbol, rateType),
-      allocatedUsd: 0,
-      allocatedAssetsRaw: '0',
+      morphoUrl: getMorphoMarketUrl(chainId, m.marketId, collateralSymbol, loanSymbol, rateType),
+      allocatedUsd: rawToNumber(raw, loanDecimals) * price,
+      allocatedAssetsRaw: raw.toString(),
       tokenSymbol: loanSymbol,
-      tokenDecimals: resolveAssetDecimals(loanSymbol ?? fallbackAssetSymbol, market?.loanAsset?.decimals),
-      marketSizeUsd: Number.isFinite(marketSizeUsd) ? marketSizeUsd : null,
-      liquidityUsd: Number.isFinite(liquidityUsd) ? liquidityUsd : null,
-      apy,
+      tokenDecimals: loanDecimals,
+      marketSizeUsd: rawToNumber(supply, loanDecimals) * price,
+      liquidityUsd: rawToNumber(supply > borrow ? supply - borrow : BigInt(0), loanDecimals) * price,
+      apy: m.supplyApy,
       loanSymbol,
       collateralSymbol,
       rateType,
-      lltv: market?.lltv ?? null,
-    });
-  }
-
-  return rows.sort((a, b) => a.name.localeCompare(b.name));
-}
-
-export function parseVaultV2AllocationsFromGraphQL(
-  vault: VaultAllocationGraphQL,
-  chainId: number
-): VaultAllocationData {
-  const assetSymbol = vault.asset?.symbol ?? 'Asset';
-  const assetDecimals = resolveAssetDecimals(assetSymbol, vault.asset?.decimals);
-  const items = vault.adapters?.items ?? [];
-  const suppliedMarkets = parseMarketRowsFromAdapters(items, chainId, assetSymbol);
-  const marketRows = [
-    ...suppliedMarkets,
-    ...parseUnallocatedMarketRows(vault.caps, suppliedMarkets, chainId, assetSymbol),
-  ];
-
-  const idleRow = buildIdleRow({
-    id: 'idle',
-    assetSymbol,
-    assetDecimals,
-    idleAssetsUsd: Number(vault.idleAssetsUsd ?? 0),
-    idleAssetsRaw: morphoRawAmount(vault.idleAssets),
+      lltv: m.market.lltv_wad ?? null,
+    };
   });
 
-  const allocations = [idleRow, ...marketRows];
+  const funded = marketRows
+    .filter((row) => toBigInt(row.allocatedAssetsRaw) > BigInt(0))
+    .sort((a, b) => b.allocatedUsd - a.allocatedUsd);
+  const unfunded = marketRows
+    .filter((row) => toBigInt(row.allocatedAssetsRaw) === BigInt(0))
+    .sort((a, b) => a.name.localeCompare(b.name));
 
-  return { allocations };
+  const idleRow = buildIdleRow({
+    assetSymbol,
+    assetDecimals,
+    idleAssetsRaw: toBigInt(state.idle_assets),
+    priceUsd: priceOf(vault.asset.address),
+  });
+
+  return { allocations: [idleRow, ...funded, ...unfunded] };
 }
 
 export async function fetchVaultV2AllocationData(
@@ -373,60 +155,17 @@ export async function fetchVaultV2AllocationData(
   chainId: number
 ): Promise<VaultAllocationData & { error?: string; rateLimited?: boolean }> {
   try {
-    const response = await fetchMorphoGraphQL(
-      {
-        query: VAULT_ALLOCATIONS_QUERY,
-        variables: { address: vaultAddress, chainId },
-      },
-      {
-        revalidate: MORPHO_GRAPHQL_REVALIDATE_SECONDS,
-        tags: [`vault-allocations-${vaultAddress}-${chainId}`],
-      }
-    );
-
-    const { responseText, rateLimited } = await readMorphoGraphQLResponse(response);
-
-    if (!response.ok) {
-      if (rateLimited) {
-        return {
-          allocations: [],
-          error: 'Morpho API rate limit exceeded',
-          rateLimited: true,
-        };
-      }
-      return { allocations: [], error: `Morpho API error: ${response.status}` };
-    }
-
-    const data = JSON.parse(responseText) as {
-      errors?: unknown[];
-      data?: { vaultV2ByAddress?: VaultAllocationGraphQL };
-    };
-
-    if (data.errors?.length) {
-      logger.warn('Vault allocations GraphQL errors', {
-        vaultAddress,
-        chainId,
-        errors: data.errors,
-      });
-      return { allocations: [], error: 'Failed to load market allocations' };
-    }
-
-    const vault = data.data?.vaultV2ByAddress;
-    if (!vault) {
-      return { allocations: [], error: 'Vault not found' };
-    }
-
-    const parsed = parseVaultV2AllocationsFromGraphQL(vault, chainId);
-    return parsed;
+    return await loadVaultV2Allocations(vaultAddress, chainId);
   } catch (err) {
+    if (isMorphoRestNotFound(err)) return { allocations: [], error: 'Vault not found' };
+    if (isMorphoRestRateLimited(err)) {
+      return { allocations: [], error: 'Morpho API rate limit exceeded', rateLimited: true };
+    }
     logger.error(
       'Failed to fetch vault market allocations',
       err instanceof Error ? err : new Error(String(err)),
       { vaultAddress, chainId }
     );
-    return {
-      allocations: [],
-      error: err instanceof Error ? err.message : 'Failed to load market allocations',
-    };
+    return { allocations: [], error: 'Failed to load market allocations' };
   }
 }

@@ -3,7 +3,7 @@
 import type { ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { MorphoVaultData } from '@/types/vault';
-import { MORPHO_DISCLAIMER_URL, MORPHO_GRAPHQL_REVALIDATE_SECONDS } from '@/lib/constants';
+import { MORPHO_DISCLAIMER_URL, MORPHO_REST_REVALIDATE_SECONDS } from '@/lib/constants';
 import { useUnixTimestamp } from '@/hooks/useClientOnly';
 import type { PendingChangeDirection, VaultPendingChange } from '@/lib/vault-v2-pending';
 import { getMorphoVaultUrl } from '@/lib/liquidity-utils';
@@ -70,7 +70,7 @@ const PENDING_COLLAPSE_AFTER = 5;
 function PendingChanges({ vaultData }: { vaultData: MorphoVaultData }) {
   const { data: pending } = useQuery({
     queryKey: ['vault-pending', vaultData.address.toLowerCase(), vaultData.chainId],
-    staleTime: MORPHO_GRAPHQL_REVALIDATE_SECONDS * 1000,
+    staleTime: MORPHO_REST_REVALIDATE_SECONDS * 1000,
     retry: 1,
     queryFn: () => fetchPendingChanges(vaultData.address, vaultData.chainId),
   });

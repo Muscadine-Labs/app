@@ -1,26 +1,4 @@
-import { logger } from '@/lib/logger';
-import {
-  BASE_CHAIN_ID,
-  MORPHO_FETCH_TIMEOUT_MS,
-  MORPHO_GRAPHQL_REVALIDATE_SECONDS,
-  MORPHO_GRAPHQL_URL,
-  MORPHO_MAX_RETRIES,
-  MORPHO_MEMORY_CACHE_MS,
-} from '@/lib/constants';
-
-let morphoGraphqlCallCount = 0;
-
-function logMorphoGraphqlCall(body: { query: string; variables?: Record<string, unknown> }) {
-  if (process.env.NODE_ENV !== 'development') return;
-  morphoGraphqlCallCount += 1;
-  if (morphoGraphqlCallCount === 1 || morphoGraphqlCallCount % 25 === 0) {
-    const opMatch = body.query.match(/(?:query|mutation)\s+(\w+)/);
-    logger.debug('Morpho GraphQL upstream call', {
-      count: morphoGraphqlCallCount,
-      operation: opMatch?.[1] ?? 'anonymous',
-    });
-  }
-}
+import { BASE_CHAIN_ID } from '@/lib/constants';
 
 // Minimum timestamp for valid data (October 7, 2025 00:00:00 UTC)
 export const MIN_VALID_TIMESTAMP = 1759795200;
@@ -47,89 +25,23 @@ export const PERIOD_SECONDS: Record<string, number> = {
   '1y': 365 * 24 * 60 * 60,
 };
 
-export const INTERVAL_MAP: Record<string, string> = {
-  '7d': 'HOUR',
-  '30d': 'HOUR',
-  '90d': 'DAY',
-  '1y': 'DAY',
-  'all': 'DAY',
-};
+/** Morpho REST position-history lookback per chart period (`one_year` is weekly, so 1y reads inception). */
+export const POSITION_LOOKBACK = {
+  '7d': 'seven_days',
+  '30d': 'thirty_days',
+  '90d': 'ninety_days',
+  '1y': 'inception',
+  all: 'inception',
+} as const satisfies Record<ValidPeriod, string>;
 
-type MorphoCacheEntry = {
-  expiresAt: number;
-  responseText: string;
-  status: number;
-  ok: boolean;
-};
-
-const morphoResponseCache = new Map<string, MorphoCacheEntry>();
-const MORPHO_MEMORY_CACHE_MAX_ENTRIES = 50;
-/** An expired entry is kept this long so a rate-limited request can still serve it. */
-const MORPHO_STALE_ON_RATE_LIMIT_MS = 10 * 60_000;
-/** Longest a route handler waits on Morpho's Retry-After before retrying. */
-const MORPHO_MAX_RETRY_WAIT_MS = 3_000;
-
-function pruneMorphoResponseCache(now: number) {
-  for (const [key, entry] of morphoResponseCache) {
-    if (entry.expiresAt + MORPHO_STALE_ON_RATE_LIMIT_MS <= now) {
-      morphoResponseCache.delete(key);
-    }
+/** Spacing of a REST timeseries (its smallest gap), hourly when it has under two points. */
+export function bucketSeconds(points: ReadonlyArray<{ timestamp: number }>): number {
+  let gap = Number.POSITIVE_INFINITY;
+  for (let i = 1; i < points.length; i++) {
+    const d = points[i]!.timestamp - points[i - 1]!.timestamp;
+    if (d > 0 && d < gap) gap = d;
   }
-  while (morphoResponseCache.size >= MORPHO_MEMORY_CACHE_MAX_ENTRIES) {
-    const oldestKey = morphoResponseCache.keys().next().value;
-    if (oldestKey === undefined) break;
-    morphoResponseCache.delete(oldestKey);
-  }
-}
-
-function morphoMemoryCacheTtlMs(): number {
-  return MORPHO_MEMORY_CACHE_MS;
-}
-
-function morphoCacheKey(body: { query: string; variables?: Record<string, unknown> }): string {
-  return JSON.stringify(body);
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function toMorphoResponse(entry: MorphoCacheEntry): Response {
-  return new Response(entry.responseText, {
-    status: entry.status,
-    headers: { 'Content-Type': 'application/json' },
-  });
-}
-
-export type MorphoAssetPriceFields = {
-  price?: { usd?: number | null } | null;
-};
-
-/** Read USD price from Morpho Asset (`price.usd`). */
-export function resolveMorphoAssetPriceUsd(
-  asset: MorphoAssetPriceFields | null | undefined,
-  fallback = 0
-): number {
-  const usd = asset?.price?.usd;
-  if (typeof usd === 'number' && Number.isFinite(usd) && usd > 0) {
-    return usd;
-  }
-  return fallback;
-}
-
-export function isMorphoRateLimitError(status: number, responseText: string): boolean {
-  if (status === 429) return true;
-  try {
-    const parsed = JSON.parse(responseText) as { error?: string };
-    return parsed.error === 'public_blue_api_rate_limit_exceeded';
-  } catch {
-    return false;
-  }
-}
-
-/** Upstream blips that are worth retrying (wallet switch bursts often hit these). */
-export function isTransientMorphoHttpStatus(status: number): boolean {
-  return status === 429 || status === 502 || status === 503 || status === 504;
+  return Number.isFinite(gap) ? gap : 60 * 60;
 }
 
 /** Shared 503 payload when Morpho public API rate limit is hit. */
@@ -138,132 +50,6 @@ export const MORPHO_RATE_LIMIT_BODY = {
   details: 'Too many requests to Morpho. Wait a few minutes and retry.',
   retryable: true,
 } as const;
-
-export async function readMorphoGraphQLResponse(response: Response): Promise<{
-  responseText: string;
-  rateLimited: boolean;
-}> {
-  const responseText = await response.text();
-  return {
-    responseText,
-    rateLimited: isMorphoRateLimitError(response.status, responseText),
-  };
-}
-
-/** POST to Morpho GraphQL with cache TTL, in-memory dev cache, retries, and abort timeout. */
-export async function fetchMorphoGraphQL(
-  body: { query: string; variables?: Record<string, unknown> },
-  options?: {
-    revalidate?: number;
-    timeoutMs?: number;
-    tags?: string[];
-    /** Bypass the 60s in-memory cache (required for user-specific reads). */
-    skipMemoryCache?: boolean;
-    /**
-     * In-memory cache identity when the body changes on every call (e.g. an `endTimestamp` of
-     * now), so a rate-limited request can still fall back to the last good response.
-     */
-    cacheKey?: string;
-  }
-): Promise<Response> {
-  const cacheKey = options?.cacheKey ?? morphoCacheKey(body);
-  const now = Date.now();
-  pruneMorphoResponseCache(now);
-  const skipMemoryCache =
-    options?.skipMemoryCache === true || options?.revalidate === 0;
-  const cached = skipMemoryCache ? undefined : morphoResponseCache.get(cacheKey);
-
-  if (cached && cached.expiresAt > now) {
-    return toMorphoResponse(cached);
-  }
-
-  let lastEntry: MorphoCacheEntry | null = null;
-
-  for (let attempt = 1; attempt <= MORPHO_MAX_RETRIES; attempt++) {
-    const controller = new AbortController();
-    const timeoutMs = options?.timeoutMs ?? MORPHO_FETCH_TIMEOUT_MS;
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
-    let response: Response | undefined;
-    let responseText: string;
-
-    try {
-      logMorphoGraphqlCall(body);
-      response = await fetch(MORPHO_GRAPHQL_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-        next: {
-          revalidate: options?.revalidate ?? MORPHO_GRAPHQL_REVALIDATE_SECONDS,
-          ...(options?.tags ? { tags: options.tags } : {}),
-        },
-      });
-      responseText = await response.text();
-    } catch {
-      if (attempt < MORPHO_MAX_RETRIES) {
-        await sleep(1500 * attempt);
-        continue;
-      }
-      break;
-    } finally {
-      clearTimeout(timeoutId);
-    }
-
-    if (!response) break;
-
-    const entry: MorphoCacheEntry = {
-      expiresAt: now + morphoMemoryCacheTtlMs(),
-      responseText,
-      status: response.status,
-      ok: response.ok,
-    };
-    lastEntry = entry;
-
-    if (response.ok) {
-      if (!skipMemoryCache) {
-        morphoResponseCache.set(cacheKey, entry);
-      }
-      return toMorphoResponse(entry);
-    }
-
-    const rateLimited = isMorphoRateLimitError(response.status, responseText);
-    const transient = isTransientMorphoHttpStatus(response.status);
-
-    if (rateLimited || transient) {
-      if (!skipMemoryCache && rateLimited && cached?.ok) {
-        return toMorphoResponse(cached);
-      }
-      if (attempt < MORPHO_MAX_RETRIES) {
-        const retryAfterHeader = response.headers.get('retry-after');
-        const retryAfterMs = retryAfterHeader
-          ? parseInt(retryAfterHeader, 10) * 1000
-          : Number.NaN;
-        const backoffMs = Number.isFinite(retryAfterMs) ? retryAfterMs : 1500 * attempt;
-        // Morpho can ask for a minute or more; waiting that long inside a route handler hangs
-        // the page and can hit the function timeout. A longer wait means give up now.
-        if (backoffMs > MORPHO_MAX_RETRY_WAIT_MS) break;
-        await sleep(Math.max(0, backoffMs));
-        continue;
-      }
-    }
-
-    break;
-  }
-
-  if (!skipMemoryCache && cached?.ok && lastEntry && isMorphoRateLimitError(lastEntry.status, lastEntry.responseText)) {
-    return toMorphoResponse(cached);
-  }
-
-  if (lastEntry) {
-    return toMorphoResponse(lastEntry);
-  }
-
-  return new Response(JSON.stringify({ error: 'Morpho API request failed' }), {
-    status: 502,
-    headers: { 'Content-Type': 'application/json' },
-  });
-}
 
 function hasVaultTvl<
   T extends { totalAssetsUsd?: number; totalAssets?: number; sharePrice?: number },

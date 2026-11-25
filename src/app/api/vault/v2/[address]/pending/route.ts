@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isValidEthereumAddress } from '@/lib/vault-utils';
 import { isValidChainId, MORPHO_RATE_LIMIT_BODY } from '@/lib/api-utils';
-import { BASE_CHAIN_ID, MORPHO_GRAPHQL_REVALIDATE_SECONDS } from '@/lib/constants';
+import { BASE_CHAIN_ID, MORPHO_REST_REVALIDATE_SECONDS } from '@/lib/constants';
 import { fetchVaultV2Pending } from '@/lib/vault-v2-pending';
 
 export async function GET(
@@ -36,7 +36,7 @@ export async function GET(
 
   return NextResponse.json({ pending }, {
     headers: {
-      'Cache-Control': `public, s-maxage=${MORPHO_GRAPHQL_REVALIDATE_SECONDS}, stale-while-revalidate=${MORPHO_GRAPHQL_REVALIDATE_SECONDS * 2}`,
+      'Cache-Control': `public, s-maxage=${MORPHO_REST_REVALIDATE_SECONDS}, stale-while-revalidate=${MORPHO_REST_REVALIDATE_SECONDS * 2}`,
     },
   });
 }

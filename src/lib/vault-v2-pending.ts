@@ -1,6 +1,13 @@
 import { fetchPendingConfigItems } from '@/lib/vault-v2-pending-submits';
-import { fetchMorphoGraphQL, readMorphoGraphQLResponse } from '@/lib/api-utils';
-import { MORPHO_GRAPHQL_REVALIDATE_SECONDS } from '@/lib/constants';
+import { isMorphoRestNotFound, isMorphoRestRateLimited } from '@/lib/morpho-rest';
+import {
+  allRestCaps,
+  getRestVault,
+  getRestVaultAllocations,
+  managementFeePerYear,
+  wadToFraction,
+} from '@/lib/morpho-rest-data';
+import { loadMarketDetails } from '@/lib/vault-v2-markets';
 import { logger } from '@/lib/logger';
 
 /**
@@ -18,28 +25,10 @@ export interface VaultPendingChange {
   validAt: number;
 }
 
-const VAULT_PENDING_QUERY = `
-  query VaultV2PendingChanges($address: String!, $chainId: Int!) {
-    vaultV2ByAddress(address: $address, chainId: $chainId) {
-      performanceFee
-      managementFee
-      caps(first: 100) {
-        items {
-          id
-          data {
-            ... on MarketV1CapData {
-              market { collateralAsset { symbol } loanAsset { symbol } }
-            }
-          }
-        }
-      }
-    }
-  }
-`;
-
 type NumericLike = string | number | null | undefined;
 
-export interface VaultPendingGraphQL {
+/** Input to `mapVaultV2Pending`, built from Morpho REST and on-chain reads. */
+export interface VaultPendingInput {
   performanceFee?: number | null;
   managementFee?: number | null;
   caps?: {
@@ -116,7 +105,7 @@ function feeDirection(pendingWad: NumericLike, currentFraction: number | null | 
 }
 
 /** Plain-language list of the vault's pending timelocked changes. */
-export function mapVaultV2Pending(vault: VaultPendingGraphQL): VaultPendingChange[] {
+export function mapVaultV2Pending(vault: VaultPendingInput): VaultPendingChange[] {
   const capLabels = new Map<string, string>();
   for (const cap of vault.caps?.items ?? []) {
     if (!cap?.id) continue;
@@ -214,38 +203,55 @@ export function mapVaultV2Pending(vault: VaultPendingGraphQL): VaultPendingChang
   return changes.sort((a, b) => (a.validAt || Infinity) - (b.validAt || Infinity));
 }
 
+/** Cap id → plain label ("the cbBTC / USDC market") for the vault's market caps. */
+async function marketCapLabels(
+  chainId: number,
+  allocations: Awaited<ReturnType<typeof getRestVaultAllocations>>
+): Promise<NonNullable<NonNullable<VaultPendingInput['caps']>['items']>> {
+  const marketCaps = allRestCaps(allocations).filter((c) => c.cap_type === 'market_v1' && c.cap_id && c.market_id);
+  const markets = await loadMarketDetails(
+    chainId,
+    [...new Set(marketCaps.map((c) => c.market_id!.toLowerCase()))]
+  ).catch(() => []);
+  const byId = new Map(markets.map((m) => [m.marketId, m]));
+  return marketCaps.map((cap) => {
+    const m = byId.get(cap.market_id!.toLowerCase());
+    return {
+      id: cap.cap_id,
+      data: m
+        ? { market: { collateralAsset: { symbol: m.collateralToken?.symbol ?? null }, loanAsset: { symbol: m.loanToken.symbol } } }
+        : null,
+    };
+  });
+}
+
 export async function fetchVaultV2Pending(
   vaultAddress: string,
   chainId: number
 ): Promise<{ pending: VaultPendingChange[] | null; error?: string; rateLimited?: boolean }> {
   try {
-    const response = await fetchMorphoGraphQL(
-      { query: VAULT_PENDING_QUERY, variables: { address: vaultAddress, chainId } },
-      {
-        revalidate: MORPHO_GRAPHQL_REVALIDATE_SECONDS,
-        tags: [`vault-pending-${vaultAddress}-${chainId}`],
-      }
-    );
-    const { responseText, rateLimited } = await readMorphoGraphQLResponse(response);
-    if (!response.ok) {
-      return rateLimited
-        ? { pending: null, error: 'Morpho API rate limit exceeded', rateLimited: true }
-        : { pending: null, error: `Morpho API error: ${response.status}` };
-    }
-    const json = JSON.parse(responseText) as {
-      errors?: unknown[];
-      data?: { vaultV2ByAddress?: VaultPendingGraphQL | null };
+    // The list comes from the chain (REST has no calldata); fees and labels from Morpho REST.
+    const [pendingConfigs, vault, allocations] = await Promise.all([
+      fetchPendingConfigItems(vaultAddress, chainId),
+      getRestVault(chainId, vaultAddress),
+      getRestVaultAllocations(chainId, vaultAddress),
+    ]);
+    const capItems = pendingConfigs.some((item) => item.decodedData.config?.id)
+      ? await marketCapLabels(chainId, allocations)
+      : [];
+    return {
+      pending: mapVaultV2Pending({
+        performanceFee: wadToFraction(vault.performance_fee_wad) ?? 0,
+        managementFee: managementFeePerYear(vault.management_fee_wad),
+        caps: { items: capItems },
+        pendingConfigs: { items: pendingConfigs },
+      }),
     };
-    if (json.errors?.length) {
-      logger.warn('Vault pending GraphQL errors', { vaultAddress, chainId, errors: json.errors });
-      return { pending: null, error: 'Failed to load pending changes' };
-    }
-    const vault = json.data?.vaultV2ByAddress;
-    if (!vault) return { pending: null, error: 'Vault not found' };
-    // The pending list itself comes from the chain (GraphQL drops its calldata on 2026-12-02).
-    const pendingConfigs = await fetchPendingConfigItems(vaultAddress, chainId);
-    return { pending: mapVaultV2Pending({ ...vault, pendingConfigs: { items: pendingConfigs } }) };
   } catch (error) {
+    if (isMorphoRestNotFound(error)) return { pending: null, error: 'Vault not found' };
+    if (isMorphoRestRateLimited(error)) {
+      return { pending: null, error: 'Morpho API rate limit exceeded', rateLimited: true };
+    }
     logger.error(
       'Vault pending fetch failed',
       error instanceof Error ? error : new Error(String(error)),

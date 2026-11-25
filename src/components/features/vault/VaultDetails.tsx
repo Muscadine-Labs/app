@@ -7,7 +7,7 @@ import type { VaultCapData, VaultCapRow } from '@/lib/vault-v2-caps';
 import CopiableAddress from '@/components/common/CopiableAddress';
 import { formatDashboardTokenAmount, formatPercentage } from '@/lib/formatter';
 import { getMorphoVaultUrl } from '@/lib/liquidity-utils';
-import { MORPHO_GRAPHQL_REVALIDATE_SECONDS } from '@/lib/constants';
+import { MORPHO_REST_REVALIDATE_SECONDS } from '@/lib/constants';
 import { groupTimelocks, maxRateToAnnualPercent } from '@/lib/vault-details';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useVaultDepositGates } from '@/hooks/useVaultDepositGates';
@@ -308,7 +308,7 @@ function CapsTable({ vaultData, enabled }: { vaultData: MorphoVaultData; enabled
   const { data, isPending, error } = useQuery({
     queryKey: ['vault-caps', vaultData.address.toLowerCase(), vaultData.chainId],
     enabled,
-    staleTime: MORPHO_GRAPHQL_REVALIDATE_SECONDS * 1000,
+    staleTime: MORPHO_REST_REVALIDATE_SECONDS * 1000,
     retry: 1,
     queryFn: () => fetchCaps(vaultData.address, vaultData.chainId),
   });

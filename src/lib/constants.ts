@@ -33,16 +33,14 @@ export const MORPHO_DISCLAIMER_URL = 'https://morpho.org/disclaimers' as const;
 /** Delay before follow-up balance refresh after tx (Morpho indexer lag). */
 export const POST_TX_BALANCE_REFRESH_DELAY_MS = 5000;
 
-// Morpho GraphQL API
-export const MORPHO_GRAPHQL_URL = 'https://api.morpho.org/graphql' as const;
-/** Next.js fetch revalidate for Morpho route handlers (seconds). */
-export const MORPHO_GRAPHQL_REVALIDATE_SECONDS = 60; // 60 seconds
+// Morpho REST API (GraphQL shuts down on 2027-01-29; see docs/morpho-rest-migration.md)
+export const MORPHO_REST_URL = 'https://api.morpho.org' as const;
+/** How long vault-level Morpho reads are reused (Next data cache + in-memory), in seconds. */
+export const MORPHO_REST_REVALIDATE_SECONDS = 60;
 /** Browser `VaultDataContext` cache — matches server Morpho route revalidate. */
-export const CLIENT_VAULT_DATA_CACHE_MS = MORPHO_GRAPHQL_REVALIDATE_SECONDS * 1000;
+export const CLIENT_VAULT_DATA_CACHE_MS = MORPHO_REST_REVALIDATE_SECONDS * 1000;
 export const MORPHO_FETCH_TIMEOUT_MS = 10_000;
 export const MORPHO_MAX_RETRIES = 3;
-/** In-memory Morpho response cache TTL in `fetchMorphoGraphQL` (dev and production). */
-export const MORPHO_MEMORY_CACHE_MS = 60_000;
 /** Vault list preload concurrency — small batches avoid Morpho rate-limit bursts. */
 export const MORPHO_PRELOAD_BATCH_SIZE = 4;
 /** Back off failed Morpho fetches (rate limits, 5xx) before retrying the same vault. */
