@@ -18,6 +18,22 @@ against mpUSDC (`8453:0x8971…b496`) on 2026-11-19.
 
 ---
 
+
+## Done: fields Morpho retires on 2026-12-02
+
+Morpho's deprecation warnings give **2026-12-02** for `VaultV2PendingConfig.data`,
+`VaultV2IncreaseCapPendingData.cap` and `CollateralCapData.collateralAddress` (no
+GraphQL replacement; a removed field fails the whole query). Moved already:
+
+- **Pending changes** (`lib/vault-v2-pending-submits.ts`): REST
+  `/v0/vaults-v2/{v}/pending-governance-actions` → submit tx hashes; each
+  receipt's `Submit` events from this vault → calldata; `executableAt(data)` →
+  still pending + countdown; calldata decoded locally for `mapVaultV2Pending`.
+- **Token caps** (`lib/vault-v2-caps.ts`): REST `/v0/vaults-v2/{v}/allocations`
+  → `collateral_address`.
+
+Checked live before the cutoff: same pending change and same token cap count as
+GraphQL on all four vaults.
 ## 1. The new API at a glance
 
 | Topic | REST |

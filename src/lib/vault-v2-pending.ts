@@ -1,5 +1,4 @@
-import { createPublicClient, getAddress, http, parseAbi, type Hex } from 'viem';
-import { base } from 'viem/chains';
+import { fetchPendingConfigItems } from '@/lib/vault-v2-pending-submits';
 import { fetchMorphoGraphQL, readMorphoGraphQLResponse } from '@/lib/api-utils';
 import { MORPHO_GRAPHQL_REVALIDATE_SECONDS } from '@/lib/constants';
 import { logger } from '@/lib/logger';
@@ -31,25 +30,6 @@ const VAULT_PENDING_QUERY = `
             ... on MarketV1CapData {
               market { collateralAsset { symbol } loanAsset { symbol } }
             }
-            ... on CollateralCapData { collateralAddress }
-          }
-        }
-      }
-      pendingConfigs(first: 50) {
-        items {
-          functionName
-          data
-          txHash
-          validAt
-          decodedData {
-            __typename
-            ... on VaultV2AbdicatePendingData { functionName }
-            ... on VaultV2IncreaseCapPendingData { cap config { id type } }
-            ... on VaultV2SetIsAllocatorPendingData { isAllocator }
-            ... on VaultV2SetManagementFeePendingData { managementFee }
-            ... on VaultV2SetPerformanceFeePendingData { performanceFee }
-            ... on VaultV2SetForceDeallocatePenaltyPendingData { forceDeallocatePenalty }
-            ... on VaultV2TimelockPendingData { functionName timelock }
           }
         }
       }
@@ -70,7 +50,6 @@ export interface VaultPendingGraphQL {
           collateralAsset?: { symbol?: string | null } | null;
           loanAsset?: { symbol?: string | null } | null;
         } | null;
-        collateralAddress?: string | null;
       } | null;
     } | null> | null;
   } | null;
@@ -235,54 +214,6 @@ export function mapVaultV2Pending(vault: VaultPendingGraphQL): VaultPendingChang
   return changes.sort((a, b) => (a.validAt || Infinity) - (b.validAt || Infinity));
 }
 
-const VAULT_EXECUTABLE_AT_ABI = parseAbi(['function executableAt(bytes data) view returns (uint256)']);
-
-/**
- * Morpho's indexer can keep listing a change after it was executed or revoked. The vault is
- * the source of truth: `executableAt(data)` is 0 once a submitted change is gone. Keeps each
- * item the chain still has pending; a failed read keeps Morpho's list unchanged.
- */
-async function dropResolvedOnChain(
-  vaultAddress: string,
-  vault: VaultPendingGraphQL
-): Promise<VaultPendingGraphQL> {
-  const items = vault.pendingConfigs?.items ?? [];
-  const withData = items.filter((item): item is NonNullable<typeof item> & { data: string } =>
-    Boolean(item?.data && /^0x[0-9a-fA-F]*$/.test(item.data))
-  );
-  if (withData.length === 0) return vault;
-  try {
-    const key = process.env.NEXT_PUBLIC_ALCHEMY_API_KEY;
-    const client = createPublicClient({
-      chain: base,
-      transport: http(key ? `https://base-mainnet.g.alchemy.com/v2/${key}` : undefined),
-    });
-    const results = await client.multicall({
-      allowFailure: true,
-      contracts: withData.map((item) => ({
-        address: getAddress(vaultAddress),
-        abi: VAULT_EXECUTABLE_AT_ABI,
-        functionName: 'executableAt' as const,
-        args: [item.data as Hex] as const,
-      })),
-    });
-    const resolved = new Set(
-      withData.filter((_, i) => results[i].status === 'success' && results[i].result === BigInt(0))
-    );
-    if (resolved.size === 0) return vault;
-    return {
-      ...vault,
-      pendingConfigs: { items: items.filter((item) => !item || !resolved.has(item as (typeof withData)[number])) },
-    };
-  } catch (error) {
-    logger.warn('On-chain pending check failed; showing Morpho list', {
-      vaultAddress,
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return vault;
-  }
-}
-
 export async function fetchVaultV2Pending(
   vaultAddress: string,
   chainId: number
@@ -311,7 +242,9 @@ export async function fetchVaultV2Pending(
     }
     const vault = json.data?.vaultV2ByAddress;
     if (!vault) return { pending: null, error: 'Vault not found' };
-    return { pending: mapVaultV2Pending(await dropResolvedOnChain(vaultAddress, vault)) };
+    // The pending list itself comes from the chain (GraphQL drops its calldata on 2026-12-02).
+    const pendingConfigs = await fetchPendingConfigItems(vaultAddress, chainId);
+    return { pending: mapVaultV2Pending({ ...vault, pendingConfigs: { items: pendingConfigs } }) };
   } catch (error) {
     logger.error(
       'Vault pending fetch failed',
