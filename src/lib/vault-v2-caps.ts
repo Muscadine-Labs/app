@@ -271,13 +271,9 @@ export async function fetchVaultV2Caps(
           tags: [`vault-caps-${vaultAddress}-${chainId}`],
         }
       ),
-      fetchCollateralCapItems(vaultAddress, chainId).catch((error: unknown) => {
-        logger.warn('Morpho REST collateral caps failed; token caps omitted', {
-          vaultAddress,
-          error: error instanceof Error ? error.message : String(error),
-        });
-        return [];
-      }),
+      // A failed token-cap read fails the whole caps request (the UI shows an error), so a
+      // list missing its token caps is never shown as complete.
+      fetchCollateralCapItems(vaultAddress, chainId),
     ]);
     const { responseText, rateLimited } = await readMorphoGraphQLResponse(response);
     if (!response.ok) {

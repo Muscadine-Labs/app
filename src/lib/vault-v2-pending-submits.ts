@@ -106,7 +106,11 @@ export function decodeSubmittedCall(
     case 'setPerformanceFee':
       return { functionName: call.functionName, decodedData: { performanceFee: str(0) } };
     case 'setManagementFee':
-      return { functionName: call.functionName, decodedData: { managementFee: str(0) } };
+      // The call takes a per-second WAD rate; the label and direction use a yearly rate.
+      return {
+        functionName: call.functionName,
+        decodedData: { managementFee: args[0] == null ? null : (BigInt(String(args[0])) * BigInt(31_536_000)).toString() },
+      };
     case 'setIsAllocator':
       return { functionName: call.functionName, decodedData: { isAllocator: Boolean(args[1]) } };
     case 'setForceDeallocatePenalty':
