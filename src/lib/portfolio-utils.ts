@@ -73,14 +73,13 @@ function heldAmountIsPositive(assets: number, assetsUsd: number, assetsRaw: bigi
 }
 
 /**
- * Sum a registry vault's and its retired wrapper's position series.
+ * Sum position series that share one timeline.
  * A series keeps its last value until its next point. When that next point is
- * zero and the other contract is already positive, the stale balance is left
- * out, so a move does not draw both contracts at once. A zero that only exists
- * because the destination contract's first point is in the next bucket is
- * omitted. A real exit stays at zero, including a later deposit back into the
- * same contract. A single series is returned unchanged. Share balances are not
- * added: the two contracts mint different share tokens.
+ * zero and another series is already positive, the stale balance is left out,
+ * so a move does not draw both series at once. A zero that only exists because
+ * the destination series' first point is in the next bucket is omitted. A real
+ * exit stays at zero, including a later deposit back into the same series. A
+ * single series is returned unchanged. Share balances are not added.
  */
 export function mergeVaultPositionSeries(
   histories: VaultPositionSeriesPoint[][]

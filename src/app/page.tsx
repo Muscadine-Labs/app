@@ -14,6 +14,7 @@ import { useWalletDisplayName } from '@/hooks/useWalletDisplayName';
 import { useWallet } from '@/contexts/WalletContext';
 import {
   findVaultByAddress,
+  isRetiredFeeWrapperAddress,
   sortVaultsForDisplay,
   hasOnChainVaultShares,
   resolvePositionAssetsUsd,
@@ -90,7 +91,8 @@ export default function Home() {
       .filter(
         (position) =>
           position.version === 'v2' &&
-          hasOnChainVaultShares(position)
+          hasOnChainVaultShares(position) &&
+          !isRetiredFeeWrapperAddress(position.vault.address)
       )
       .map((position) => {
         const curated = findVaultByAddress(position.vault.address);

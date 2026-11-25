@@ -3,16 +3,14 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useConnection } from 'wagmi';
 import { BASE_CHAIN_ID } from '@/lib/constants';
-import { calculateYAxisDomain } from '@/lib/vault-utils';
+import { calculateYAxisDomain, isRetiredFeeWrapperAddress } from '@/lib/vault-utils';
 import { axisWidthForLabels, withLeadingChartTick } from '@/lib/chart-utils';
 import {
   aggregatePortfolioHistory,
   mapPortfolioHistoryToChartData,
-  mergeVaultPositionSeries,
   PositionHistoryPoint,
-  VaultPositionSeriesPoint,
+  type VaultPositionSeriesPoint,
 } from '@/lib/portfolio-utils';
-import { getRetiredWrapperUnderlying } from '@/lib/vaults';
 import { formatCurrency, formatChartUsdAxisValue } from '@/lib/formatter';
 import { logger } from '@/lib/logger';
 import { useUnixTimestamp } from '@/hooks/useClientOnly';
@@ -78,18 +76,6 @@ async function fetchVaultHistory(
   );
 }
 
-/** A retired fee wrapper's history is merged into its underlying vault before the portfolio sum. */
-function groupProductVaults(vaults: readonly PortfolioVault[]): PortfolioVault[][] {
-  const groups = new Map<string, PortfolioVault[]>();
-  for (const vault of vaults) {
-    const key = (getRetiredWrapperUnderlying(vault.address) ?? vault.address).toLowerCase();
-    const group = groups.get(key);
-    if (group) group.push(vault);
-    else groups.set(key, [vault]);
-  }
-  return Array.from(groups.values());
-}
-
 export default function PortfolioPositionChart() {
   const { address, isConnected } = useConnection();
   const { morphoHoldings } = useWallet();
@@ -108,6 +94,7 @@ export default function PortfolioPositionChart() {
     const vaults = morphoHoldings.positions.flatMap((position): PortfolioVault[] => {
       // v2 only; include zero-share rows so fully withdrawn vaults still contribute history.
       if (position.version !== 'v2') return [];
+      if (isRetiredFeeWrapperAddress(position.vault.address)) return [];
       const key = position.vault.address.toLowerCase();
       if (seenAddresses.has(key)) return [];
       seenAddresses.add(key);
@@ -147,37 +134,30 @@ export default function PortfolioPositionChart() {
 
       try {
         const productHistories = await Promise.all(
-          groupProductVaults(portfolioVaults).map(async (group) => {
-            const histories = await Promise.all(
-              group.map(async (vault) => {
-                try {
-                  return await fetchVaultHistory(vault, address, period, signal);
-                } catch (error) {
-                  if (error instanceof Error && error.name === 'AbortError') {
-                    throw error;
-                  }
+          portfolioVaults.map(async (vault) => {
+            try {
+              const history = await fetchVaultHistory(vault, address, period, signal);
+              if (history == null) {
+                logger.warn('Skipping a vault after a failed position history fetch', {
+                  vaultAddress: vault.address,
+                });
+                return null;
+              }
+              return history.map((point) => ({
+                timestamp: point.timestamp,
+                assetsUsd: point.assetsUsd,
+              }));
+            } catch (error) {
+              if (error instanceof Error && error.name === 'AbortError') {
+                throw error;
+              }
 
-                  logger.warn('Failed to fetch vault position history', {
-                    vaultAddress: vault.address,
-                    error: error instanceof Error ? error.message : String(error),
-                  });
-
-                  return null;
-                }
-              })
-            );
-            if (histories.some((history) => history == null)) {
-              logger.warn('Skipping a vault product after a failed position history fetch', {
-                vaultAddresses: group.map((vault) => vault.address),
+              logger.warn('Failed to fetch vault position history', {
+                vaultAddress: vault.address,
+                error: error instanceof Error ? error.message : String(error),
               });
               return null;
             }
-            return mergeVaultPositionSeries(
-              histories.filter((history): history is VaultPositionSeriesPoint[] => history != null)
-            ).map((point) => ({
-              timestamp: point.timestamp,
-              assetsUsd: point.assetsUsd,
-            }));
           })
         );
         if (signal.aborted) return;

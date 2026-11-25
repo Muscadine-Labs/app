@@ -13,7 +13,6 @@ import { VaultName } from '@/components/features/vault/VaultName';
 import {
   getVaultRoute,
   preferredVaultName,
-  retiredWrapperEarnedPnl,
   hasOnChainVaultShares,
   isCuratedVaultAddress,
   resolvePositionAssetsUsd,
@@ -280,21 +279,8 @@ function EarnedInterestCell({
     (hookData.isLoading ? undefined : hookData.earnedInterestUsd);
   const flooredOwnRaw = flooredPnlRaw(ownRaw);
   const flooredOwnUsd = ownUsd === undefined ? undefined : Math.max(0, ownUsd);
-  // Profit earned in the vault's retired fee wrapper rides on this row.
-  const wrapperPnl = retiredWrapperEarnedPnl(morphoHoldings.positions, vault.address);
-  const earnedInterestRaw = (() => {
-    if (flooredOwnRaw === undefined) return undefined;
-    if (!wrapperPnl) return flooredOwnRaw;
-    try {
-      return (BigInt(flooredOwnRaw) + BigInt(wrapperPnl.pnlRaw)).toString();
-    } catch {
-      return flooredOwnRaw;
-    }
-  })();
-  const earnedInterestUsd =
-    flooredOwnUsd === undefined
-      ? undefined
-      : flooredOwnUsd + (wrapperPnl?.pnlUsd ?? 0);
+  const earnedInterestRaw = flooredOwnRaw;
+  const earnedInterestUsd = flooredOwnUsd;
 
   if (earnedInterestRaw === undefined || earnedInterestUsd === undefined) {
     return <Skeleton width="4rem" height="1rem" className={skeletonClass} />;

@@ -1,7 +1,6 @@
 import {
   VaultDefinition,
   VaultStrategy,
-  getRetiredWrapper,
   getRegistryVaultList,
 } from '@/lib/vaults';
 import { Vault } from '@/types/vault';
@@ -175,6 +174,21 @@ export function isCuratedVaultAddress(address: string): boolean {
   return findVaultByAddress(address) !== null;
 }
 
+/**
+ * Outer Vault V2 contracts retired on 2026-10-10. Morpho can still return them
+ * beside the strategy vault; they are not products and must not be listed or summed.
+ */
+const RETIRED_FEE_WRAPPERS = new Set([
+  '0x036a01efddc87f6634ffde0533ee528b90fc7a45',
+  '0x54d8417bd21c86a7806b58f5aa2e2e0bb88b856a',
+  '0x548653b09b03a69f93b3890c382fe9dcd245cbc4',
+  '0x0e0a857d2af1a2d43c82d1fa54766239cab70147',
+]);
+
+export function isRetiredFeeWrapperAddress(address: string): boolean {
+  return RETIRED_FEE_WRAPPERS.has(address.toLowerCase());
+}
+
 /** Minimal vault stub for external Morpho vaults not in the Muscadine registry. */
 /** Label used when no source has a name for this vault. */
 export function vaultAddressPlaceholderName(address: string): string {
@@ -224,34 +238,6 @@ export function getDepositedVaultAddressSet(
   );
 }
 
-/**
- * Profit earned in this vault's retired fee wrapper, once the wrapper has no shares, so the
- * vault's row carries all interest earned across both contracts.
- */
-export function retiredWrapperEarnedPnl(
-  positions: readonly WalletMorphoPosition[],
-  vaultAddress: string
-): { pnlRaw: string; pnlUsd: number } | null {
-  const wrapperAddress = getRetiredWrapper(vaultAddress)?.address.toLowerCase();
-  if (!wrapperAddress) return null;
-  const wrapper = positions.find(
-    (position) => position.vault.address.toLowerCase() === wrapperAddress
-  );
-  if (!wrapper || hasOnChainVaultShares(wrapper) || !wrapper.pnlRaw) return null;
-  let pnlRaw: bigint;
-  try {
-    pnlRaw = BigInt(wrapper.pnlRaw);
-  } catch {
-    return null;
-  }
-  // A loss on the wrapper must not shrink the vault's row. The vault page floors each
-  // side at zero. Skip the wrapper when the dollar figure is missing.
-  if (pnlRaw <= BigInt(0) || wrapper.pnlUsd === undefined || !(wrapper.pnlUsd > 0)) {
-    return null;
-  }
-  return { pnlRaw: pnlRaw.toString(), pnlUsd: wrapper.pnlUsd };
-}
-
 export function dedupeVaultsByAddress(vaults: Vault[]): Vault[] {
   const seen = new Set<string>();
   const result: Vault[] = [];
@@ -280,7 +266,11 @@ export function buildExplorerVaultCandidates(
   );
 
   const externalVaults: Vault[] = activePositions
-    .filter((position) => !isCuratedVaultAddress(position.vault.address))
+    .filter(
+      (position) =>
+        !isCuratedVaultAddress(position.vault.address) &&
+        !isRetiredFeeWrapperAddress(position.vault.address)
+    )
     .map((position) => {
       const symbol = resolveMorphoAssetSymbol({
         assetSymbol: position.vault.symbol,
